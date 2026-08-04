@@ -199,7 +199,7 @@ class SplashScreen(QWidget):
         # 3) Versões (importlib.metadata) — não bloqueia se algo faltar
         for name in [
             "matplotlib", "numpy", "pandas", "scipy", "seaborn",
-            "chembl_webresource_client", "pycaret", "rdkit", "scikit-learn", "torch", "tensorflow"
+            "chembl_webresource_client", "rdkit", "scikit-learn", "torch", "tensorflow"
         ]:
             ver = _safe_version(name)
             if ver:

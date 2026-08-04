@@ -553,9 +553,8 @@ def select_torch_variant(gpu: dict) -> dict:
 def select_cuml_variant(gpu: dict) -> dict:
     """
     RAPIDS cuML ships pip wheels (cuml-cu11 / cuml-cu12) for Linux + NVIDIA GPU
-    (Volta or newer, CUDA 11.4+/12.x) only. It is the actual soft dependency
-    PyCaret warns about when a GPU-accelerated estimator is requested
-    (use_gpu=True/Auto). See: https://docs.rapids.ai/install
+    (Volta or newer, CUDA 11.4+/12.x) only. Optional GPU-accelerated backend
+    for the Scikit-learn STEP. See: https://docs.rapids.ai/install
     """
     cuda = gpu.get("cuda_major", 0)
     if platform.system() != "Linux":
@@ -573,7 +572,6 @@ def recommend_installer_defaults(hw: Optional[dict] = None) -> dict:
         "python_version": "3.10.12",
         "java_version": "11",
         "scikitlearn_version": "1.4.2",
-        "pycaret_version": "3.3.2",
         "chembl_version": "0.10.9",
         "padelpy_version": "0.1.13",
         "rdkit_version": "2022.9.5",
@@ -634,7 +632,6 @@ class RequirementsInstaller(cast(Any, QWidget)):
         self.python_version = self._defaults["python_version"]
         self.java_version = self._defaults["java_version"]
         self.scikitlearn_version = self._defaults["scikitlearn_version"]
-        self.pycaret_version = self._defaults["pycaret_version"]
         self.chembl_version = self._defaults["chembl_version"]
         self.padelpy_version = self._defaults["padelpy_version"]
         self.rdkit_version = self._defaults["rdkit_version"]
@@ -676,10 +673,6 @@ class RequirementsInstaller(cast(Any, QWidget)):
         self.check_scikitlearn = QCheckBox(i18n.t("req_chk_scikitlearn", self._idioma))
         scikitlearn_box, self.rb_scikitlearn_latest, self.rb_scikitlearn_version, self.ed_scikitlearn_version = \
             self._make_version_row(self.scikitlearn_version)
-
-        self.check_pycaret = QCheckBox(i18n.t("req_chk_pycaret", self._idioma))
-        pycaret_box, self.rb_pycaret_latest, self.rb_pycaret_version, self.ed_pycaret_version = \
-            self._make_version_row(self.pycaret_version)
 
         self.check_cuml = QCheckBox(i18n.t("req_chk_cuml", self._idioma))
         cuml_box, self.rb_cuml_latest, self.rb_cuml_version, self.ed_cuml_version = \
@@ -743,7 +736,6 @@ class RequirementsInstaller(cast(Any, QWidget)):
         gL.addWidget(self.check_venv, r, 0); gL.addWidget(self.ed_python_version, r, 1); r += 1
         gL.addWidget(self.check_java, r, 0); gL.addWidget(java_box, r, 1); r += 1
         gL.addWidget(self.check_scikitlearn, r, 0); gL.addWidget(scikitlearn_box, r, 1); r += 1
-        gL.addWidget(self.check_pycaret, r, 0); gL.addWidget(pycaret_box, r, 1); r += 1
         gL.addWidget(self.check_cuml, r, 0); gL.addWidget(cuml_box, r, 1); r += 1
         gL.addWidget(self.check_chembl, r, 0); gL.addWidget(chembl_box, r, 1); r += 1
         gL.addWidget(self.check_padelpy, r, 0); gL.addWidget(padelpy_box, r, 1); r += 1
@@ -840,7 +832,7 @@ class RequirementsInstaller(cast(Any, QWidget)):
         marcadas), o clique marca todas.
         """
         checkboxes = [
-            self.check_venv, self.check_java, self.check_scikitlearn, self.check_pycaret,
+            self.check_venv, self.check_java, self.check_scikitlearn,
             self.check_cuml, self.check_chembl, self.check_padelpy, self.check_rdkit,
             self.check_matplotlib, self.check_seaborn, self.check_joblib, self.check_pandas,
             self.check_numpy, self.check_pytorch, self.check_tensorflow, self.check_libs,
@@ -857,7 +849,6 @@ class RequirementsInstaller(cast(Any, QWidget)):
         # update from UI
         self.java_version        = self.ed_java_version.text().strip() or self._defaults["java_version"]
         self.scikitlearn_version = self.ed_scikitlearn_version.text().strip()
-        self.pycaret_version     = self.ed_pycaret_version.text().strip()
         self.chembl_version      = self.ed_chembl_version.text().strip()
         self.padelpy_version     = self.ed_padelpy_version.text().strip()
         self.rdkit_version       = self.ed_rdkit_version.text().strip()
@@ -877,7 +868,6 @@ class RequirementsInstaller(cast(Any, QWidget)):
             self.check_venv.isChecked(),
             self.check_java.isChecked(),
             self.check_scikitlearn.isChecked(),
-            self.check_pycaret.isChecked(),
             self.check_cuml.isChecked(),
             self.check_chembl.isChecked(),
             self.check_padelpy.isChecked(),
@@ -938,13 +928,6 @@ class RequirementsInstaller(cast(Any, QWidget)):
                 spec = self._version_spec("scikit-learn", self.rb_scikitlearn_latest, self.scikitlearn_version)
                 ok = self.install_pkg(pybin, spec); step += 1; self.progress_signal.emit(step)
                 if not ok: return self._abort("scikit-learn")
-
-            if self.check_pycaret.isChecked():
-                self.log_signal.emit(i18n.t("req_log_installing", self._idioma, name="PyCaret"))
-                spec = self._version_spec("pycaret[full]", self.rb_pycaret_latest, self.pycaret_version)
-                ok = self.install_pkg(pybin, spec)
-                step += 1; self.progress_signal.emit(step)
-                if not ok: return self._abort("PyCaret")
 
             if self.check_cuml.isChecked():
                 self.log_signal.emit(i18n.t("req_log_installing", self._idioma, name="cuML (RAPIDS)"))

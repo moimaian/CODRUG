@@ -65,17 +65,6 @@ except ImportError as e:
         "Install the PyQt5 dependencies on this machine before running the application."
     ) from e
 
-# Pycaret:
-try:
-    import pycaret
-    from pycaret.regression import RegressionExperiment
-    from pycaret.classification import ClassificationExperiment
-    from pycaret.clustering import ClusteringExperiment
-    print("✅ PyCaret imported successfully.")
-except Exception as e:
-    print("⚠️ PyCaret not available. Use 'Install requirements' at home menu.")
-    print(f"Details: {e}")
-
 # bibliotecas padrão:
 import csv, re, json, zipfile, tempfile, glob, time, io, contextlib, shutil, subprocess, threading, random, string
 from typing import Optional, Any
@@ -226,8 +215,11 @@ try:
     from sklearn.base import clone
     from sklearn.metrics import (
         accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, roc_curve, auc, classification_report, confusion_matrix, mean_squared_error as mse, mean_absolute_error as mae, r2_score,
-        silhouette_score, davies_bouldin_score, calinski_harabasz_score,
+        silhouette_score, silhouette_samples, davies_bouldin_score, calinski_harabasz_score, precision_recall_curve,
     )
+    from sklearn.calibration import calibration_curve
+    from sklearn.manifold import TSNE
+    from sklearn.tree import plot_tree
     import joblib
     print("✅ Scikitlearn imported successfully.")
 except Exception as e:
@@ -235,7 +227,7 @@ except Exception as e:
     print(f"Details: {e}")
 
 # ==========================================================================================================================================
-# ============================== STEP 6 (SCIKIT-LEARN SCREENING): MODEL REGISTRIES AND DEFAULT HYPERPARAMETER GRIDS =======================
+# ============================== STEP 5 (SCIKIT-LEARN SCREENING): MODEL REGISTRIES AND DEFAULT HYPERPARAMETER GRIDS =======================
 # ==========================================================================================================================================
 # Modelos de regressão disponíveis para o screening (nome de exibição -> (classe, kwargs padrão, sem random_state)):
 try:
@@ -391,8 +383,8 @@ def _skl_regression_metrics_label(y_true, y_pred):
 
 
 def _ensure_sklearn_usi_dirs(job_dir, usi_key):
-    """Cria (se necessário) as subpastas de resultados da STEP 6 (screening scikit-learn) dentro de
-    RESULTS/USI/<usi_key> (mesmo padrão de pastas usado pela STEP 5/PyCaret, sem subpasta própria)."""
+    """Cria (se necessário) as subpastas de resultados da STEP 5 (screening scikit-learn) dentro de
+    RESULTS/USI/<usi_key>."""
     usi_key = _normalize_usi_key(usi_key)
     base = os.path.join(job_dir, "RESULTS", "USI", usi_key)
     paths = {
@@ -885,44 +877,6 @@ QPushButton:hover { color: #C9D1D9; }
 QPushButton:pressed { color: #27AE60; }
 """
 
-_SS_BTN_DISABLED = """
-QPushButton {
-    background: #0D1B2A;
-    color: #2A4A6B;
-    font-weight: bold;
-    border: 1px solid #2A4A6B;
-    border-radius: 5px;
-    padding: 6px 16px;
-}
-QPushButton:hover { background: #0D1B2A; color: #2A4A6B; }
-QPushButton:pressed { background: #0D1B2A; color: #2A4A6B; }
-"""
-
-_SS_LISTWIDGET_DISABLED = """
-QListWidget {
-    background: #0D1B2A;
-    color: #2A4A6B;
-    border: 1px solid #2A4A6B;
-    border-radius: 4px;
-}
-QListWidget::item:selected {
-    background: #0D1B2A;
-    color: #2A4A6B;
-}
-"""
-_SS_LISTWIDGET_ENABLED = """
-QListWidget {
-    background: #1C3249;
-    color: #C9D1D9;
-    border: 1px solid #2A4A6B;
-    border-radius: 4px;
-}
-QListWidget::item:selected {
-    background: #27AE60;
-    color: #0D1B2A;
-}
-"""
-
 _SS_GROUPBOX_PANEL = "QGroupBox { background-color: #0D1B2A; border: 1.5px solid #2A4A6B; border-radius: 6px; }"
 _SS_FIELD_READONLY = "background-color: #1C3249; color: #C9D1D9; border: 1px solid #2A4A6B; border-radius: 4px; padding: 5px;"
 
@@ -1207,53 +1161,6 @@ def _generate_new_usi_code(job_dir: str) -> str:
             return code
     return "".join(random.choices(alphabet, k=8))
 
-def _ensure_pycaret_usi_dirs(job_dir, usi_key: str):
-    usi_key = _normalize_usi_key(usi_key)
-    base = os.path.join(job_dir, "RESULTS", "USI", usi_key)
-    paths = {
-        "base": base,
-        "data": os.path.join(base, "DATA"),
-        "midia": os.path.join(base, "MIDIA"),
-        "models": os.path.join(base, "MODELS"),
-        "predictions": os.path.join(base, "PREDICTIONS"),
-    }
-    for path in paths.values():
-        os.makedirs(path, exist_ok=True)
-    return paths
-
-def _parse_pycaret_saved_model_info(model_path: str) -> dict:
-    file_name = os.path.basename(str(model_path or ""))
-    stem, _ext = os.path.splitext(file_name)
-    info = {
-        "position": None,
-        "model": stem.replace("_", " ").strip(),
-        "timestamp": "",
-        "file_name": file_name,
-        "path": model_path,
-    }
-
-    match = re.match(r"^best_model_(\d+)_(.+)_(?:[A-Za-z0-9]{4}|LOAD)_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2})$", stem)
-    if match:
-        info["position"] = int(match.group(1))
-        info["model"] = match.group(2).replace("_", " ").strip()
-        info["timestamp"] = match.group(3)
-        return info
-
-    match = re.match(r"^best_model_(\d+)_(.+)_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2})$", stem)
-    if match:
-        info["position"] = int(match.group(1))
-        info["model"] = match.group(2).replace("_", " ").strip()
-        info["timestamp"] = match.group(3)
-        return info
-
-    match = re.match(r"^best_model_(\d+)_(.+)$", stem)
-    if match:
-        info["position"] = int(match.group(1))
-        info["model"] = match.group(2).replace("_", " ").strip()
-        return info
-
-    return info
-
 def _ui_bool_from_combo(cb):
     """Mapeia 'True'/'False'/'Auto' para bool/None."""
     if cb is None:
@@ -1292,16 +1199,6 @@ def _ensure_models_dir(job_dir, task: str):
     out = os.path.join(base, sub)
     os.makedirs(out, exist_ok=True)
     return out
-
-def _element_set_enabled(element_list, enabled: bool):
-    for element in element_list:
-        if element is not None:
-            element.setEnabled(enabled)
-            etype = str(type(element))
-            if "QPushButton" in etype:
-                element.setStyleSheet(_SS_BTN_DISABLED if not enabled else "")
-            elif "QListWidget" in etype:
-                element.setStyleSheet(_SS_LISTWIDGET_DISABLED if not enabled else _SS_LISTWIDGET_ENABLED)
 
 def check_chembl_status() -> bool:
     """Retorna True se o servidor ChEMBL está respondendo."""
@@ -2448,23 +2345,19 @@ class MainWindow(QMainWindow):
         dp_menu.addAction(step4_action)
         step5_action = QAction(self)
         self._tr("menu_step5", step5_action.setText)
-        step5_action.triggered.connect(lambda: self.tabs.setCurrentIndex(6))  # Step 5
+        step5_action.triggered.connect(lambda: self.tabs.setCurrentIndex(6))  # Step 5 (Scikit-learn)
         dp_menu.addAction(step5_action)
         step6_action = QAction(self)
         self._tr("menu_step6", step6_action.setText)
-        step6_action.triggered.connect(lambda: self.tabs.setCurrentIndex(7))  # Step 6
+        step6_action.triggered.connect(lambda: self.tabs.setCurrentIndex(7))  # Step 6 (Applicability Domain)
         dp_menu.addAction(step6_action)
         step7_action = QAction(self)
         self._tr("menu_step7", step7_action.setText)
-        step7_action.triggered.connect(lambda: self.tabs.setCurrentIndex(8))  # Step 7
+        step7_action.triggered.connect(lambda: self.tabs.setCurrentIndex(8))  # Step 7 (Consensus)
         dp_menu.addAction(step7_action)
-        step8_action = QAction(self)
-        self._tr("menu_step8", step8_action.setText)
-        step8_action.triggered.connect(lambda: self.tabs.setCurrentIndex(9))  # Step 8
-        dp_menu.addAction(step8_action)
         edit_action = QAction(self)
         self._tr("menu_edit", edit_action.setText)
-        edit_action.triggered.connect(lambda: self.tabs.setCurrentIndex(10))  # Edit
+        edit_action.triggered.connect(lambda: self.tabs.setCurrentIndex(9))  # Edit
         dp_menu.addAction(edit_action)
 
         dp_menu.addSeparator()
@@ -2885,7 +2778,6 @@ class MainWindow(QMainWindow):
             ("Seaborn", "seaborn", "__version__"),
             ("scikit-learn", "sklearn", "__version__"),
             ("RDKit", "rdkit", "__version__"),
-            ("PyCaret", "pycaret", "__version__"),
             ("PaDELPy", "padelpy", "__version__"),
             ("LightGBM", "lightgbm", "__version__"),
             ("ChEMBL_Webresource_Client", "chembl_webresource_client", "__version__"),
@@ -3360,11 +3252,11 @@ class MainWindow(QMainWindow):
         usi_root = os.path.join(job_dir, "RESULTS", "USI")
         os.makedirs(usi_root, exist_ok=True)
 
-        usi_value = self.ed_pycaret_USI.text().strip() if hasattr(self, "ed_pycaret_USI") else ""
+        usi_value = self.ed_skl_USI.currentText().strip() if hasattr(self, "ed_skl_USI") else ""
         if not usi_value:
             return usi_root
 
-        return _ensure_pycaret_usi_dirs(job_dir, usi_value)["predictions"]
+        return _ensure_sklearn_usi_dirs(job_dir, usi_value)["predictions"]
 
     def _ensure_rank_results_dir(self):
         job_dir = self._ensure_current_job_dir()
@@ -3793,75 +3685,7 @@ class MainWindow(QMainWindow):
         self._save_job_state({"step4": self._collect_step4_state()})
 
     # ------------------------------------------------------------------
-    # STEP 5 - Machine Learning Models (PyCaret)
-    # ------------------------------------------------------------------
-    def _pycaret_session_config_path(self):
-        usi_key = getattr(self, "usi_key", None)
-        job_dir = getattr(self, "job_dir", None)
-        if not usi_key or not job_dir:
-            return None
-        return os.path.join(job_dir, "RESULTS", "USI", usi_key, "pycaret_session.json")
-
-    def _save_pycaret_session_config(self):
-        """Mirrors _save_skl_session_config (STEP 6) but for PyCaret USIs, which had no
-        persistence at all before: records enough of the Setup/Compare/Tune configuration for
-        the report generator to describe what actually ran for this USI."""
-        config_path = self._pycaret_session_config_path()
-        if not config_path:
-            return
-        config = {
-            "task": getattr(self, "pyc_task", None),
-            "y_column": self.cb_sp_y.currentText().strip() if hasattr(self, "cb_sp_y") else "",
-            "setup_kwargs": self._collect_setup_kwargs() if hasattr(self, "_collect_setup_kwargs") else {},
-            "compare_kwargs": self._collect_compare_kwargs() if hasattr(self, "_collect_compare_kwargs") else {},
-            "tune_kwargs": self._collect_tune_kwargs() if hasattr(self, "_collect_tune_kwargs") else {},
-            "best_model_label": str(getattr(self, "pyc_best", "") or ""),
-            "position_source": getattr(self, "pyc_position_source", None),
-            "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        }
-        try:
-            os.makedirs(os.path.dirname(config_path), exist_ok=True)
-            with open(config_path, "w", encoding="utf-8") as handle:
-                json.dump(config, handle, indent=2, ensure_ascii=False, default=str)
-        except OSError:
-            pass
-
-    def _collect_step5_pycaret_state(self):
-        usi = getattr(self, "usi_key", None)
-        if not usi:
-            return {}
-        sessions = []
-        job_dir = getattr(self, "job_dir", None)
-        if job_dir:
-            usi_root = os.path.join(job_dir, "RESULTS", "USI")
-            try:
-                sessions = sorted(
-                    d for d in os.listdir(usi_root)
-                    if os.path.isfile(os.path.join(usi_root, d, "pycaret_session.json"))
-                )
-            except OSError:
-                sessions = []
-        return {"usi_sessions": sessions, "current_usi": usi}
-
-    def _apply_step5_pycaret_state(self, state):
-        """Light pointer only - the heavy per-run detail lives in each USI's own
-        pycaret_session.json, read directly by the report generator. Restores just the USI
-        label so the user can pick it up with the existing Load button."""
-        if not isinstance(state, dict) or not state:
-            return False
-        usi = state.get("current_usi")
-        if not usi or not hasattr(self, "ed_pycaret_USI"):
-            return False
-        self.ed_pycaret_USI.setText(usi)
-        return True
-
-    def _save_step5_pycaret_state(self):
-        state = self._collect_step5_pycaret_state()
-        if state:
-            self._save_job_state({"step5_pycaret": state})
-
-    # ------------------------------------------------------------------
-    # STEP 6 - Machine Learning Models (Scikit-learn)
+    # STEP 5 - Machine Learning Models (Scikit-learn)
     # ------------------------------------------------------------------
     def _collect_step6_sklearn_state(self):
         usi = getattr(self, "skl_usi_key", None)
@@ -3883,9 +3707,9 @@ class MainWindow(QMainWindow):
         return {"usi_sessions": sessions, "current_usi": usi}
 
     def _apply_step6_sklearn_state(self, state):
-        """Light pointer, same rationale as STEP 5: the heavy detail (trained models, tuning
-        grids, validation settings) already lives correctly in skl_session.json per USI. This
-        just re-selects the USI in the combobox and reuses the app's own existing reload path
+        """Light pointer only: the heavy detail (trained models, tuning grids, validation
+        settings) already lives correctly in skl_session.json per USI. This just re-selects
+        the USI in the combobox and reuses the app's own existing reload path
         (_on_skl_usi_selected) to actually load it."""
         if not isinstance(state, dict) or not state:
             return False
@@ -4126,7 +3950,6 @@ class MainWindow(QMainWindow):
         loaded_any = self._apply_step2_state(payload.get("step2", {})) or loaded_any
         loaded_any = self._apply_step3_state(payload.get("step3", {})) or loaded_any
         loaded_any = self._apply_step4_state(payload.get("step4", {})) or loaded_any
-        loaded_any = self._apply_step5_pycaret_state(payload.get("step5_pycaret", {})) or loaded_any
         loaded_any = self._apply_step6_sklearn_state(payload.get("step6_sklearn", {})) or loaded_any
         loaded_any = self._apply_step7_state(payload.get("step7_ad", {})) or loaded_any
         loaded_any = self._apply_step8_state(payload.get("step8_consensus", {})) or loaded_any
@@ -10266,8 +10089,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, i18n.t("msg_title_error", self._idioma), f"An error occurred while loading dataset:\n{e}")
 
     def _extract_usi_from_any_path(self, path):
-        """Like _extract_pycaret_usi_from_path but not restricted to the MODELS subfolder -
-        returns the USI code for any path under RESULTS/USI/<usi>/..., regardless of which
+        """Returns the USI code for any path under RESULTS/USI/<usi>/..., regardless of which
         step (PREDICTIONS, DATA, MIDIA, MODELS) wrote it."""
         if not path or not getattr(self, "job_dir", ""):
             return None
@@ -13026,7 +12848,7 @@ class MainWindow(QMainWindow):
                 pass
             QMessageBox.critical(self, i18n.t("msg_title_error", self._idioma), f"Failed to start projection thread: {e}")
 
-# STEP 5: Applicability Domain (AD) assessment
+# STEP 6: Applicability Domain (AD) assessment
     def run_ad_assessment(self):
         import os, numpy as np, pandas as pd
         from sklearn.preprocessing import StandardScaler
@@ -13496,7 +13318,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, i18n.t("msg_title_ad", self._idioma), f"Error in similarity chart: {e}")
 
 
-# STEP 6: MACHINE LEARNING MODELS
+# STEP 5: MACHINE LEARNING MODELS
     def select_dataframe_int(self):
         initial_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
         file_path, _ = QFileDialog.getOpenFileName(
@@ -13518,27 +13340,18 @@ class MainWindow(QMainWindow):
                 self.df_name_view_int_skl.setText(os.path.basename(file_path))
 
         try:
-            # Limpa os valores anteriores:
-            self.cb_sp_y.clear()
-            # Adiciona as colunas do DataFrame para seleção da label:
-            self.cb_sp_y.addItems(self.df_int.columns.astype(str))
-            # Deixa a label já selecionada, se existir:
+            # Adiciona as colunas do DataFrame para seleção da label, já deixando a coluna de
+            # bioatividade/classe pré-selecionada quando existir:
             terms_sp_bioactivity = self._bioactivity_candidate_terms(extra_last=["Class"])
-            idx = -1
-            if hasattr(self, "cb_sp_y"):
-                for term in terms_sp_bioactivity:
-                    i = self.cb_sp_y.findText(term)
-                    if i != -1:
-                        idx = i
-                        self.cb_sp_y.setCurrentIndex(idx)
-                        break
             if hasattr(self, "cb_skl_y"):
                 self.cb_skl_y.clear()
                 self.cb_skl_y.addItems(self.df_int.columns.astype(str))
-                if idx != -1:
-                    self.cb_skl_y.setCurrentIndex(idx)
+                for term in terms_sp_bioactivity:
+                    i = self.cb_skl_y.findText(term)
+                    if i != -1:
+                        self.cb_skl_y.setCurrentIndex(i)
+                        break
         except Exception as e:
-            self.cb_sp_y.clear()
             QMessageBox.critical(self, i18n.t("msg_title_error_list_columns_csv", self._idioma), str(e))
 
         self._update_predict_descriptor_range_inputs(getattr(self, "df_int", None) if getattr(self, "chk_pd_internal", None) and self.chk_pd_internal.isChecked() else None)
@@ -13586,8 +13399,6 @@ class MainWindow(QMainWindow):
         y_col = ""
         if hasattr(self, "cb_skl_y") and self.cb_skl_y is not None:
             y_col = self.cb_skl_y.currentText().strip()
-        if not y_col and hasattr(self, "cb_sp_y") and self.cb_sp_y is not None:
-            y_col = self.cb_sp_y.currentText().strip()
 
         internal_cols = [c for c in df_int.columns.astype(str)]
         internal_cols_set = set(internal_cols)
@@ -14203,16 +14014,16 @@ class MainWindow(QMainWindow):
 
         self.df_selecionado = filtered_df.copy()
         raw_usi = ""
-        if hasattr(self, "ed_pycaret_USI") and self.ed_pycaret_USI is not None:
+        if hasattr(self, "ed_skl_USI") and self.ed_skl_USI is not None:
             try:
-                raw_usi = self.ed_pycaret_USI.text().strip()
+                raw_usi = self.ed_skl_USI.currentText().strip()
             except Exception:
                 raw_usi = ""
         if not raw_usi:
-            raw_usi = str(getattr(self, "usi_key", "") or "").strip()
+            raw_usi = str(getattr(self, "skl_usi_key", "") or "").strip()
 
         if raw_usi:
-            predictions_dir = self._set_current_pycaret_usi_context(raw_usi)["predictions"]
+            predictions_dir = self._set_current_sklearn_usi_context(raw_usi)["predictions"]
         else:
             predictions_dir = os.path.join(self.job_dir, "RESULTS", "USI")
             os.makedirs(predictions_dir, exist_ok=True)
@@ -14229,1122 +14040,6 @@ class MainWindow(QMainWindow):
         self._next_dataframe_save_path = os.path.join(predictions_dir, suggested_name)
         self.show_dataframe(filtered_df)
         QMessageBox.information(self, i18n.t("msg_title_success", self._idioma), f"Filtered DataFrame generated with {len(filtered_df)} rows.")
-
-    def run_pycaret_setup(self):
-        import os
-        import pandas as pd
-        from PyQt5.QtWidgets import QMessageBox
-        from pycaret.classification import ClassificationExperiment
-        from pycaret.regression import RegressionExperiment
-        from pycaret.clustering import ClusteringExperiment
-
-        # ------------------ 1) Escolher o DataFrame de entrada -------------------
-        df = None
-        use_internal = hasattr(self, "chk_sp_internal") and self.chk_sp_internal.isChecked()
-        use_external = hasattr(self, "chk_sp_external") and self.chk_sp_external.isChecked()
-        if use_internal:
-            if getattr(self, "df_int", None) is not None and not self.df_int.empty:
-                df = self.df_int.copy()
-            else:
-                QMessageBox.warning(self, i18n.t("msg_title_pycaret", self._idioma), "Internal DataFrame (df_int) not loaded or empty.")
-                return
-        elif use_external:
-            if getattr(self, "df_ext", None) is not None and not self.df_ext.empty:
-                df = self.df_ext.copy()
-            else:
-                QMessageBox.warning(self, i18n.t("msg_title_pycaret", self._idioma), "External DataFrame (df_ext) not loaded or empty.")
-                return
-        else:
-            if getattr(self, "df_selecionado", None) is not None and not self.df_selecionado.empty:
-                df = self.df_selecionado.copy()
-            else:
-                QMessageBox.warning(self, i18n.t("msg_title_pycaret", self._idioma), "Carregue/prepare um DataFrame antes do setup.")
-                return
-
-        # ------------------ 2) Coleta de parâmetros da UI ------------------------
-        raw_session_id = self.ed_pycaret_session_id.text().strip() if hasattr(self, "ed_pycaret_session_id") else ""
-
-        def _coerce_int(val):
-            """Converte para int se possível; se vazio -> None; se inválido -> None."""
-            if val is None:
-                return None
-            s = str(val).strip()
-            if s == "":
-                return None
-            # aceita números tipo '42' ou '42.0' ou '  42  '
-            try:
-                # troca vírgula por ponto para evitar '10,0'
-                s2 = s.replace(",", ".")
-                f = float(s2)
-                if f.is_integer():
-                    return int(f)
-            except Exception:
-                return None
-            return None
-
-        session_id_val = _coerce_int(raw_session_id)
-
-        # coletar kwargs e higienizar tipos esperados
-        setup_kwargs = self._collect_setup_kwargs() if hasattr(self, "_collect_setup_kwargs") else {}
-        setup_kwargs = dict(setup_kwargs)  # cópia
-
-        # chaves que o PyCaret espera como inteiras
-        int_keys = {"fold", "n_jobs", "polynomial_degree"}  # adicione aqui se tiver mais
-        for k in list(setup_kwargs.keys()):
-            if k in int_keys:
-                coerced = _coerce_int(setup_kwargs[k])
-                if coerced is None:
-                    # se inválido, remova para deixar PyCaret usar default
-                    setup_kwargs.pop(k, None)
-                else:
-                    setup_kwargs[k] = coerced
-
-        # alguns campos podem vir como string vazia -> remova
-        for k in list(setup_kwargs.keys()):
-            v = setup_kwargs[k]
-            if isinstance(v, str) and v.strip() == "":
-                setup_kwargs.pop(k, None)
-
-        # y_col e task
-        y_col = self.cb_sp_y.currentText().strip() if hasattr(self, "cb_sp_y") else ""
-        cols_str = list(df.columns.astype(str))
-        task = getattr(self, "task_type", "").strip().lower()
-        # ------------------ 3) Execução do setup por tipo de tarefa --------------
-        try:
-            if task == "classification":
-                if not y_col or y_col not in cols_str:
-                    QMessageBox.warning(self, i18n.t("msg_title_pycaret", self._idioma), "Selecione a coluna alvo (target) corretamente.")
-                    return
-                exp = ClassificationExperiment()
-                with pd.option_context('mode.chained_assignment', None):
-                    if session_id_val is None:
-                        exp.setup(data=df, target=y_col, **setup_kwargs)
-                    else:
-                        exp.setup(data=df, target=y_col, session_id=session_id_val, **setup_kwargs)
-
-            elif task == "regression":
-                if not y_col or y_col not in cols_str:
-                    QMessageBox.warning(self, i18n.t("msg_title_pycaret", self._idioma), "Selecione a coluna alvo (target) corretamente.")
-                    return
-                exp = RegressionExperiment()
-                with pd.option_context('mode.chained_assignment', None):
-                    if session_id_val is None:
-                        exp.setup(data=df, target=y_col, **setup_kwargs)
-                    else:
-                        exp.setup(data=df, target=y_col, session_id=session_id_val, **setup_kwargs)
-
-            elif task == "clustering":
-                exp = ClusteringExperiment()
-                with pd.option_context('mode.chained_assignment', None):
-                    if session_id_val is None:
-                        exp.setup(data=df, **setup_kwargs)
-                    else:
-                        exp.setup(data=df, session_id=session_id_val, **setup_kwargs)
-            else:
-                QMessageBox.warning(self, i18n.t("msg_title_pycaret", self._idioma), "Invalid task type. Use classification, regression or clustering.")
-                return
-
-            # pós-setup (USI, salvar, etc.) — igual ao seu
-            self.pyc_exp = exp
-            self.pyc_task = task
-            df_setup = exp.pull()
-            if isinstance(df_setup, pd.DataFrame):
-                match = df_setup.loc[df_setup.iloc[:, 0] == "USI", df_setup.columns[1]]
-                if not match.empty and hasattr(self, "ed_pycaret_USI"):
-                    usi_key = str(match.values[0])
-                    self._set_current_pycaret_usi_context(usi_key)
-                    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-                    df_setup_path = os.path.join(self.out_data, f"df_pycaret_setup_{usi_key}_{timestamp}.csv")
-                    os.makedirs(os.path.dirname(df_setup_path), exist_ok=True)
-                    df_setup.to_csv(df_setup_path, index=False)
-                    self._save_pycaret_session_config()
-                    self._save_step5_pycaret_state()
-                self.show_dataframe(df_setup)
-
-            QMessageBox.information(self, i18n.t("msg_title_pycaret", self._idioma), "Setup Finished.")
-            if hasattr(self, "tabs_set_params"):
-                self.tabs_set_params.setCurrentIndex(self.tabs_set_params.currentIndex() + 1)
-
-        except Exception as e:
-            # Log auxiliar para rastrear rapidamente o culpado
-            print(f"[setup] session_id(raw)={repr(raw_session_id)} -> {session_id_val}")
-            print(f"[setup] kwargs sanitizados: {setup_kwargs}")
-            QMessageBox.critical(self, i18n.t("msg_title_pycaret_setup", self._idioma), str(e))
-
-    def run_pycaret_compare(self):
-        if not hasattr(self, "pyc_exp") or self.pyc_exp is None:
-            QMessageBox.warning(self, i18n.t("msg_title_pycaret", self._idioma), "Execute o setup antes de comparar modelos.")
-            return
-
-        s = self.pyc_exp        
-        
-        cmp_kwargs = self._collect_compare_kwargs()
-
-        class CompareWorker(QThread):
-            progress = pyqtSignal(str)          # texto bruto do log (chunks)
-            done = pyqtSignal(object, object)   # best_model, rank_df
-            error = pyqtSignal(str)
-
-            def __init__(self, exp, kwargs):
-                super().__init__()
-                self.exp = exp
-                self.kwargs = kwargs
-
-            def run(self):
-                try:
-                    buf = io.StringIO()
-
-                    class _LiveWriter(io.TextIOBase):
-                        def write(_self, s):
-                            if not s:
-                                return 0
-                            buf.write(s)
-                            self.progress.emit(s)
-                            return len(s)
-                        def flush(_self):
-                            pass
-
-                    w = _LiveWriter()
-                    with contextlib.redirect_stdout(w), contextlib.redirect_stderr(w):
-                        best = self.exp.compare_models(**(self.kwargs or {}))
-                        rank = self.exp.pull()
-                    self.done.emit(best, rank)
-                except Exception as e:
-                    self.error.emit(str(e))
-
-        dlg = QProgressDialog("Comparing models...", None, 0, 100, self)
-        dlg.setWindowTitle("Please wait")
-        dlg.setWindowModality(Qt.ApplicationModal)
-        dlg.setCancelButton(None)
-        dlg.setAutoClose(False)
-        dlg.setAutoReset(False)
-        dlg.setValue(0)
-        dlg.show()
-        QApplication.processEvents()
-
-        percent_re = re.compile(r'(\d{1,3})\s*%')
-
-        def on_progress(chunk: str):
-            vals = [int(x) for x in percent_re.findall(chunk) if 0 <= int(x) <= 100]
-            if vals:
-                dlg.setValue(max(vals))
-
-        def on_done(best, rank):
-            dlg.setValue(100); dlg.close()
-            self.pyc_best = best
-            try:
-                
-                if isinstance(rank, pd.DataFrame):
-                    self.pyc_compare_rank = rank.copy()
-                    self.pyc_compare_rank_usi = _normalize_usi_key(getattr(self, "usi_key", ""))
-                    self.pyc_position_source = "compare_rank"
-                    self.pyc_position_source_usi = self.pyc_compare_rank_usi
-                    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-                    rank_path = os.path.join(self.out_data, f"df_pycaret_compare_{self.usi_key}_{timestamp}.csv")
-                    os.makedirs(os.path.dirname(rank_path), exist_ok=True)
-                    rank.to_csv(rank_path, index=False)
-                    self._refresh_pycaret_save_position_options(rank)
-                    self.show_dataframe(rank)
-                    self._save_pycaret_session_config()
-                    self._save_step5_pycaret_state()
-            except Exception:
-                pass
-            QMessageBox.information(self, i18n.t("msg_title_pycaret", self._idioma), "Model comparison finished.")
-            self.tabs_set_params.setCurrentIndex(self.tabs_set_params.currentIndex() + 1)
-        def on_error(msg):
-            dlg.close()
-            QMessageBox.critical(self, i18n.t("msg_title_pycaret_compare", self._idioma), msg)
-
-        self._compare_worker = CompareWorker(s, cmp_kwargs)
-        self._compare_worker.progress.connect(on_progress)
-        self._compare_worker.done.connect(on_done)
-        self._compare_worker.error.connect(on_error)
-        self._compare_worker.start()
-
-    def run_pycaret_evaluate(self):
-        if not hasattr(self, "pyc_exp") or self.pyc_exp is None or not hasattr(self, "pyc_best"):
-            QMessageBox.warning(self, i18n.t("msg_title_pycaret", self._idioma), "Run setup and compare (or choose a model) before evaluating.")
-            return
-        try:
-            usi_key = self._get_current_pycaret_usi()
-            self._set_current_pycaret_usi_context(usi_key, refresh_positions=False)
-            rank_df = self._load_pycaret_compare_rank_for_current_usi()
-            if not isinstance(rank_df, pd.DataFrame) or rank_df.empty:
-                QMessageBox.warning(self, i18n.t("msg_title_pycaret", self._idioma),
-                    "Nenhuma tabela de cross-validation do compare foi encontrada para o USI atual. Execute Compare antes de Evaluate.",
-                )
-                return
-
-            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-            eval_path = os.path.join(self.out_data, f"df_pycaret_evaluate_{usi_key}_{timestamp}.csv")
-            os.makedirs(os.path.dirname(eval_path), exist_ok=True)
-            rank_df.to_csv(eval_path, index=False)
-            self.show_dataframe(rank_df)
-            self.tabs_set_params.setCurrentIndex(self.tabs_set_params.currentIndex() + 1)
-        except Exception as e:
-            QMessageBox.critical(self, i18n.t("msg_title_pycaret_evaluate", self._idioma), str(e))
-
-    def run_pycaret_tune(self):
-        if not hasattr(self, "pyc_exp") or self.pyc_exp is None or not hasattr(self, "pyc_best"):
-            QMessageBox.warning(self, i18n.t("msg_title_pycaret", self._idioma), "Run setup and select a model (e.g., best from compare) before tuning.")
-            return
-        try:
-            kw = self._collect_tune_kwargs()
-            tuned = self.pyc_exp.tune_model(self.pyc_best, **(kw or {}))
-            self.pyc_best = tuned  # atualiza referência
-            # mostrar resultados
-            rank = self.pyc_exp.pull()
-            if isinstance(rank, pd.DataFrame):
-                timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-                tune_path = os.path.join(self.out_data, f"df_pycaret_tune_{self.usi_key}_{timestamp}.csv")
-                os.makedirs(os.path.dirname(tune_path), exist_ok=True)
-                rank.to_csv(tune_path, index=False)
-                self.show_dataframe(rank)
-            self._save_pycaret_session_config()
-            self._save_step5_pycaret_state()
-            QMessageBox.information(self, i18n.t("msg_title_pycaret", self._idioma), "Tune Completed.")
-            self.tabs_set_params.setCurrentIndex(self.tabs_set_params.currentIndex() + 1)
-        except Exception as e:
-            QMessageBox.critical(self, i18n.t("msg_title_pycaret_tune", self._idioma), str(e))
-
-    def run_pycaret_plot(self):
-        """Gera gráficos do PyCaret conforme seleção e salva imagens (300 dpi) e dados (se houver).
-        Monta uma exibição lado a lado quando houver múltiplos gráficos selecionados."""
-        if not hasattr(self, "pyc_exp") or self.pyc_exp is None:
-            QMessageBox.warning(self, i18n.t("msg_title_pycaret", self._idioma), "Run setup before generating plots.")
-            return
-        if not hasattr(self, "pyc_best") or self.pyc_best is None:
-            QMessageBox.warning(self, i18n.t("msg_title_pycaret", self._idioma), "Compare/train models before generating plots.")
-            return
-
-        s = self.pyc_exp
-        est = self.pyc_best
-        model_position = 1
-        model_label = getattr(self.pyc_best, "__class__", type(self.pyc_best)).__name__
-        try:
-            model_position, selected_model_label, selected_row = self._get_pycaret_rank_selection()
-            selected_source = str(selected_row.get("source", "")).strip() if hasattr(selected_row, "get") else ""
-            selected_model_path = str(selected_row.get("model_path", "")).strip() if hasattr(selected_row, "get") else ""
-            if selected_source == "saved_model" and selected_model_path:
-                est = s.load_model(selected_model_path[:-4] if selected_model_path.endswith(".pkl") else selected_model_path)
-                model_label = str(selected_row.get("display_name", selected_model_label or model_label)).strip() or model_label
-            elif selected_model_label:
-                model_id = self._resolve_pycaret_model_id(selected_model_label)
-                if model_id is None:
-                    raise ValueError(
-                        f"Could not resolve the compare-table model '{selected_model_label}' to a PyCaret model id."
-                    )
-                est = s.create_model(model_id)
-                model_label = selected_model_label
-        except Exception as e:
-            QMessageBox.warning(self, i18n.t("msg_title_pycaret", self._idioma), f"Could not use the selected compare-position model for plotting. Using the current best model instead.\n\nDetails:\n{e}")
-
-        safe_model_label = self._sanitize_filename(model_label)
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-
-        def _apply_selected_extension(path: str, selected_filter: str, default_ext: str = ".png") -> str:
-            root, ext = os.path.splitext(path)
-            if ext:
-                return path
-            if "SVG" in (selected_filter or ""):
-                return path + ".svg"
-            if "PNG" in (selected_filter or ""):
-                return path + ".png"
-            return path + default_ext
-
-        def _save_embedded_png_svg(png_path: str, svg_path: str) -> None:
-            import base64
-
-            pix = QPixmap(png_path)
-            if pix.isNull():
-                raise ValueError("Could not load raster image for SVG export.")
-
-            width, height = pix.width(), pix.height()
-            with open(png_path, "rb") as handle:
-                img_b64 = base64.b64encode(handle.read()).decode("ascii")
-
-            svg_text = (
-                "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>\n"
-                "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" "
-                f"width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\">\n"
-                f"  <image width=\"{width}\" height=\"{height}\" xlink:href=\"data:image/png;base64,{img_b64}\"/>\n"
-                "</svg>\n"
-            )
-            with open(svg_path, "w", encoding="utf-8") as handle:
-                handle.write(svg_text)
-
-        def _show_matplotlib_plot_dialog(fig, kind: str, file_stem: str):
-            dialog = QDialog(self)
-            dialog.setWindowTitle(f"PyCaret Plot: {kind}")
-            layout = QVBoxLayout(dialog)
-
-            canvas = FigureCanvas(fig)
-            toolbar = NavigationToolbar(canvas, dialog)
-            layout.addWidget(toolbar)
-            layout.addWidget(canvas)
-
-            info = QLabel(
-                "This plot can be exported as PNG or as a true SVG whenever the underlying PyCaret output is Matplotlib vector content."
-            )
-            info.setWordWrap(True)
-            layout.addWidget(info)
-
-            btn_row = QHBoxLayout()
-            btn_save = QPushButton("Save Chart")
-            btn_close = QPushButton("Close")
-            _style_dialog_buttons(btn_save, btn_close)
-            btn_save.setFixedWidth(200)
-            btn_close.setFixedWidth(200)
-            btn_row.addWidget(btn_save)
-            btn_row.addWidget(btn_close)
-            layout.addLayout(btn_row)
-
-            def save_figure():
-                file_path, selected_filter = QFileDialog.getSaveFileName(
-                    dialog,
-                    "Save chart",
-                    os.path.join(self.plot_path, f"{file_stem}.png"),
-                    "PNG Files (*.png);;SVG Files (*.svg);;All Files (*)"
-                )
-                if not file_path:
-                    return
-
-                file_path = _apply_selected_extension(file_path, selected_filter, default_ext=".png")
-                ext = os.path.splitext(file_path)[1].lower()
-                if ext == ".svg":
-                    fig.savefig(file_path, format="svg", bbox_inches="tight")
-                else:
-                    fig.savefig(file_path, dpi=300, bbox_inches="tight", facecolor="white")
-                QMessageBox.information(dialog, "Saved", f"Chart saved to:\n{file_path}")
-
-            btn_save.clicked.connect(save_figure)
-            btn_close.clicked.connect(dialog.close)
-            dialog.resize(1080, 800)
-            dialog.exec_()
-
-        def _show_raster_plot_dialog(png_path: str, kind: str, file_stem: str):
-            dialog = QDialog(self)
-            dialog.setWindowTitle(f"PyCaret Plot: {kind}")
-            layout = QVBoxLayout(dialog)
-
-            pix = QPixmap(png_path)
-            if pix.isNull():
-                raise ValueError("Could not load the PyCaret raster plot preview.")
-
-            preview = QLabel()
-            preview.setAlignment(Qt.AlignCenter)
-            preview.setPixmap(pix.scaled(1000, 700, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-            layout.addWidget(preview)
-
-            info = QLabel(
-                "PyCaret provided this plot only as a raster image. Saving as SVG will embed the PNG inside an SVG file, so it will not be a true vector graphic."
-            )
-            info.setWordWrap(True)
-            layout.addWidget(info)
-
-            btn_row = QHBoxLayout()
-            btn_save = QPushButton("Save Chart")
-            btn_close = QPushButton("Close")
-            btn_save.setFixedWidth(200)
-            btn_close.setFixedWidth(200)
-            btn_row.addWidget(btn_save)
-            btn_row.addWidget(btn_close)
-            layout.addLayout(btn_row)
-            _style_dialog_buttons(btn_save, btn_close)
-
-            def save_image():
-                file_path, selected_filter = QFileDialog.getSaveFileName(
-                    dialog,
-                    "Save chart",
-                    os.path.join(self.plot_path, f"{file_stem}.png"),
-                    "PNG Files (*.png);;SVG Files (*.svg);;All Files (*)"
-                )
-                if not file_path:
-                    return
-
-                file_path = _apply_selected_extension(file_path, selected_filter, default_ext=".png")
-                ext = os.path.splitext(file_path)[1].lower()
-                if ext == ".svg":
-                    _save_embedded_png_svg(png_path, file_path)
-                    QMessageBox.information(
-                        dialog,
-                        "Saved",
-                        f"Chart saved to:\n{file_path}\n\nNote: this SVG contains an embedded PNG and is not a true vector export."
-                    )
-                else:
-                    shutil.copyfile(png_path, file_path)
-                    QMessageBox.information(dialog, "Saved", f"Chart saved to:\n{file_path}")
-
-            btn_save.clicked.connect(save_image)
-            btn_close.clicked.connect(dialog.close)
-            dialog.resize(1080, 800)
-            dialog.exec_()
-
-        # Descobre lista de gráficos selecionados conforme a aba (reg/class/clust)
-        kinds = []
-        for name in ("list_chart_reg", "list_chart_class", "list_chart_clust"):
-            w = getattr(self, name, None)
-            if w and hasattr(w, "selectedItems"):
-                for it in w.selectedItems():
-                    text = it.text().strip()
-                    # pega apenas o trecho antes do hífen
-                    short_key = text.split("-", 1)[0].strip()
-                    if short_key:
-                        kinds.append(short_key)
-        kinds = list(dict.fromkeys(kinds))
-        if not kinds:
-            QMessageBox.information(self, i18n.t("msg_title_pycaret", self._idioma), "Select at least one chart type.")
-            return
-
-        usi_key = self.ed_pycaret_USI.text().strip() if hasattr(self, "ed_pycaret_USI") else "LOAD"
-        self._set_current_pycaret_usi_context(usi_key, refresh_positions=False)
-
-        for kind in kinds:
-            try:
-                # Limpa quaisquer figuras pendentes e usa um contexto "seguro"
-                plt.close('all')
-                with plt.rc_context({
-                    'figure.dpi': 110,
-                    'figure.figsize': (8, 6),
-                    'svg.fonttype': 'none',   # mantém texto como texto no SVG
-                }):
-                    # Captura os fignums antes/depois para descobrir a figure criada
-                    before = set(plt.get_fignums())
-                    ax = s.plot_model(estimator=est, plot=kind, save=False, scale=1)
-                    after = set(plt.get_fignums())
-                    new_figns = list(after - before)
-
-                fig = None
-                if hasattr(ax, "get_figure"):
-                    fig = ax.get_figure()
-                if fig is None or not isinstance(fig, plt.Figure) or not fig.axes:
-                    # Tenta pegar a figura recém criada
-                    if new_figns:
-                        fig = plt.figure(new_figns[-1])
-
-                if fig is None or not fig.axes:
-                    # --- FALLBACK ROBUSTO: deixa o PyCaret salvar PNG e mova o arquivo ---
-                    s.plot_model(estimator=est, plot=kind, save=True, scale=1)
-                    candidates = sorted(glob.glob("*.png"), key=os.path.getmtime, reverse=True)
-                    if not candidates:
-                        raise RuntimeError("Nenhuma imagem gerada pelo PyCaret.")
-                    src = candidates[0]
-
-                    file_stem = f"pycaret_{kind}_{model_position}_{safe_model_label}_{self.usi_key}_{timestamp}"
-                    _show_raster_plot_dialog(src, kind, file_stem)
-                    try:
-                        os.remove(src)
-                    except Exception:
-                        pass
-                else:
-                    plt.tight_layout()
-                    file_stem = f"pycaret_{kind}_{model_position}_{safe_model_label}_{self.usi_key}_{timestamp}"
-                    _show_matplotlib_plot_dialog(fig, kind, file_stem)
-                    plt.close(fig)
-
-                # Extrai tabela do último plot (se existir)
-                try:
-                    df_last = s.pull()
-                    if isinstance(df_last, pd.DataFrame) and not df_last.empty:
-                        df_last.to_csv(
-                            os.path.join(self.out_data, f"pycaret_{kind}_{model_position}_{safe_model_label}_{self.usi_key}_{timestamp}.csv"),
-                            index=False
-                        )
-                except Exception:
-                    pass
-
-            except Exception as e:
-                QMessageBox.warning(self, i18n.t("msg_title_pycaret", self._idioma), f"Failed to generate '{kind}': {e}")
-          
-    def run_pycaret_save(self):
-        if not hasattr(self, "pyc_exp") or self.pyc_exp is None or self.pyc_best is None:
-            QMessageBox.warning(self, i18n.t("msg_title_pycaret", self._idioma), "No trained model to save.")
-            return
-        s = self.pyc_exp
-        task, _, _ = self._pycaret_resolve_task()
-        try:
-            from PyQt5.QtWidgets import QFileDialog, QMessageBox
-            model_position, selected_model_label, selected_row = self._get_pycaret_rank_selection()
-            usi_key = self._get_current_pycaret_usi()
-            models_dir = self._set_current_pycaret_usi_context(usi_key, refresh_positions=False)["models"]
-            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-            model_to_save = self.pyc_best
-            model_label = selected_model_label or getattr(self.pyc_best, "__class__", type(self.pyc_best)).__name__
-
-            selected_source = str(selected_row.get("source", "")).strip() if hasattr(selected_row, "get") else ""
-            selected_path = str(selected_row.get("model_path", "")).strip() if hasattr(selected_row, "get") else ""
-            if selected_source == "saved_model":
-                if not selected_path:
-                    raise ValueError("The selected saved-model entry does not include a model path.")
-                model_to_save = s.load_model(selected_path[:-4] if selected_path.endswith(".pkl") else selected_path)
-                model_label = str(selected_row.get("display_name", model_label)).strip() or model_label
-            elif selected_model_label:
-                model_id = self._resolve_pycaret_model_id(selected_model_label)
-                if model_id is None:
-                    raise ValueError(
-                        f"Could not resolve the compare-table model '{selected_model_label}' to a PyCaret model id."
-                    )
-                model_to_save = s.create_model(model_id)
-
-            safe_model_label = self._sanitize_filename(model_label)
-            default_stem = f"best_model_{model_position}_{safe_model_label}_{usi_key}_{timestamp}"
-
-            default_name = os.path.join(models_dir, default_stem)
-            path, _ = QFileDialog.getSaveFileName(self, "Save model", default_name, "PyCaret Model (*.pkl)")
-            if not path:
-                return
-            save_result = s.save_model(model_to_save, path)
-            saved_path = path
-            if isinstance(save_result, tuple) and len(save_result) >= 2:
-                saved_path = str(save_result[1])
-            QMessageBox.information(self, i18n.t("msg_title_pycaret", self._idioma), f"Model saved at:\n{saved_path}")
-        except Exception as e:
-            QMessageBox.critical(self, i18n.t("msg_title_pycaret_save", self._idioma), str(e))
-
-    def _get_current_pycaret_usi(self, fallback="LOAD"):
-        raw = ""
-        if hasattr(self, "ed_pycaret_USI") and self.ed_pycaret_USI is not None:
-            try:
-                raw = self.ed_pycaret_USI.text().strip()
-            except Exception:
-                raw = ""
-        if not raw:
-            raw = str(getattr(self, "usi_key", "") or "").strip()
-        return _normalize_usi_key(raw or fallback)
-
-    def _set_current_pycaret_usi_context(self, usi_key=None, refresh_positions=True):
-        current_usi = _normalize_usi_key(usi_key or self._get_current_pycaret_usi())
-        paths = _ensure_pycaret_usi_dirs(self.job_dir, current_usi)
-        self.usi_key = current_usi
-        self.plot_path = paths["midia"]
-        self.out_data = paths["data"]
-        self.pyc_models_path = paths["models"]
-        self.pyc_predictions_path = paths["predictions"]
-
-        if hasattr(self, "ed_pycaret_USI") and self.ed_pycaret_USI.text().strip() != current_usi:
-            self.ed_pycaret_USI.blockSignals(True)
-            self.ed_pycaret_USI.setText(current_usi)
-            self.ed_pycaret_USI.blockSignals(False)
-
-        if refresh_positions:
-            self._refresh_pycaret_save_position_options()
-
-        return paths
-
-    def _extract_pycaret_usi_from_path(self, path):
-        if not path:
-            return None
-
-        usi_root = os.path.join(self.job_dir, "RESULTS", "USI")
-        try:
-            rel_path = os.path.relpath(os.path.abspath(path), os.path.abspath(usi_root))
-        except Exception:
-            return None
-
-        if rel_path.startswith(".."):
-            return None
-
-        parts = [part for part in rel_path.split(os.sep) if part and part != "."]
-        if len(parts) >= 3 and parts[1] == "MODELS":
-            return parts[0]
-        return None
-
-    def _load_pycaret_saved_models_for_current_usi(self):
-        models_dir = self._set_current_pycaret_usi_context(refresh_positions=False)["models"]
-        model_files = sorted(glob.glob(os.path.join(models_dir, "*.pkl")), key=os.path.getmtime)
-        if not model_files:
-            return None
-
-        rows = []
-        fallback_position = 1
-        for model_path in model_files:
-            info = _parse_pycaret_saved_model_info(model_path)
-            position = info.get("position")
-            if position is None:
-                position = fallback_position
-            fallback_position = max(fallback_position + 1, int(position) + 1)
-            rows.append({
-                "position": int(position),
-                "model": info.get("model", os.path.splitext(os.path.basename(model_path))[0]),
-                "display_name": info.get("model", os.path.splitext(os.path.basename(model_path))[0]),
-                "model_path": model_path,
-                "source": "saved_model",
-                "file_name": info.get("file_name", os.path.basename(model_path)),
-            })
-
-        return pd.DataFrame(rows).sort_values(by=["position", "file_name"], kind="stable").reset_index(drop=True)
-
-    def _get_pycaret_position_table(self):
-        current_usi = self._get_current_pycaret_usi()
-        if (
-            str(getattr(self, "pyc_position_source", "") or "") == "saved_model_inventory"
-            and str(getattr(self, "pyc_position_source_usi", "") or "") == current_usi
-        ):
-            saved_df = self._load_pycaret_saved_models_for_current_usi()
-            if isinstance(saved_df, pd.DataFrame) and not saved_df.empty:
-                return saved_df
-
-        rank_df = self._load_pycaret_compare_rank_for_current_usi()
-        if isinstance(rank_df, pd.DataFrame) and not rank_df.empty:
-            ranked = rank_df.copy()
-            ranked["source"] = "compare_rank"
-            return ranked
-        return self._load_pycaret_saved_models_for_current_usi()
-
-    def _load_pycaret_compare_rank_for_current_usi(self):
-        usi_key = self.ed_pycaret_USI.text().strip() if hasattr(self, "ed_pycaret_USI") else ""
-        if not usi_key:
-            return None
-
-        rank_df = getattr(self, "pyc_compare_rank", None)
-        rank_df_usi = str(getattr(self, "pyc_compare_rank_usi", "") or "").strip()
-        if isinstance(rank_df, pd.DataFrame) and not rank_df.empty and rank_df_usi == usi_key:
-            return rank_df
-
-        data_dir = os.path.join(self.job_dir, "RESULTS", "USI", usi_key, "DATA")
-        rank_path = os.path.join(data_dir, f"df_pycaret_compare_{usi_key}.csv")
-        if not os.path.isfile(rank_path):
-            matches = sorted(
-                glob.glob(os.path.join(data_dir, f"df_pycaret_compare_{usi_key}_*.csv")),
-                key=os.path.getmtime,
-                reverse=True,
-            )
-            if not matches:
-                return None
-            rank_path = matches[0]
-
-        try:
-            rank_df = pd.read_csv(rank_path)
-            if isinstance(rank_df, pd.DataFrame) and not rank_df.empty:
-                self.pyc_compare_rank = rank_df.copy()
-                self.pyc_compare_rank_usi = usi_key
-                return rank_df
-        except Exception:
-            return None
-
-        return None
-
-    def _refresh_pycaret_save_position_options(self, rank_df=None):
-        combo = getattr(self, "cb_io_model_position", None)
-        if combo is None:
-            return
-
-        if rank_df is None:
-            rank_df = self._get_pycaret_position_table()
-
-        combo.blockSignals(True)
-        combo.clear()
-
-        if not isinstance(rank_df, pd.DataFrame) or rank_df.empty:
-            combo.addItem("1 - Current best model", 1)
-            combo.blockSignals(False)
-            return
-
-        model_col = next((col for col in rank_df.columns if str(col).strip().lower() == "model"), None)
-        for pos, (_, row) in enumerate(rank_df.iterrows(), start=1):
-            display_pos = int(row.get("position", pos)) if str(row.get("position", "")).strip() else pos
-            model_name = str(row.get("display_name", row.get(model_col, f"Model {display_pos}"))).strip() if model_col is not None else str(row.get("display_name", f"Model {display_pos}")).strip()
-            data = {"position": display_pos, "model": model_name, "source": str(row.get("source", "compare_rank"))}
-            model_path = str(row.get("model_path", "") or "").strip()
-            if model_path:
-                data["model_path"] = model_path
-            combo.addItem(f"{display_pos} - {model_name}", data)
-
-        combo.setCurrentIndex(0)
-        combo.blockSignals(False)
-
-    def _resolve_pycaret_model_id(self, model_label: str):
-        if not hasattr(self, "pyc_exp") or self.pyc_exp is None:
-            return None
-
-        try:
-            models_df = self.pyc_exp.models()
-        except Exception:
-            return None
-
-        if not isinstance(models_df, pd.DataFrame) or models_df.empty:
-            return None
-
-        name_col = next((col for col in models_df.columns if str(col).strip().lower() == "name"), None)
-        if name_col is None:
-            return None
-
-        def _norm(text):
-            return re.sub(r"[^a-z0-9]+", "", str(text or "").lower())
-
-        target = _norm(model_label)
-        for idx, row in models_df.iterrows():
-            if _norm(row.get(name_col, "")) == target:
-                return idx
-
-        for idx, row in models_df.iterrows():
-            if target and target in _norm(row.get(name_col, "")):
-                return idx
-
-        return None
-
-    def _get_pycaret_rank_selection(self):
-        rank_df = self._get_pycaret_position_table()
-        combo = getattr(self, "cb_io_model_position", None)
-        position = 1
-        selected_data = None
-        if combo is not None:
-            try:
-                selected_data = combo.currentData()
-                if isinstance(selected_data, dict):
-                    position = int(selected_data.get("position", combo.currentIndex() + 1))
-                else:
-                    position = int(selected_data) if selected_data is not None else combo.currentIndex() + 1
-            except Exception:
-                position = combo.currentIndex() + 1
-
-        if not isinstance(rank_df, pd.DataFrame) or rank_df.empty:
-            if isinstance(selected_data, dict):
-                return position, str(selected_data.get("model", "")).strip() or None, selected_data
-            return position, None, None
-
-        row = None
-        if "position" in rank_df.columns:
-            matches = rank_df.loc[pd.to_numeric(rank_df["position"], errors="coerce") == float(position)]
-            if not matches.empty:
-                row = matches.iloc[0]
-        if row is None:
-            if position < 1 or position > len(rank_df):
-                raise ValueError(f"Model position {position} is outside the compare table range.")
-            row = rank_df.iloc[position - 1]
-        model_col = next((col for col in rank_df.columns if str(col).strip().lower() == "model"), None)
-        model_label = str(row.get("display_name", row.get(model_col, ""))).strip() if model_col is not None else str(row.get("display_name", "")).strip()
-        return position, model_label, row
-
-    def _prepare_pycaret_inference_data(self, data_df, target_col="", include_target=False):
-        if data_df is None:
-            return None
-
-        prepared = data_df.copy()
-        task = getattr(self, "task_type", "").strip().lower()
-        target_col = (target_col or "").strip()
-
-        if include_target and task in {"classification", "regression"} and target_col and target_col not in prepared.columns:
-            prepared[target_col] = np.nan
-
-        return prepared
-
-    def _build_pycaret_prediction_save_path(self):
-        model_position, selected_model_label, _ = self._get_pycaret_rank_selection()
-        model_label = selected_model_label or getattr(self.pyc_best, "__class__", type(self.pyc_best)).__name__
-        safe_model_label = self._sanitize_filename(model_label)
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-
-        raw_usi = ""
-        if hasattr(self, "ed_pycaret_USI") and self.ed_pycaret_USI is not None:
-            try:
-                raw_usi = self.ed_pycaret_USI.text().strip()
-            except Exception:
-                raw_usi = ""
-
-        if raw_usi:
-            initial_dir = self._set_current_pycaret_usi_context(raw_usi)["predictions"]
-            default_stem = f"pycaret_predictions_{model_position}_{safe_model_label}_{raw_usi}_{timestamp}.csv"
-        else:
-            initial_dir = os.path.join(self.job_dir, "RESULTS", "USI")
-            os.makedirs(initial_dir, exist_ok=True)
-            default_stem = f"pycaret_predictions_{model_position}_{safe_model_label}_{timestamp}.csv"
-
-        return os.path.join(initial_dir, default_stem)
-
-    def _validate_pycaret_predict_data(self, data_df, target_col=""):
-        if data_df is None or data_df.empty or not hasattr(self, "pyc_exp") or self.pyc_exp is None:
-            return None
-
-        try:
-            x_train = self.pyc_exp.get_config("X_train")
-        except Exception:
-            return None
-
-        if x_train is None or not hasattr(x_train, "columns"):
-            return None
-
-        expected_cols = [str(col) for col in x_train.columns]
-        missing_cols = [col for col in expected_cols if col not in data_df.columns]
-        if missing_cols:
-            raise ValueError(
-                "The prediction dataset is missing columns required by the loaded model/context: "
-                + ", ".join(missing_cols)
-                + ". If 'Class' appears here, the model/context was prepared using it as an input feature. "
-                "Use ignore_features to exclude it during setup/load or retrain the model without that column."
-            )
-
-        return data_df
-           
-    def run_pycaret_load(self):
-        task, ExpClass, _ = self._pycaret_resolve_task()
-        if not task:
-            return
-        try:
-            from PyQt5.QtWidgets import QFileDialog, QMessageBox
-            current_usi = str(getattr(self, "usi_key", "") or "").strip()
-            if current_usi:
-                models_dir = _ensure_pycaret_usi_dirs(self.job_dir, current_usi)["models"]
-            else:
-                models_dir = os.path.join(self.job_dir, "RESULTS", "USI")
-                os.makedirs(models_dir, exist_ok=True)
-            path, _ = QFileDialog.getOpenFileName(self, "Carregar modelo", models_dir, "PyCaret Model (*.pkl)")
-            if not path:
-                return
-            loaded_usi = self._extract_pycaret_usi_from_path(path)
-            if loaded_usi:
-                self.pyc_compare_rank = None
-                self.pyc_compare_rank_usi = ""
-                self.pyc_position_source = "saved_model_inventory"
-                self.pyc_position_source_usi = loaded_usi
-                self._set_current_pycaret_usi_context(loaded_usi, refresh_positions=False)
-            s = ExpClass()
-            target_col = self.cb_sp_y.currentText().strip()
-            session_id_raw = self.ed_sp_session_id.text().strip() if hasattr(self, "ed_sp_session_id") else ""
-            ignore_features_raw = self.ed_sp_ignore_features.text().strip() if hasattr(self, "ed_sp_ignore_features") else ""
-            ignore_features = _ui_csv_to_list(ignore_features_raw)
-            setup_df = None
-
-            if getattr(self, "df_int", None) is not None and not self.df_int.empty and target_col in self.df_int.columns:
-                setup_df = self.df_int.copy()
-            elif getattr(self, "df_ext", None) is not None and not self.df_ext.empty:
-                setup_df = self._prepare_pycaret_inference_data(self.df_ext, target_col, include_target=True)
-
-            if setup_df is None or setup_df.empty:
-                QMessageBox.warning(self, i18n.t("msg_title_pycaret_load", self._idioma), "Load an internal DataFrame with the target column or an external DataFrame for inference before loading the model.")
-                return
-
-            setup_kwargs = {"html": False}
-            if ignore_features:
-                setup_kwargs["ignore_features"] = ignore_features
-
-            if task in {"classification", "regression"}:
-                if not target_col or target_col not in setup_df.columns:
-                    QMessageBox.warning(self, i18n.t("msg_title_pycaret_load", self._idioma), "Select a valid target column before loading the model.")
-                    return
-                if session_id_raw:
-                    try:
-                        setup_kwargs["session_id"] = int(float(session_id_raw.replace(",", ".")))
-                    except Exception:
-                        pass
-                s.setup(data=setup_df, target=target_col, **setup_kwargs)
-            else:
-                if session_id_raw:
-                    try:
-                        setup_kwargs["session_id"] = int(float(session_id_raw.replace(",", ".")))
-                    except Exception:
-                        pass
-                s.setup(data=setup_df, **setup_kwargs)
-                
-            # Evita duplicação de extensão .pkl
-            if path.endswith(".pkl"):
-                path = path[:-4]
-            model = s.load_model(path)
-            self.pyc_exp = s
-            self.pyc_best = model
-            self.pyc_loaded_model_path = path + ".pkl"
-            self._refresh_pycaret_save_position_options()
-            combo = getattr(self, "cb_io_model_position", None)
-            if combo is not None:
-                loaded_path = os.path.normpath(self.pyc_loaded_model_path)
-                for idx in range(combo.count()):
-                    item_data = combo.itemData(idx)
-                    if isinstance(item_data, dict) and os.path.normpath(str(item_data.get("model_path", ""))) == loaded_path:
-                        combo.setCurrentIndex(idx)
-                        break
-            QMessageBox.information(self, i18n.t("msg_title_pycaret", self._idioma), f"Modelo carregado:\n{path}")
-            self.tabs_set_params.setCurrentIndex(self.tabs_set_params.currentIndex() + 1)
-
-        except Exception as e:
-            QMessageBox.critical(self, i18n.t("msg_title_pycaret_load", self._idioma), str(e))
-
-    def run_pycaret_predict(self):
-        if not hasattr(self, "pyc_exp") or self.pyc_exp is None or not hasattr(self, "pyc_best"):
-            QMessageBox.warning(self, i18n.t("msg_title_pycaret", self._idioma), "Run setup and select a model before predicting.")
-            return
-        try:
-            kw = self._collect_predict_kwargs()
-            data = kw.pop("data", None)
-            if data is None or data.empty:
-                QMessageBox.warning(self, i18n.t("msg_title_pycaret", self._idioma), "Provide data (selected DataFrame or CSV).")
-                return
-            target_col = self.cb_sp_y.currentText().strip() if hasattr(self, "cb_sp_y") else ""
-            data = self._validate_pycaret_predict_data(data, target_col)
-            out = self.pyc_exp.predict_model(self.pyc_best, data=data, **kw)
-            out = self._prepare_predict_output_dataframe(out, data)
-            self._next_dataframe_save_path = self._build_pycaret_prediction_save_path()
-            self.show_dataframe(out)
-        except Exception as e:
-            QMessageBox.critical(self, i18n.t("msg_title_pycaret_predict", self._idioma), str(e))
-
-    def _pycaret_resolve_task(self) -> tuple:
-        """
-        Retorna (task_str, ExpClass, None) conforme task/combobox selecionado.
-        Compatível com PyCaret v3 (sem import de 'regression'/'classification').
-        """
-        task_str = None
-        if hasattr(self, "task_type"):
-            task_str = (self.task_type or "").strip().lower()
-
-        try:
-            if task_str and task_str.startswith("class"):
-                from pycaret.classification import ClassificationExperiment as _Exp
-                return "classification", _Exp, None
-            elif task_str and task_str.startswith("reg"):
-                from pycaret.regression import RegressionExperiment as _Exp
-                return "regression", _Exp, None
-            elif task_str and task_str.startswith("clust"):
-                from pycaret.clustering import ClusteringExperiment as _Exp
-                return "clustering", _Exp, None
-        except Exception as e:
-            QMessageBox.critical(self, i18n.t("msg_title_pycaret", self._idioma), f"Error importing PyCaret: {e}")
-            return None, None, None
-
-        QMessageBox.warning(self, i18n.t("msg_title_pycaret", self._idioma), "Select a valid task type (Classification/Regression/Clustering).")
-        return None, None, None
-
-    def _collect_setup_kwargs(self):
-        kw = {}
-
-        v = _ui_get_if_checked(self.chk_sp_n_jobs, lambda: int(self.sp_sp_n_jobs.value()))
-        if v is not None: kw["n_jobs"] = v
-
-        v = _ui_get_if_checked(self.chk_sp_normalize, lambda: self.cb_sp_normalize.currentText() == "True")
-        if v is not None: kw["normalize"] = v
-
-        v = _ui_get_if_checked(self.chk_sp_transform, lambda: self.cb_sp_transform.currentText() == "True")
-        if v is not None: kw["transformation"] = v
-
-        v = _ui_get_if_checked(self.chk_sp_imputation, lambda: None if self.cb_sp_imputation.currentText()=="None" else self.cb_sp_imputation.currentText())
-        if v is not None: kw["imputation_type"] = v
-
-        v = _ui_get_if_checked(self.chk_sp_remove_outliers, lambda: self.cb_sp_remove_outliers.currentText() == "True")
-        if v is not None: kw["remove_outliers"] = v
-
-        v = _ui_get_if_checked(self.chk_sp_feature_selection, lambda: self.cb_sp_feature_selection.currentText() == "True")
-        if v is not None: kw["feature_selection"] = v
-
-        v = _ui_get_if_checked(self.chk_sp_use_gpu, lambda: _ui_bool_from_combo(self.cb_sp_use_gpu))
-        if v is not None: kw["use_gpu"] = v
-
-        v = _ui_get_if_checked(self.chk_sp_fold, lambda: int(self.sp_sp_fold.value()))
-        if v is not None: kw["fold"] = v
-
-        v = _ui_get_if_checked(self.chk_sp_fold_strategy, lambda: self.cb_sp_fold_strategy.currentText())
-        if v is not None: kw["fold_strategy"] = v
-
-        v = _ui_get_if_checked(self.chk_sp_shuffle, lambda: self.cb_sp_shuffle.currentText() == "True")
-        if v is not None: kw["data_split_shuffle"] = v
-
-        v = _ui_get_if_checked(self.chk_sp_stratify, lambda: self.cb_sp_stratify.currentText() == "True")
-        if v is not None: kw["data_split_stratify"] = v
-
-        v = _ui_get_if_checked(self.chk_sp_train, lambda: float(self.dsp_sp_train.value()))
-        if v is not None: kw["train_size"] = v
-
-        v = _ui_get_if_checked(self.chk_sp_ignore_features, lambda: self.ed_sp_ignore_features.text())
-        if v is not None: kw["ignore_features"] = v
-
-        return kw
-
-    def _collect_compare_kwargs(self):
-        kw = {}
-
-        v = _ui_get_if_checked(self.chk_cmp_sort, lambda: self.cb_cmp_sort.currentText())
-        if v is not None: kw["sort"] = v
-
-        v = _ui_get_if_checked(self.chk_cmp_cv, lambda: self.cb_cmp_cv.currentText() == "True")
-        if v is not None: kw["cross_validation"] = v
-
-        v = _ui_get_if_checked(self.chk_cmp_fold, lambda: int(self.sp_cmp_fold.value()))
-        if v is not None: kw["fold"] = v
-
-        v = _ui_get_if_checked(self.chk_cmp_n_select, lambda: int(self.sp_cmp_n_select.value()))
-        if v is not None: kw["n_select"] = v
-
-        v = _ui_get_if_checked(self.chk_cmp_budget, lambda: float(self.dsp_cmp_budget.value()))
-        if v is not None: kw["budget_time"] = v
-
-        v = _ui_get_if_checked(self.chk_cmp_turbo, lambda: self.cb_cmp_turbo.currentText() == "True")
-        if v is not None: kw["turbo"] = v
-
-        v = _ui_get_if_checked(self.chk_cmp_use_gpu, lambda: _ui_bool_from_combo(self.cb_cmp_use_gpu))
-        if v is not None: kw["use_gpu"] = v
-
-        v = _ui_get_if_checked(self.chk_cmp_errors, lambda: self.cb_cmp_errors.currentText())
-        if v is not None: kw["errors"] = v
-
-        v = _ui_get_if_checked(self.chk_cmp_parallel, lambda: self.cb_cmp_parallel.currentText() == "True")
-        if v is not None: kw["parallel"] = v
-
-        v = _ui_get_if_checked(self.chk_cmp_proba_th, lambda: float(self.dsp_cmp_proba_th.value()))
-        if v is not None: kw["probability_threshold"] = v
-
-        # include / exclude por listas de códigos
-        v = _ui_get_if_checked(self.chk_cmp_include, lambda: _ui_csv_to_list(self.ed_cmp_include.text()))
-        if v is not None: kw["include"] = v
-
-        v = _ui_get_if_checked(self.chk_cmp_exclude, lambda: _ui_csv_to_list(self.ed_cmp_exclude.text()))
-        if v is not None: kw["exclude"] = v
-
-        v = _ui_get_if_checked(self.chk_cmp_verbose, lambda: self.cb_cmp_verbose.currentText() == "True")
-        if v is not None: kw["verbose"] = v
-
-        return kw
-
-    def _collect_evaluate_kwargs(self):
-        kw = {}
-        v = _ui_get_if_checked(self.chk_ev_use_gpu, lambda: _ui_bool_from_combo(self.cb_ev_use_gpu))
-        if v is not None: kw["use_gpu"] = v
-
-        return kw
-
-    def _collect_tune_kwargs(self):
-        kw = {}
-        v = _ui_get_if_checked(self.chk_tn_fold, lambda: int(self.sp_tn_fold.value()))
-        if v is not None: kw["fold"] = v
-        v = _ui_get_if_checked(self.chk_tn_optimize, lambda: self.cb_tn_optimize.currentText())
-        if v is not None: kw["optimize"] = v
-        v = _ui_get_if_checked(self.chk_tn_choose_better, lambda: self.cb_tn_choose_better.currentText() == "True")
-        if v is not None: kw["choose_better"] = v
-        v = _ui_get_if_checked(self.chk_tn_n_iter, lambda: int(self.sp_tn_n_iter.value()))
-        if v is not None: kw["n_iter"] = v
-        v = _ui_get_if_checked(self.chk_tn_search_lib, lambda: self.cb_tn_search_lib.currentText())
-        if v is not None: kw["search_library"] = v
-        v = _ui_get_if_checked(self.chk_tn_use_gpu, lambda: _ui_bool_from_combo(self.cb_tn_use_gpu))
-        if v is not None: kw["use_gpu"] = v
-        return kw
-
-    def _collect_plot_kwargs(self):
-        kw = {}
-        # se você tiver combos/inputs para plot, acrescente aqui (exemplos comuns):
-        if hasattr(self, "cb_plot_scale") and hasattr(self, "chk_plot_scale") and self.chk_plot_scale.isChecked():
-            kw["scale"] = self.cb_plot_scale.currentText()
-        if hasattr(self, "cb_plot_display") and hasattr(self, "chk_plot_display") and self.chk_plot_display.isChecked():
-            kw["display_format"] = self.cb_plot_display.currentText()
-        # fold, save etc. podem ser adicionados de forma semelhante
-        return kw
-
-    def _collect_predict_kwargs(self):
-        kw = {}
-        v = _ui_get_if_checked(self.chk_pd_proba, lambda: float(self.dsp_pd_proba.value()))
-        if v is not None: kw["probability_threshold"] = v
-        v = _ui_get_if_checked(self.chk_pd_raw, lambda: self.cb_pd_raw.currentText() == "True")
-        if v is not None: kw["raw_score"] = v
-        v = _ui_get_if_checked(self.chk_pd_verbose, lambda: self.cb_pd_verbose.currentText() == "True")
-        if v is not None: kw["verbose"] = v
-        # origem dos dados
-        try:
-            data_df = None
-            if hasattr(self, "chk_pd_internal") and self.chk_pd_internal.isChecked() and getattr(self, "df_int", None) is not None:
-                data_df = self.df_int
-            elif hasattr(self, "chk_pd_external") and self.chk_pd_external.isChecked():
-                data_df = self.df_ext
-        except Exception as e:
-            QMessageBox.warning(self, i18n.t("msg_title_predict", self._idioma), f"Failed to read CSV data:\n{e}")
-        target_col = self.cb_sp_y.currentText().strip() if hasattr(self, "cb_sp_y") else ""
-        kw["data"] = self._prepare_pycaret_inference_data(data_df, target_col, include_target=False)
-        return kw
 
 # ==========================================================================================================================================
 # ================================================== METHOD FOR BUILD TABS =================================================================
@@ -15761,8 +14456,6 @@ class MainWindow(QMainWindow):
                 self._task_desc_key = "cfg_task_desc_class"
                 self.label_task_desc.setText(i18n.t(self._task_desc_key, self._idioma))
                 self.task_type = "classification"
-                _element_set_enabled([self.list_chart_reg, self.list_chart_clust, self.cb_cmp_create, self.btn_pycaret_create, self.btn_pycaret_assign], False)
-                _element_set_enabled([self.list_chart_class, self.btn_pycaret_compare, self.btn_pycaret_eval, self.btn_pycaret_tune], True)
                 if hasattr(self, "_populate_skl_model_list"):
                     self._populate_skl_model_list()
             class_btn.clicked.connect(on_class_clicked)
@@ -15774,8 +14467,6 @@ class MainWindow(QMainWindow):
                 self._task_desc_key = "cfg_task_desc_regress"
                 self.label_task_desc.setText(i18n.t(self._task_desc_key, self._idioma))
                 self.task_type = "regression"
-                _element_set_enabled([self.list_chart_class, self.list_chart_clust, self.cb_cmp_create, self.btn_pycaret_create, self.btn_pycaret_assign], False)
-                _element_set_enabled([self.list_chart_reg, self.btn_pycaret_compare, self.btn_pycaret_eval, self.btn_pycaret_tune], True)
                 if hasattr(self, "_populate_skl_model_list"):
                     self._populate_skl_model_list()
             regress_btn.clicked.connect(on_regress_clicked)
@@ -15787,8 +14478,6 @@ class MainWindow(QMainWindow):
                 self._task_desc_key = "cfg_task_desc_clust"
                 self.label_task_desc.setText(i18n.t(self._task_desc_key, self._idioma))
                 self.task_type = "clustering"
-                _element_set_enabled([self.list_chart_reg, self.list_chart_class, self.btn_pycaret_eval, self.btn_pycaret_tune, self.btn_pycaret_compare], False)
-                _element_set_enabled([self.list_chart_clust, self.cb_cmp_create, self.btn_pycaret_create, self.btn_pycaret_assign], True)
                 if hasattr(self, "_populate_skl_model_list"):
                     self._populate_skl_model_list()
             clust_btn.clicked.connect(on_clust_clicked)
@@ -17992,790 +16681,13 @@ class MainWindow(QMainWindow):
             )
 
         # ==============================================================================================================================================
-        # ========================================== ETAPA 5 – TREINAR, TESTAR, VALIDAR E APLICAR MODELOS =============================================
-        # ==============================================================================================================================================
-        try:
-            # Layout principal da aba para gerar descritores:
-            t6 = QWidget(); l6 = QVBoxLayout(t6)
-            self.tabs.addTab(t6, "STEP 5")
-            self._tr("tab_step5", lambda txt: self.tabs.setTabText(6, txt))
-            l6.addWidget(self._mk_title("title_step5"))
-            l6.addSpacing(10)
-
-            head_layout1 = QHBoxLayout()
-            head_layout2 = QHBoxLayout()
-
-            # Criar botão de escolha do dataframe interno:
-            btn_select_df_int = QPushButton(); self._tr("btn_select_internal_df", btn_select_df_int.setText)
-            btn_select_df_int.setProperty("role", "select")
-            btn_select_df_int.setFixedWidth(200)
-            btn_select_df_int.setStyleSheet("""
-                QPushButton {
-                    background: #B7E4C7;
-                    color: #C9D1D9
-                    font-size: 10pt;
-                    font-weight: bold;
-                    border: 1px solid #222;
-                    border-radius: 4px;
-                }
-                QPushButton:hover {
-                    background: #74C69D;
-                    color: #000000;
-                }
-                QPushButton:pressed {
-                    background: #40916C;
-                    color: #000000;
-                }
-            """)
-            btn_select_df_int.clicked.connect(self.select_dataframe_int)
-
-            # Criar caixa de texto onde será exibido o endereço do dataframe selecionado:
-            df_name_view_int = QLineEdit()
-            df_name_view_int.setReadOnly(True)
-            df_name_view_int.setFixedWidth(400)
-            df_name_view_int.setStyleSheet("background-color: #6E8CA8; color: #6E8CA8; border: 1px solid #ccc; border-radius: 4px; padding: 5px;")
-            self.df_name_view_int = df_name_view_int
-
-            # Criar botão de escolha do dataframe externo:
-            btn_select_df_ext = QPushButton(); self._tr("btn_select_external_df", btn_select_df_ext.setText)
-            btn_select_df_ext.setProperty("role", "select")
-            btn_select_df_ext.setFixedWidth(200)
-            btn_select_df_ext.setStyleSheet("""
-                QPushButton {
-                    background: #B7E4C7;
-                    color: #C9D1D9
-                    font-size: 10pt;
-                    font-weight: bold;
-                    border: 1px solid #222;
-                    border-radius: 4px;
-                }
-                QPushButton:hover {
-                    background: #74C69D;
-                    color: #000000;
-                }
-                QPushButton:pressed {
-                    background: #40916C;
-                    color: #000000;
-                }
-            """)
-            btn_select_df_ext.clicked.connect(self.select_dataframe_ext)
-
-            # Criar caixa de texto onde será exibido o endereço do dataframe selecionado:
-            df_name_view_ext = QLineEdit()
-            df_name_view_ext.setReadOnly(True)
-            df_name_view_ext.setFixedWidth(400)
-            df_name_view_ext.setStyleSheet("background-color: #6E8CA8; color: #6E8CA8; border: 1px solid #ccc; border-radius: 4px; padding: 5px;")
-            self.df_name_view_ext = df_name_view_ext
-
-            random_label = self._trL("s4_lbl_random_state")
-            self.ed_sp_session_id = QLineEdit()
-            self._tr("s4_tooltip_session_id", self.ed_sp_session_id.setToolTip)
-            self.ed_sp_session_id.setFixedSize(70, 25)
-            self.ed_sp_session_id.setAlignment(Qt.AlignCenter)
-            self.ed_sp_session_id.setValidator(QIntValidator())
-            self.ed_sp_session_id.setText("123")
-            self.ed_sp_session_id.setStyleSheet("background-color: #6E8CA8; color: #6E8CA8; border: 1px solid #ccc; border-radius: 4px; padding: 5px;")
-
-            USI_label = self._trL("s5_lbl_usi")
-            self.ed_pycaret_USI = QLineEdit()
-            self._tr(
-                "s5_tooltip_usi",
-                lambda txt: self.ed_pycaret_USI.setToolTip(f"<html><p style='font-size:10pt;'>{txt}</p></html>"),
-            )
-            self.ed_pycaret_USI.setFixedSize(70, 25)
-            self.ed_pycaret_USI.setAlignment(Qt.AlignCenter)
-            self.ed_pycaret_USI.setText("")
-            self.ed_pycaret_USI.setStyleSheet("background-color: #6E8CA8; color: #C9D1D9; border: 1px solid #ccc; border-radius: 4px; padding: 5px; font-size: 12pt; font-weight: bold;")
-
-            # Adicionar botões e caixas ao layout:
-            head_layout1.addStretch()
-            head_layout1.addWidget(btn_select_df_int, alignment=Qt.AlignRight)            
-            head_layout1.addWidget(df_name_view_int, alignment=Qt.AlignLeft)
-            head_layout1.addWidget(random_label, alignment=Qt.AlignRight)
-            head_layout1.addWidget(self.ed_sp_session_id, alignment=Qt.AlignLeft)
-            head_layout1.addStretch()
-
-            head_layout2.addStretch()
-            head_layout2.addWidget(btn_select_df_ext, alignment=Qt.AlignRight)
-            head_layout2.addWidget(df_name_view_ext, alignment=Qt.AlignLeft)
-            head_layout2.addWidget(USI_label, alignment=Qt.AlignRight)
-            head_layout2.addWidget(self.ed_pycaret_USI, alignment=Qt.AlignLeft)
-            head_layout2.addStretch()
-
-            # Adicionar o layout de botão ao layout principal:
-            l6.addLayout(head_layout1)
-            l6.addLayout(head_layout2)
-            # l6.addSpacing(10)
-                        
-            # ====== GRUPO 18: SET PARAMETERS ======
-            self.tabs_set_params = QTabWidget()
-            self.tabs_set_params.setObjectName("step6_side_tabs")
-            self.tabs_set_params.setFixedHeight(600)
-            self.tabs_set_params.setFixedWidth(600)
-            
-            self.tab_setup   = QWidget()
-            self.tab_compare = QWidget()
-            self.tab_create_assign = QWidget()
-            self.tab_evaluate= QWidget()
-            self.tab_tune    = QWidget()
-            self.tab_save_load = QWidget()
-            self.tab_predict = QWidget()
-            self.tabs_set_params.addTab(self.tab_setup,   "")
-            self._tr("s5_subtab_setup", lambda txt: self.tabs_set_params.setTabText(0, txt))
-            self.tabs_set_params.addTab(self.tab_compare, "")
-            self._tr("s5_subtab_compare", lambda txt: self.tabs_set_params.setTabText(1, txt))
-            self.tabs_set_params.addTab(self.tab_create_assign, "")
-            self._tr("s5_subtab_create_assign", lambda txt: self.tabs_set_params.setTabText(2, txt))
-            self.tabs_set_params.addTab(self.tab_evaluate, "")
-            self._tr("s5_subtab_evaluate", lambda txt: self.tabs_set_params.setTabText(3, txt))
-            self.tabs_set_params.addTab(self.tab_tune,    "")
-            self._tr("s5_subtab_tunning", lambda txt: self.tabs_set_params.setTabText(4, txt))
-            self.tabs_set_params.addTab(self.tab_save_load, "")
-            self._tr("s5_subtab_save_load", lambda txt: self.tabs_set_params.setTabText(5, txt))
-            self.tabs_set_params.addTab(self.tab_predict, "")
-            self._tr("s5_subtab_predict", lambda txt: self.tabs_set_params.setTabText(6, txt))
-            self.tabs_set_params.setTabPosition(QTabWidget.West)
-            self.tabs_set_params.setTabShape(QTabWidget.Rounded)
-
-            # ---- Aba: Setup ----                      
-            lay_setup = QFormLayout(self.tab_setup)
-            self.label_sp_title = self._trL("s5_lbl_set_setup_params")
-            self.label_sp_title.setStyleSheet("font-weight: bold; font-size: 12pt;")
-            self.label_sp_title.setAlignment(Qt.AlignCenter)
-            lay_setup.addRow(self.label_sp_title)
-            # lay_setup.addRow(QLabel(""))
-
-            # Data selection:
-            self.chk_sp_internal = QCheckBox(); self._tr("chk_internal_dataframe", self.chk_sp_internal.setText); self.chk_sp_internal.setChecked(True)
-            self.chk_sp_external = QCheckBox(); self._tr("chk_external_dataframe", self.chk_sp_external.setText); self.chk_sp_external.setChecked(False)
-            lay_setup.addRow(self.chk_sp_internal, self.chk_sp_external)
-            # --- Conexões para alternância exclusiva entre chk_internal e chk_external ---
-            def on_sp_internal_changed(state):
-                if state == Qt.Checked:
-                    self.chk_sp_external.setChecked(False)
-                elif not self.chk_sp_external.isChecked():
-                    self.chk_sp_internal.setChecked(True)
-
-            def on_sp_external_changed(state):
-                if state == Qt.Checked:
-                    self.chk_sp_internal.setChecked(False)
-                elif not self.chk_sp_internal.isChecked():
-                    self.chk_sp_external.setChecked(True)
-
-            self.chk_sp_internal.stateChanged.connect(on_sp_internal_changed)
-            self.chk_sp_external.stateChanged.connect(on_sp_external_changed)
-
-            # Select Y column:
-            self.label_sp_y = self._trL("s5_lbl_select_y_column")
-            self.cb_sp_y = QComboBox(); self.cb_sp_y.setEditable(True)
-            self.cb_sp_y.addItems([""])
-            lay_setup.addRow(self.label_sp_y, self.cb_sp_y)
-
-            # n_jobs
-            self.chk_sp_n_jobs = QCheckBox("n_jobs")
-            self.sp_sp_n_jobs  = QSpinBox(); self.sp_sp_n_jobs.setRange(-1, 512); self.sp_sp_n_jobs.setValue(-1)
-            lay_setup.addRow(self.chk_sp_n_jobs, self.sp_sp_n_jobs)
-
-            # normalize
-            self.chk_sp_normalize = QCheckBox("normalize")
-            self.cb_sp_normalize  = QComboBox(); self.cb_sp_normalize.addItems(["True","False"])
-            lay_setup.addRow(self.chk_sp_normalize, self.cb_sp_normalize)
-
-            # transformation
-            self.chk_sp_transform = QCheckBox("transformation")
-            self.cb_sp_transform  = QComboBox(); self.cb_sp_transform.addItems(["True","False"])
-            lay_setup.addRow(self.chk_sp_transform, self.cb_sp_transform)
-
-            # imputation_type
-            self.chk_sp_imputation = QCheckBox("imputation_type")
-            self.cb_sp_imputation  = QComboBox(); self.cb_sp_imputation.addItems(["simple","None"])
-            lay_setup.addRow(self.chk_sp_imputation, self.cb_sp_imputation)
-
-            # remove_outliers
-            self.chk_sp_remove_outliers = QCheckBox("remove_outliers")
-            self.cb_sp_remove_outliers  = QComboBox(); self.cb_sp_remove_outliers.addItems(["True","False"])
-            lay_setup.addRow(self.chk_sp_remove_outliers, self.cb_sp_remove_outliers)
-
-            # feature_selection
-            self.chk_sp_feature_selection = QCheckBox("feature_selection")
-            self.cb_sp_feature_selection  = QComboBox(); self.cb_sp_feature_selection.addItems(["True","False"])
-            lay_setup.addRow(self.chk_sp_feature_selection, self.cb_sp_feature_selection)
-
-            # use_gpu
-            self.chk_sp_use_gpu = QCheckBox("use_gpu")
-            self.cb_sp_use_gpu  = QComboBox(); self.cb_sp_use_gpu.addItems(["Auto","True","False"])
-            lay_setup.addRow(self.chk_sp_use_gpu, self.cb_sp_use_gpu)
-
-            # fold
-            self.chk_sp_fold = QCheckBox("fold")
-            self.sp_sp_fold  = QSpinBox(); self.sp_sp_fold.setRange(2, 50); self.sp_sp_fold.setValue(10)
-            lay_setup.addRow(self.chk_sp_fold, self.sp_sp_fold)
-
-            # fold_strategy
-            self.chk_sp_fold_strategy = QCheckBox("fold_strategy")
-            self.cb_sp_fold_strategy  = QComboBox()
-            self.cb_sp_fold_strategy.addItems(["kfold","stratifiedkfold","groupkfold","timeseries","repeatedkfold","repeatedstratifiedkfold"])
-            lay_setup.addRow(self.chk_sp_fold_strategy, self.cb_sp_fold_strategy)
-
-            # data_split_shuffle
-            self.chk_sp_shuffle = QCheckBox("data_split_shuffle")
-            self.cb_sp_shuffle  = QComboBox(); self.cb_sp_shuffle.addItems(["True","False"])
-            lay_setup.addRow(self.chk_sp_shuffle, self.cb_sp_shuffle)
-
-            # data_split_stratify
-            self.chk_sp_stratify = QCheckBox("data_split_stratify")
-            self.cb_sp_stratify  = QComboBox(); self.cb_sp_stratify.addItems(["True","False"])
-            lay_setup.addRow(self.chk_sp_stratify, self.cb_sp_stratify)
-
-            # train_size
-            self.chk_sp_train = QCheckBox("train_size")
-            self.dsp_sp_train = QDoubleSpinBox(); self.dsp_sp_train.setRange(0.05, 0.95); self.dsp_sp_train.setSingleStep(0.05); self.dsp_sp_train.setValue(0.7)
-            lay_setup.addRow(self.chk_sp_train, self.dsp_sp_train)
-
-            # ignore_features
-            self.chk_sp_ignore_features = QCheckBox("ignore_features")
-            self.ed_sp_ignore_features = QLineEdit(); self.ed_sp_ignore_features.setPlaceholderText("Ex: 'Name','ID','molecule_chembl_id'"), self.ed_sp_ignore_features.setText("'Name','smiles','SMILES','Class','ID','molecule_chembl_id','zin_id'")
-            lay_setup.addRow(self.chk_sp_ignore_features, self.ed_sp_ignore_features)
-
-
-            # ---- Aba: Compare ----
-            # ===== Compare =====
-            lay_cmp = QFormLayout(self.tab_compare)
-            self.label_cmp_title = self._trL("s5_lbl_set_compare_params")
-            self.label_cmp_title.setStyleSheet("font-weight: bold; font-size: 12pt;")
-            self.label_cmp_title.setAlignment(Qt.AlignCenter)
-            lay_cmp.addRow(self.label_cmp_title)
-            # lay_cmp.addRow(QLabel(""))
-
-            # sort
-            self.chk_cmp_sort = QCheckBox("sort")
-            self.cb_cmp_sort  = QComboBox()
-            self.cb_cmp_sort.addItems(["R2","RMSE","MAE","Accuracy","AUC","F1","Recall","Precision"])
-            lay_cmp.addRow(self.chk_cmp_sort, self.cb_cmp_sort)
-
-            # cross_validation
-            self.chk_cmp_cv = QCheckBox("cross_validation")
-            self.cb_cmp_cv  = QComboBox(); self.cb_cmp_cv.addItems(["True","False"])
-            lay_cmp.addRow(self.chk_cmp_cv, self.cb_cmp_cv)
-
-            # fold
-            self.chk_cmp_fold = QCheckBox("fold")
-            self.sp_cmp_fold  = QSpinBox(); self.sp_cmp_fold.setRange(2, 50); self.sp_cmp_fold.setValue(10)
-            lay_cmp.addRow(self.chk_cmp_fold, self.sp_cmp_fold)
-
-            # n_select
-            self.chk_cmp_n_select = QCheckBox("n_select")
-            self.sp_cmp_n_select  = QSpinBox(); self.sp_cmp_n_select.setRange(1, 50); self.sp_cmp_n_select.setValue(1)
-            lay_cmp.addRow(self.chk_cmp_n_select, self.sp_cmp_n_select)
-
-            # budget_time
-            self.chk_cmp_budget = QCheckBox("budget_time (min)")
-            self.dsp_cmp_budget = QDoubleSpinBox(); self.dsp_cmp_budget.setRange(0.0, 1e6); self.dsp_cmp_budget.setDecimals(1); self.dsp_cmp_budget.setValue(0.0)
-            lay_cmp.addRow(self.chk_cmp_budget, self.dsp_cmp_budget)
-
-            # turbo
-            self.chk_cmp_turbo = QCheckBox("turbo")
-            self.cb_cmp_turbo  = QComboBox(); self.cb_cmp_turbo.addItems(["True","False"])
-            lay_cmp.addRow(self.chk_cmp_turbo, self.cb_cmp_turbo)
-
-            # use_gpu
-            self.chk_cmp_use_gpu = QCheckBox("use_gpu")
-            self.cb_cmp_use_gpu  = QComboBox(); self.cb_cmp_use_gpu.addItems(["Auto","True","False"])
-            lay_cmp.addRow(self.chk_cmp_use_gpu, self.cb_cmp_use_gpu)
-
-            # errors
-            self.chk_cmp_errors = QCheckBox("errors")
-            self.cb_cmp_errors  = QComboBox(); self.cb_cmp_errors.addItems(["ignore","raise","log"])
-            lay_cmp.addRow(self.chk_cmp_errors, self.cb_cmp_errors)
-
-            # parallel
-            self.chk_cmp_parallel = QCheckBox("parallel")
-            self.cb_cmp_parallel  = QComboBox(); self.cb_cmp_parallel.addItems(["True","False"])
-            lay_cmp.addRow(self.chk_cmp_parallel, self.cb_cmp_parallel)
-
-            # probability_threshold
-            self.chk_cmp_proba_th = QCheckBox("probability_threshold")
-            self.dsp_cmp_proba_th = QDoubleSpinBox(); self.dsp_cmp_proba_th.setRange(0.0, 1.0); self.dsp_cmp_proba_th.setDecimals(3); self.dsp_cmp_proba_th.setSingleStep(0.01); self.dsp_cmp_proba_th.setValue(0.5)
-            lay_cmp.addRow(self.chk_cmp_proba_th, self.dsp_cmp_proba_th)
-
-            # include (lista)
-            self.chk_cmp_include = QCheckBox("include model")
-            self.ed_cmp_include  = QLineEdit(); self.ed_cmp_include.setPlaceholderText("ex: rf,xgboost,et")
-            lay_cmp.addRow(self.chk_cmp_include, self.ed_cmp_include)
-
-            # exclude (lista)
-            self.chk_cmp_exclude = QCheckBox("exclude model")
-            self.ed_cmp_exclude  = QLineEdit(); self.ed_cmp_exclude.setPlaceholderText("ex: lightgbm,catboost"); self.ed_cmp_exclude.setText("lightgbm")
-            lay_cmp.addRow(self.chk_cmp_exclude, self.ed_cmp_exclude)
-            
-            # verbose
-            self.chk_cmp_verbose = QCheckBox("verbose")
-            self.cb_cmp_verbose  = QComboBox(); self.cb_cmp_verbose.addItems(["True","False"])
-            lay_cmp.addRow(self.chk_cmp_verbose, self.cb_cmp_verbose)
-
-            # ---- Aba: Evaluate ----
-            lay_eval = QFormLayout(self.tab_evaluate)
-            self.label_eval_title = self._trL("s5_lbl_set_evaluate_params")
-            self.label_eval_title.setStyleSheet("font-weight: bold; font-size: 12pt;")
-            self.label_eval_title.setAlignment(Qt.AlignCenter)
-            lay_eval.addRow(self.label_eval_title)
-            # lay_eval.addRow(QLabel(""))
-
-            # use_gpu
-            self.chk_ev_use_gpu = QCheckBox("use_gpu")
-            self.cb_ev_use_gpu  = QComboBox(); self.cb_ev_use_gpu.addItems(["Auto","True","False"])
-            lay_eval.addRow(self.chk_ev_use_gpu, self.cb_ev_use_gpu)
-            
-
-            # ---- Aba: Tune ----
-            lay_tune = QFormLayout(self.tab_tune)
-            self.label_tune_title = self._trL("s5_lbl_set_tunning_params")
-            self.label_tune_title.setStyleSheet("font-weight: bold; font-size: 12pt;")
-            self.label_tune_title.setAlignment(Qt.AlignCenter)
-            lay_tune.addRow(self.label_tune_title)
-            # lay_tune.addRow(QLabel(""))
-
-            # fold
-            self.chk_tn_fold = QCheckBox("fold")
-            self.sp_tn_fold  = QSpinBox(); self.sp_tn_fold.setRange(2, 50); self.sp_tn_fold.setValue(10)
-            lay_tune.addRow(self.chk_tn_fold, self.sp_tn_fold)
-
-            # optimize (métrica)
-            self.chk_tn_optimize = QCheckBox("Metric optimization")
-            self.cb_tn_optimize  = QComboBox(); self.cb_tn_optimize.addItems(["R2","RMSE","MAE","Accuracy","AUC","F1"])
-            lay_tune.addRow(self.chk_tn_optimize, self.cb_tn_optimize)
-
-            # choose_better
-            self.chk_tn_choose_better = QCheckBox("choose_better")
-            self.cb_tn_choose_better  = QComboBox(); self.cb_tn_choose_better.addItems(["True","False"])
-            lay_tune.addRow(self.chk_tn_choose_better, self.cb_tn_choose_better)
-
-            # n_iter
-            self.chk_tn_n_iter = QCheckBox("n_iter")
-            self.sp_tn_n_iter  = QSpinBox(); self.sp_tn_n_iter.setRange(1, 2000); self.sp_tn_n_iter.setValue(50)
-            lay_tune.addRow(self.chk_tn_n_iter, self.sp_tn_n_iter)
-
-            # search_library
-            self.chk_tn_search_lib = QCheckBox("search_library")
-            self.cb_tn_search_lib  = QComboBox(); self.cb_tn_search_lib.addItems(["auto","optuna","scikit-optimize","tune-sklearn","hyperopt"])
-            lay_tune.addRow(self.chk_tn_search_lib, self.cb_tn_search_lib)
-
-            # use_gpu
-            self.chk_tn_use_gpu = QCheckBox("use_gpu")
-            self.cb_tn_use_gpu  = QComboBox(); self.cb_tn_use_gpu.addItems(["Auto","True","False"])
-            lay_tune.addRow(self.chk_tn_use_gpu, self.cb_tn_use_gpu)
-
-            # ---- Aba: Create/Assign ----
-            lay_create = QFormLayout(self.tab_create_assign)
-            self.label_create_title = self._trL("s5_lbl_set_create_assign_params")
-            self.label_create_title.setStyleSheet("font-weight: bold; font-size: 12pt;")
-            self.label_create_title.setAlignment(Qt.AlignCenter)
-            lay_create.addRow(self.label_create_title)
-            lay_create.addRow(QLabel(""))   
-                        
-            # Create (lista)
-            self.chk_cmp_create = QCheckBox("create model")
-            self.cb_cmp_create  = QComboBox(); self.cb_cmp_create.addItems(["kmeans - K-Means Clustering","ap - Affinity Propagation","sc - Spectral Clustering","dbscan - DBSCAN","optics - OPTICS","birch - Birch", "meanshift - Mean Shift", "kmodes - K-Modes Clustering"])
-            lay_create.addRow(self.chk_cmp_create, self.cb_cmp_create)
-
-            # ---- Aba: Save/Load ----
-            lay_save_load = QFormLayout(self.tab_save_load)
-            self.label_save_load_title = self._trL("s5_lbl_set_save_params")
-            self.label_save_load_title.setStyleSheet("font-weight: bold; font-size: 12pt;")
-            self.label_save_load_title.setAlignment(Qt.AlignCenter)
-            lay_save_load.addRow(self.label_save_load_title)
-            # lay_save_load.addRow(QLabel(""))
-
-            # platform
-            self.chk_io_platform = QCheckBox("platform")
-            self.cb_io_platform  = QComboBox(); self.cb_io_platform.addItems(["sklearn"])
-            lay_save_load.addRow(self.chk_io_platform, self.cb_io_platform)
-
-            # verbose
-            self.chk_io_verbose = QCheckBox("verbose")
-            self.cb_io_verbose  = QComboBox(); self.cb_io_verbose.addItems(["True","False"])
-            lay_save_load.addRow(self.chk_io_verbose, self.cb_io_verbose)
-
-            self.label_io_model_position = self._trL("s5_lbl_compare_position")
-            self.cb_io_model_position = QComboBox()
-            self.cb_io_model_position.addItem("1 - Current best model", 1)
-            lay_save_load.addRow(self.label_io_model_position, self.cb_io_model_position)
-
-
-            # ---- Aba: Predict ----
-            lay_pred = QFormLayout(self.tab_predict)
-            self.label_pred_title = self._trL("s5_lbl_set_predict_params")
-            self.label_pred_title.setStyleSheet("font-weight: bold; font-size: 12pt;")
-            self.label_pred_title.setAlignment(Qt.AlignCenter)
-            lay_pred.addRow(self.label_pred_title)
-            # lay_pred.addRow(QLabel(""))           
-
-            # Data selection:
-            self.chk_pd_internal = QCheckBox(); self._tr("chk_internal_dataframe", self.chk_pd_internal.setText); self.chk_pd_internal.setChecked(True)
-            self.chk_pd_external = QCheckBox(); self._tr("chk_external_dataframe", self.chk_pd_external.setText); self.chk_pd_external.setChecked(False)
-            lay_pred.addRow(self.chk_pd_internal, self.chk_pd_external)
-            # --- Conexões para alternância exclusiva entre chk_internal e chk_external ---
-            def on_internal_changed(state):
-                if state == Qt.Checked:
-                    self.chk_pd_external.setChecked(False)
-                elif not self.chk_pd_external.isChecked():
-                    self.chk_pd_internal.setChecked(True)
-                self._update_predict_descriptor_range_inputs(getattr(self, "df_int", None) if self.chk_pd_internal.isChecked() else getattr(self, "df_ext", None))
-
-            def on_external_changed(state):
-                if state == Qt.Checked:
-                    self.chk_pd_internal.setChecked(False)
-                elif not self.chk_pd_internal.isChecked():
-                    self.chk_pd_external.setChecked(True)
-                self._update_predict_descriptor_range_inputs(getattr(self, "df_ext", None) if self.chk_pd_external.isChecked() else getattr(self, "df_int", None))
-
-            self.chk_pd_internal.stateChanged.connect(on_internal_changed)
-            self.chk_pd_external.stateChanged.connect(on_external_changed)
-
-            # probability_threshold
-            self.chk_pd_proba = QCheckBox("probability_threshold")
-            self.dsp_pd_proba = QDoubleSpinBox(); self.dsp_pd_proba.setRange(0.0, 1.0); self.dsp_pd_proba.setDecimals(3); self.dsp_pd_proba.setSingleStep(0.01); self.dsp_pd_proba.setValue(0.5)
-            lay_pred.addRow(self.chk_pd_proba, self.dsp_pd_proba)
-
-            # raw_score
-            self.chk_pd_raw = QCheckBox("raw_score")
-            self.cb_pd_raw  = QComboBox(); self.cb_pd_raw.addItems(["True","False"])
-            lay_pred.addRow(self.chk_pd_raw, self.cb_pd_raw)
-
-            # verbose
-            self.chk_pd_verbose = QCheckBox("verbose")
-            self.cb_pd_verbose  = QComboBox(); self.cb_pd_verbose.addItems(["True","False"])
-            lay_pred.addRow(self.chk_pd_verbose, self.cb_pd_verbose)
-
-            label_predict_descriptor_columns = self._trL("lbl_descriptors_columns_range")
-            label_predict_descriptor_columns.setStyleSheet("color: #C9D1D9; font-size: 10pt")
-            label_predict_descriptor_columns.setAlignment(Qt.AlignLeft)
-            predict_descriptor_layout = QHBoxLayout()
-            self.ed_pd_descriptor_first_column = QLineEdit(); self.ed_pd_descriptor_first_column.setToolTip("First Column Index"); self.ed_pd_descriptor_first_column.setFixedSize(70, 25); self.ed_pd_descriptor_first_column.setAlignment(Qt.AlignCenter); self.ed_pd_descriptor_first_column.setValidator(QIntValidator()); self.ed_pd_descriptor_first_column.setText("2")
-            label_predict_to = self._trL("lbl_to_short"); label_predict_to.setAlignment(Qt.AlignCenter); label_predict_to.setFixedSize(20, 25)
-            self.ed_pd_descriptor_last_column = QLineEdit(); self.ed_pd_descriptor_last_column.setToolTip("Last Column Index"); self.ed_pd_descriptor_last_column.setFixedSize(70, 25); self.ed_pd_descriptor_last_column.setAlignment(Qt.AlignCenter); self.ed_pd_descriptor_last_column.setValidator(QIntValidator())
-            predict_descriptor_layout.addWidget(self.ed_pd_descriptor_first_column)
-            predict_descriptor_layout.setSpacing(0)
-            predict_descriptor_layout.addWidget(label_predict_to)
-            predict_descriptor_layout.setSpacing(0)
-            predict_descriptor_layout.addWidget(self.ed_pd_descriptor_last_column)
-            lay_pred.addRow(label_predict_descriptor_columns, predict_descriptor_layout)
-
-            # ============== GRUPO CHART LIST ==============      
-            # Grupo 19
-            g19 = QGroupBox(); self._tr("s5_grp_chart_selection", g19.setTitle)
-            g19.setStyleSheet("QGroupBox { background-color: #F5F5F5; border: 1px solid #ccc; border-radius: 6px; }")
-           # g19.setFixedSize(400, 600)
-            g19.setFixedWidth(400)
-            g19.setFixedHeight(600)
-
-            # Layout principal do grupo
-            g19_main_layout = QVBoxLayout(g19)
-
-            chart_layout = QVBoxLayout()            
-
-            ############ REGRESSION CHARTS ############ 
-            reg_chart_layout = QVBoxLayout()
-            label_chart_reg = self._trL("lbl_regression"); label_chart_reg.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
-            self.list_chart_reg = QListWidget(); self.list_chart_reg.setSelectionMode(QAbstractItemView.MultiSelection); 
-            self.list_chart_reg.setFixedSize(360, 150)
-            self.list_chart_reg.addItems([
-                "pipeline - Pipeline schematic",
-                "residuals_interactive - Interactive Residuals",
-                "residuals - Residuals Plot",
-                "error - Prediction Error",
-                "cooks - Cook’s Distance",
-                "rfe - Recursive Feature Elimination",
-                "learning - Learning Curve",
-                "vc - Validation Curve",
-                "manifold - Manifold Learning Projection",
-                "feature - Feature Importance (Top)",
-                "feature_all - Feature Importance (All)",
-                "parameter - Model Hyperparameters",
-                "tree - Decision Tree Visualization"])        
-            reg_chart_layout.addWidget(label_chart_reg, alignment=Qt.AlignCenter)
-            reg_chart_layout.addWidget(self.list_chart_reg, alignment=Qt.AlignCenter)                  
-            
-
-            ############ CLASSIFICATION CHARTS ############
-            class_chart_layout = QVBoxLayout()
-            label_chart_class = self._trL("lbl_classification"); label_chart_class.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
-            self.list_chart_class = QListWidget(); self.list_chart_class.setSelectionMode(QAbstractItemView.MultiSelection); self.list_chart_class.setFixedSize(360, 150)
-            self.list_chart_class.addItems([
-                "auc - ROC Curve (Area Under the Curve)",
-                "threshold - Decision Threshold Curve",
-                "pr - Precision-Recall Curve",
-                "confusion_matrix - Confusion Matrix",
-                "error - Prediction Error Plot",
-                "class_report - Precision, Recall, F1-Score",
-                "boundary - Decision Boundary Visualization (2D)",
-                "rfe - Recursive Feature Elimination",
-                "learning - Learning Curve (Train vs Validation)",
-                "manifold - Manifold Projection (2D/3D structure)",
-                "calibration - Probability Calibration Curve",
-                "vc - Validation Curve (Hyperparameter Effect)",
-                "dimension - Dimensionality Effect Plot",
-                "feature - Feature Importance (Top Features)",
-                "feature_all - Feature Importance (All Features)",
-                "parameter - Model Hyperparameters Visualization",
-                "lift - Lift Curve (Model Gain vs Random)",
-                "gain - Cumulative Gain Chart",
-                "tree - Decision Tree Visualization",
-                "ks - Kolmogorov–Smirnov (KS) Curve"])
-            class_chart_layout.addWidget(label_chart_class, alignment=Qt.AlignCenter)
-            class_chart_layout.addWidget(self.list_chart_class, alignment=Qt.AlignCenter)    
-
-            
-            ############ CLUSTERING CHARTS ############
-            clust_chart_layout = QVBoxLayout()
-            label_chart_clust = self._trL("lbl_clustering"); label_chart_clust.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
-            self.list_chart_clust = QListWidget(); self.list_chart_clust.setSelectionMode(QAbstractItemView.MultiSelection); self.list_chart_clust.setFixedSize(360, 100)
-            self.list_chart_clust.addItems([
-                "cluster - Cluster PCA Projection (2D)",
-                "tsne - t-SNE Projection (3D or 2D)",
-                "elbow - Elbow Method",
-                "silhouette - Silhouette Plot",
-                "distance - Distance Matrix Heatmap",
-                "distribution - Feature Distribution by Cluster"])
-            clust_chart_layout.addWidget(label_chart_clust, alignment=Qt.AlignCenter)
-            clust_chart_layout.addWidget(self.list_chart_clust, alignment=Qt.AlignCenter)
-
-            chart_layout.addLayout(reg_chart_layout)
-            chart_layout.addLayout(class_chart_layout)
-            chart_layout.addLayout(clust_chart_layout)
-
-            # Botão para plotar os modelos:
-            self.btn_pycaret_plot_model = QPushButton()
-            self._tr("btn_plot_model", self.btn_pycaret_plot_model.setText)
-            self.btn_pycaret_plot_model.setFixedWidth(100)
-            self.btn_pycaret_plot_model.setStyleSheet("""
-                QPushButton {
-                    background: #FFE5D0;  /* Laranja claro */
-                    color: #C9D1D9;
-                    font-size: 10pt; font-weight: bold;        
-                }
-                QPushButton:hover, QPushButton:pressed {
-                    background: #FF5733;   /* Laranja ao passar o mouse */
-                    color: #000000;
-                }
-                QPushButton:pressed {
-                background-color: #E6BFA8;   /* Laranja escuro ao clicar */
-                color: #000000;  /* Preto */
-            }                                
-            """)
-            self.btn_pycaret_plot_model.clicked.connect(self.run_pycaret_plot)
-
-            g19_main_layout.addLayout(chart_layout)
-            g19_main_layout.addSpacing(10)
-            g19_main_layout.addWidget(self.btn_pycaret_plot_model, alignment=Qt.AlignCenter)            
-            g19_main_layout.addStretch()
-
-            # ============== GRUPO CHART LIST ==============      
-            # Grupo 20
-            g20 = QGroupBox()
-            g20.setStyleSheet("QGroupBox {background-color: #F5F5F5; border: 1px solid #ccc; border-radius: 6px; }")
-            #g20.setFixedSize(150, 600)
-            g20.setFixedWidth(150)
-            g20.setFixedHeight(600)
-
-            # Layout principal do grupo
-            g20_main_layout = QVBoxLayout(g20)
-
-            # Botão para rodar o setup:
-            self.btn_pycaret_setup = QPushButton(); self._tr("s5_subtab_setup", self.btn_pycaret_setup.setText); self.btn_pycaret_setup.setProperty("role", "secondary");
-            self.btn_pycaret_setup.setFixedWidth(75)
-            self.btn_pycaret_setup.setStyleSheet("""
-                QPushButton {
-                    background: #FFE5D0;  /* Laranja claro */
-                    color: #C9D1D9;
-                    font-size: 10pt; font-weight: bold;        
-                }
-                QPushButton:hover, QPushButton:pressed {
-                    background: #FF5733;   /* Laranja ao passar o mouse */
-                    color: #000000;
-                }
-                QPushButton:pressed {
-                background-color: #E6BFA8;   /* Laranja escuro ao clicar */
-                color: #000000;  /* Preto */
-            }                                
-            """)        
-            g20_main_layout.addWidget(self.btn_pycaret_setup, alignment=Qt.AlignCenter)
-            self.btn_pycaret_setup.clicked.connect(self.run_pycaret_setup)
-            
-            # Botão para rodar o compare:
-            self.btn_pycaret_compare = QPushButton(); self._tr("s5_subtab_compare", self.btn_pycaret_compare.setText); self.btn_pycaret_compare.setProperty("role", "secondary");
-            self.btn_pycaret_compare.setFixedWidth(75)
-            g20_main_layout.addWidget(self.btn_pycaret_compare, alignment=Qt.AlignCenter)
-            self.btn_pycaret_compare.clicked.connect(self.run_pycaret_compare)
-            
-            # Botão para rodar o evaluate:
-            self.btn_pycaret_eval = QPushButton(); self._tr("s5_subtab_evaluate", self.btn_pycaret_eval.setText); self.btn_pycaret_eval.setProperty("role", "secondary");
-            self.btn_pycaret_eval.setFixedWidth(75)
-            g20_main_layout.addWidget(self.btn_pycaret_eval, alignment=Qt.AlignCenter)
-            self.btn_pycaret_eval.clicked.connect(self.run_pycaret_evaluate)
-
-            # Botão para rodar o tunning:
-            self.btn_pycaret_tune = QPushButton(); self._tr("s5_subtab_tunning", self.btn_pycaret_tune.setText); self.btn_pycaret_tune.setProperty("role", "secondary");
-            self.btn_pycaret_tune.setFixedWidth(75)
-            g20_main_layout.addWidget(self.btn_pycaret_tune, alignment=Qt.AlignCenter)
-            self.btn_pycaret_tune.clicked.connect(self.run_pycaret_tune)
-
-            # Botão para rodar o create:
-            self.btn_pycaret_create = QPushButton(); self._tr("btn_create", self.btn_pycaret_create.setText); self.btn_pycaret_create.setProperty("role", "secondary");
-            self.btn_pycaret_create.setFixedWidth(75)
-            g20_main_layout.addWidget(self.btn_pycaret_create, alignment=Qt.AlignCenter)
-            # self.btn_pycaret_create.clicked.connect(self.run_pycaret_create)
-            
-            # Botão para rodar o assign:
-            self.btn_pycaret_assign = QPushButton(); self._tr("btn_assign", self.btn_pycaret_assign.setText); self.btn_pycaret_assign.setProperty("role", "secondary");
-            self.btn_pycaret_assign.setFixedWidth(75)
-            g20_main_layout.addWidget(self.btn_pycaret_assign, alignment=Qt.AlignCenter)
-            # self.btn_pycaret_assign.clicked.connect(self.run_pycaret_assign)
-
-            # Botão para rodar o save:
-            self.btn_pycaret_save = QPushButton(); self._tr("btn_save", self.btn_pycaret_save.setText); self.btn_pycaret_save.setProperty("role", "primary");
-            self.btn_pycaret_save.setFixedWidth(75)
-            self.btn_pycaret_save.setStyleSheet("""
-                QPushButton {
-                    background: #FFE5D0;  /* Laranja claro */
-                    color: #C9D1D9;
-                    font-size: 10pt; font-weight: bold;        
-                }
-                QPushButton:hover, QPushButton:pressed {
-                    background: #FF5733;   /* Laranja ao passar o mouse */
-                    color: #000000;
-                }
-                QPushButton:pressed {
-                background-color: #E6BFA8;   /* Laranja escuro ao clicar */
-                color: #000000;  /* Preto */
-            }                                
-            """)
-            g20_main_layout.addWidget(self.btn_pycaret_save, alignment=Qt.AlignCenter)
-            self.btn_pycaret_save.clicked.connect(self.run_pycaret_save)
-
-            # Botão para rodar o load:              
-            self.btn_pycaret_load = QPushButton(); self._tr("btn_load", self.btn_pycaret_load.setText); self.btn_pycaret_load.setProperty("role", "select");
-            self.btn_pycaret_load.setFixedWidth(75)
-            self.btn_pycaret_load.setStyleSheet("""
-                QPushButton {
-                    background: #FFE5D0;  /* Laranja claro */
-                    color: #C9D1D9;
-                    font-size: 10pt; font-weight: bold;        
-                }
-                QPushButton:hover, QPushButton:pressed {
-                    background: #FF5733;   /* Laranja ao passar o mouse */
-                    color: #000000;
-                }
-                QPushButton:pressed {
-                background-color: #E6BFA8;   /* Laranja escuro ao clicar */
-                color: #000000;  /* Preto */
-            }                                
-            """)
-            g20_main_layout.addWidget(self.btn_pycaret_load, alignment=Qt.AlignCenter)
-            self.btn_pycaret_load.clicked.connect(self.run_pycaret_load)
-            
-            # Botão para fazer previsões:
-            # btn_row_predict = QWidget()
-            # btn_lay_predict = QHBoxLayout(btn_row_predict)
-            self.btn_pycaret_predict = QPushButton(); self._tr("s5_subtab_predict", self.btn_pycaret_predict.setText); self.btn_pycaret_predict.setProperty("role", "danger");
-            self.btn_pycaret_predict.setFixedWidth(75)
-            self.btn_pycaret_predict.setStyleSheet("""
-                QPushButton {
-                    background: #FFE5D0;  /* Laranja claro */
-                    color: #C9D1D9;
-                    font-size: 10pt; font-weight: bold;        
-                }
-                QPushButton:hover, QPushButton:pressed {
-                    background: #FF5733;   /* Laranja ao passar o mouse */
-                    color: #000000;
-                }
-                QPushButton:pressed {
-                background-color: #E6BFA8;   /* Laranja escuro ao clicar */
-                color: #000000;  /* Preto */
-            }                                
-            """)
-            g20_main_layout.addWidget(self.btn_pycaret_predict, alignment=Qt.AlignCenter)
-            self.btn_pycaret_predict.clicked.connect(self.run_pycaret_predict)              
-
-            # ============== ORGANIZAÇÃO DOS LAYOUTS DA ABA ==============
-
-            # Layout do grupo 18, 19 e 20 lado a lado:
-            lay_18_19_20 = QHBoxLayout()
-            lay_18_19_20.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
-            lay_18_19_20.addWidget(self.tabs_set_params, alignment=Qt.AlignTop)
-            lay_18_19_20.addWidget(g20, alignment=Qt.AlignTop)
-            lay_18_19_20.addWidget(g19, alignment=Qt.AlignTop)
-            l6.addLayout(lay_18_19_20)
-            # l6.addWidget(g20, alignment=Qt.AlignCenter)
-            l6.addStretch()
-
-            # ============== ORGANIZAÇÃO DOS BOTÕES NEXT/BACK ==============
-            # Botão para o próximo:
-            layout_btn_back_next7 = QHBoxLayout()
-
-            # Botão BACK:
-            back_btn7 = QPushButton()
-            self._tr("btn_back", back_btn7.setText)
-
-            back_btn7.setProperty("role", "nav")
-            back_btn7.setFixedWidth(200)
-            back_btn7.setStyleSheet("""
-                QPushButton {
-                    background: transparent;
-                    border: none;
-                    color: #cccccc;
-                    font-size: 12pt;
-                    font-weight: bold;
-                }
-                QPushButton:hover, QPushButton:pressed {
-                    color: #000000;
-                    background: transparent;
-                    border: none;
-                }
-            """)
-            back_btn7.clicked.connect(lambda: self.tabs.setCurrentIndex(5))
-
-            # Botão NEXT:
-            next_btn7 = QPushButton()
-            self._tr("btn_next", next_btn7.setText)
-
-            next_btn7.setProperty("role", "nav")
-            next_btn7.setFixedWidth(200)
-            next_btn7.setStyleSheet("""
-                QPushButton {
-                    background: transparent;
-                    border: none;
-                    color: #cccccc;
-                    font-size: 12pt;
-                    font-weight: bold;
-                }
-                QPushButton:hover, QPushButton:pressed {
-                    color: #000000;
-                    background: transparent;
-                    border: none;
-                }
-            """)
-            next_btn7.clicked.connect(lambda: self.tabs.setCurrentIndex(7))
-
-            layout_btn_back_next7.addWidget(back_btn7, alignment=Qt.AlignLeft)
-            layout_btn_back_next7.addWidget(next_btn7, alignment=Qt.AlignRight)
-
-            l6.addLayout(layout_btn_back_next7)
-        except Exception as e:
-            import traceback; traceback.print_exc()
-            QMessageBox.warning(
-                self, i18n.t("msg_step5_build_error_title", self._idioma),
-                i18n.t("msg_step5_build_error", self._idioma, e=e)
-            )
-
-        # ==============================================================================================================================================
         # ============================ ETAPA 6 – SCREENING, TUNING, VALIDAÇÃO E APLICAÇÃO DE MODELOS (SCIKIT-LEARN) =====================================
         # ==============================================================================================================================================
         try:
             t_skl = QWidget(); outer_skl = QVBoxLayout(t_skl)
             outer_skl.setContentsMargins(0, 0, 0, 0)
-            self.tabs.addTab(t_skl, "STEP 6")
-            self._tr("tab_step6", lambda txt: self.tabs.setTabText(7, txt))
+            self.tabs.addTab(t_skl, "STEP 5")
+            self._tr("tab_step5", lambda txt: self.tabs.setTabText(6, txt))
 
             scroll_skl = QScrollArea()
             scroll_skl.setWidgetResizable(True)
@@ -18786,7 +16698,7 @@ class MainWindow(QMainWindow):
             scroll_skl.setWidget(inner_skl)
             outer_skl.addWidget(scroll_skl)
 
-            l_skl.addWidget(self._mk_title("title_step6"))
+            l_skl.addWidget(self._mk_title("title_step5"))
             l_skl.addSpacing(10)
 
             # ---------- HEADER: DataFrame selection, Random State, USI, Y column ----------
@@ -19186,7 +17098,7 @@ class MainWindow(QMainWindow):
                     border: none;
                 }
             """)
-            back_btn_skl.clicked.connect(lambda: self.tabs.setCurrentIndex(6))
+            back_btn_skl.clicked.connect(lambda: self.tabs.setCurrentIndex(5))
 
             next_btn_skl = QPushButton()
 
@@ -19196,7 +17108,7 @@ class MainWindow(QMainWindow):
             next_btn_skl.setProperty("role", "nav")
             next_btn_skl.setFixedWidth(200)
             next_btn_skl.setStyleSheet(back_btn_skl.styleSheet())
-            next_btn_skl.clicked.connect(lambda: self.tabs.setCurrentIndex(8))
+            next_btn_skl.clicked.connect(lambda: self.tabs.setCurrentIndex(7))
 
             layout_btn_back_next_skl.addWidget(back_btn_skl, alignment=Qt.AlignLeft)
             layout_btn_back_next_skl.addWidget(next_btn_skl, alignment=Qt.AlignRight)
@@ -19222,8 +17134,8 @@ class MainWindow(QMainWindow):
         except Exception as e:
             import traceback; traceback.print_exc()
             QMessageBox.warning(
-                self, i18n.t("msg_step6_build_error_title", self._idioma),
-                i18n.t("msg_step6_build_error", self._idioma, e=e)
+                self, i18n.t("msg_step5_build_error_title", self._idioma),
+                i18n.t("msg_step5_build_error", self._idioma, e=e)
             )
 
         # ==============================================================================================================================================
@@ -19232,9 +17144,9 @@ class MainWindow(QMainWindow):
         try:
             # Layout principal da aba para gerar descritores:
             t7 = QWidget(); l7 = QVBoxLayout(t7)
-            self.tabs.addTab(t7, "STEP 7")
-            self._tr("tab_step7", lambda txt: self.tabs.setTabText(8, txt))
-            l7.addWidget(self._mk_title("title_step7"))
+            self.tabs.addTab(t7, "STEP 6")
+            self._tr("tab_step6", lambda txt: self.tabs.setTabText(7, txt))
+            l7.addWidget(self._mk_title("title_step6"))
             l7.addSpacing(10)
 
             head_lay1 = QHBoxLayout()
@@ -19395,7 +17307,7 @@ class MainWindow(QMainWindow):
                     border: none;
                 }
             """)
-            back_btn6.clicked.connect(lambda: self.tabs.setCurrentIndex(7))
+            back_btn6.clicked.connect(lambda: self.tabs.setCurrentIndex(6))
 
             # Botão NEXT:
             next_btn6 = QPushButton()
@@ -19417,7 +17329,7 @@ class MainWindow(QMainWindow):
                     border: none;
                 }
             """)
-            next_btn6.clicked.connect(lambda: self.tabs.setCurrentIndex(9))
+            next_btn6.clicked.connect(lambda: self.tabs.setCurrentIndex(8))
 
             layout_btn_back_next6.addWidget(back_btn6, alignment=Qt.AlignLeft)
             layout_btn_back_next6.addWidget(next_btn6, alignment=Qt.AlignRight)
@@ -19426,8 +17338,8 @@ class MainWindow(QMainWindow):
         except Exception as e:
             import traceback; traceback.print_exc()
             QMessageBox.warning(
-                self, i18n.t("msg_step7_build_error_title", self._idioma),
-                i18n.t("msg_step7_build_error", self._idioma, e=e)
+                self, i18n.t("msg_step6_build_error_title", self._idioma),
+                i18n.t("msg_step6_build_error", self._idioma, e=e)
             )
 
         # ==============================================================================================================================================
@@ -19435,9 +17347,9 @@ class MainWindow(QMainWindow):
         # ==============================================================================================================================================
         try:
             t8 = QWidget(); l8 = QVBoxLayout(t8)
-            self.tabs.addTab(t8, "STEP 8")
-            self._tr("tab_step8", lambda txt: self.tabs.setTabText(9, txt))
-            l8.addWidget(self._mk_title("title_step8"))
+            self.tabs.addTab(t8, "STEP 7")
+            self._tr("tab_step7", lambda txt: self.tabs.setTabText(8, txt))
+            l8.addWidget(self._mk_title("title_step7"))
             l8.addSpacing(10)
 
             g21 = QGroupBox()
@@ -19658,7 +17570,7 @@ class MainWindow(QMainWindow):
                     border: none;
                 }
             """)
-            back_btn8.clicked.connect(lambda: self.tabs.setCurrentIndex(8))
+            back_btn8.clicked.connect(lambda: self.tabs.setCurrentIndex(7))
 
             next_btn8 = QPushButton()
 
@@ -19681,7 +17593,7 @@ class MainWindow(QMainWindow):
                     border: none;
                 }
             """)
-            next_btn8.clicked.connect(lambda: self.tabs.setCurrentIndex(10))
+            next_btn8.clicked.connect(lambda: self.tabs.setCurrentIndex(9))
 
             layout_btn_back_next8.addWidget(back_btn8, alignment=Qt.AlignLeft)
             layout_btn_back_next8.addWidget(next_btn8, alignment=Qt.AlignRight)
@@ -19689,8 +17601,8 @@ class MainWindow(QMainWindow):
         except Exception as e:
             import traceback; traceback.print_exc()
             QMessageBox.warning(
-                self, i18n.t("msg_step8_build_error_title", self._idioma),
-                i18n.t("msg_step8_build_error", self._idioma, e=e)
+                self, i18n.t("msg_step7_build_error_title", self._idioma),
+                i18n.t("msg_step7_build_error", self._idioma, e=e)
             )
 
         # ==============================================================================================================================================
@@ -19699,7 +17611,7 @@ class MainWindow(QMainWindow):
         try:
             t9 = QWidget(); l9 = QVBoxLayout(t9)
             self.tabs.addTab(t9, "EDIT")
-            self._tr("tab_edit", lambda txt: self.tabs.setTabText(10, txt))
+            self._tr("tab_edit", lambda txt: self.tabs.setTabText(9, txt))
             l9.addWidget(self._mk_title("title_edit"))
             l9.addSpacing(10)
 
@@ -20096,7 +18008,7 @@ class MainWindow(QMainWindow):
                     border: none;
                 }
             """)
-            back_btn9.clicked.connect(lambda: self.tabs.setCurrentIndex(9))
+            back_btn9.clicked.connect(lambda: self.tabs.setCurrentIndex(8))
 
             layout_btn_back_next9.addWidget(back_btn9, alignment=Qt.AlignLeft)
             l9.addLayout(layout_btn_back_next9)
@@ -20263,9 +18175,8 @@ class MainWindow(QMainWindow):
 
     def _refresh_skl_usi_combo(self):
         """Repopula o dropdown do combobox USI com os códigos existentes em RESULTS/USI/ que possuem
-        uma sessão STEP 6 (marcados pela presença de skl_session.json na própria pasta da USI, já que
-        DATA/MIDIA/MODELS/PREDICTIONS são compartilhadas com a STEP 5/PyCaret), preservando o texto
-        atualmente exibido/digitado."""
+        uma sessão STEP 5 (marcados pela presença de skl_session.json na própria pasta da USI),
+        preservando o texto atualmente exibido/digitado."""
         if not hasattr(self, "ed_skl_USI") or self.ed_skl_USI is None:
             return
         job_dir = getattr(self, "job_dir", None)
@@ -20493,6 +18404,8 @@ class MainWindow(QMainWindow):
                     "residuals - Residuals Plot",
                     "feature_importance - Feature Importance (Top 15)",
                     "learning_curve - Learning Curve",
+                    "manifold - t-SNE Projection (colored by residual)",
+                    "tree - Decision Tree Diagram",
                 ])
             elif task == "classification":
                 self.list_skl_charts.addItems([
@@ -20501,10 +18414,22 @@ class MainWindow(QMainWindow):
                     "class_report - Classification Report",
                     "feature_importance - Feature Importance (Top 15)",
                     "learning_curve - Learning Curve",
+                    "pr - Precision-Recall Curve",
+                    "threshold - Precision/Recall/F1 vs Threshold",
+                    "calibration - Calibration Curve",
+                    "lift - Lift Curve",
+                    "gain - Cumulative Gains Curve",
+                    "ks - Kolmogorov-Smirnov Statistic",
+                    "manifold - t-SNE Projection (colored by class)",
+                    "tree - Decision Tree Diagram",
                 ])
             elif task == "clustering":
                 self.list_skl_charts.addItems([
                     "pca_scatter - 2D PCA Scatter (colored by cluster)",
+                    "tsne - 2D t-SNE Scatter (colored by cluster)",
+                    "elbow - Elbow Method",
+                    "silhouette - Silhouette Plot",
+                    "distribution - Cluster Size Distribution",
                 ])
 
         is_clustering = (task == "clustering")
@@ -20801,9 +18726,8 @@ class MainWindow(QMainWindow):
         self._save_skl_train_test_data()
         self._save_skl_session_config()
         self._save_step6_sklearn_state()
-        # skl_session.json só passa a existir agora — sem essa pasta ter uma subpasta SKLEARN própria
-        # (compartilha DATA/MIDIA/MODELS/PREDICTIONS com a STEP 5/PyCaret), o combobox USI só consegue
-        # detectar esse código como uma sessão STEP 6 depois que o arquivo é gravado.
+        # skl_session.json só passa a existir agora, então o combobox USI só consegue detectar
+        # esse código como uma sessão STEP 5 depois que o arquivo é gravado.
         self._refresh_skl_usi_combo()
 
         try:
@@ -21432,7 +19356,10 @@ class MainWindow(QMainWindow):
         # skl_y_test). Um modelo obtido via Load (sem nunca ter rodado Screening nesta sessão) não tem
         # esses atributos definidos — sem essa checagem, o acesso direto abaixo derruba a interface com
         # AttributeError em vez de avisar o usuário.
-        needs_test_split = kind in ("predicted_vs_actual", "residuals", "confusion_matrix", "roc_auc", "class_report")
+        needs_test_split = kind in (
+            "predicted_vs_actual", "residuals", "confusion_matrix", "roc_auc", "class_report",
+            "manifold", "pr", "threshold", "calibration", "lift", "gain", "ks",
+        )
         if needs_test_split and (getattr(self, "skl_x_test", None) is None or getattr(self, "skl_y_test", None) is None):
             QMessageBox.warning(self, i18n.t("msg_title_plot", self._idioma),
                 "This chart needs the train/test split from Run Screening. Run Screening at least once "
@@ -21482,6 +19409,33 @@ class MainWindow(QMainWindow):
             fig.tight_layout()
             return fig
 
+        if kind == "manifold" and task in ("regression", "classification"):
+            n_samples = len(self.skl_x_test)
+            if n_samples < 4:
+                QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma), "Not enough test samples for a t-SNE projection.")
+                return None
+            perplexity = min(30, max(2, n_samples - 1))
+            tsne = TSNE(n_components=2, random_state=self._get_skl_random_state(), perplexity=perplexity)
+            coords = tsne.fit_transform(self.skl_x_test)
+            fig, ax = plt.subplots(figsize=(6, 5))
+            if task == "regression":
+                y_pred = model.predict(self.skl_x_test)
+                color_vals = np.abs(self.skl_y_test - y_pred)
+                scatter = ax.scatter(coords[:, 0], coords[:, 1], c=color_vals, cmap="viridis", alpha=0.7)
+                fig.colorbar(scatter, ax=ax, label="|Residual|")
+                ax.set_title(f"{model_name}: t-SNE Projection (colored by |residual|)")
+            else:
+                classes = sorted(set(self.skl_y_test))
+                class_to_idx = {c: i for i, c in enumerate(classes)}
+                color_vals = [class_to_idx[c] for c in self.skl_y_test]
+                scatter = ax.scatter(coords[:, 0], coords[:, 1], c=color_vals, cmap="tab10", alpha=0.7)
+                cbar = fig.colorbar(scatter, ax=ax, ticks=range(len(classes)))
+                cbar.ax.set_yticklabels([str(c) for c in classes])
+                cbar.set_label("Class")
+                ax.set_title(f"{model_name}: t-SNE Projection (colored by class)")
+            ax.set_xlabel("t-SNE 1"); ax.set_ylabel("t-SNE 2")
+            return fig
+
         if kind == "feature_importance":
             importances = getattr(model, "feature_importances_", None)
             if importances is None:
@@ -21512,6 +19466,23 @@ class MainWindow(QMainWindow):
             ax.set_xlabel("Training examples"); ax.set_ylabel("Score")
             ax.set_title(f"{model_name}: Learning Curve")
             ax.legend()
+            return fig
+
+        if kind == "tree":
+            target_tree_model = model
+            note = ""
+            if not hasattr(target_tree_model, "tree_"):
+                estimators = getattr(target_tree_model, "estimators_", None)
+                if estimators is not None and len(estimators) > 0 and hasattr(estimators[0], "tree_"):
+                    target_tree_model = estimators[0]
+                    note = " (first estimator of the ensemble)"
+                else:
+                    QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma), f"{model_name} is not a decision tree and has no tree-based estimators to plot.")
+                    return None
+            feat_names = list(self.skl_x_train.columns) if getattr(self, "skl_x_train", None) is not None else None
+            fig, ax = plt.subplots(figsize=(14, 8))
+            plot_tree(target_tree_model, feature_names=feat_names, filled=True, max_depth=3, fontsize=8, ax=ax)
+            ax.set_title(f"{model_name}: Decision Tree{note} (max depth shown: 3)")
             return fig
 
         if kind == "confusion_matrix" and task == "classification":
@@ -21554,6 +19525,136 @@ class MainWindow(QMainWindow):
             ax.legend(loc="lower right")
             return fig
 
+        if kind == "pr" and task == "classification":
+            if not hasattr(model, "predict_proba"):
+                QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma), f"{model_name} does not support predict_proba.")
+                return None
+            classes = sorted(set(self.skl_y_test))
+            if len(classes) != 2:
+                QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma), "The Precision-Recall Curve is only available for binary classification.")
+                return None
+            y_score = model.predict_proba(self.skl_x_test)[:, 1]
+            precision, recall, _ = precision_recall_curve(self.skl_y_test, y_score, pos_label=classes[1])
+            fig, ax = plt.subplots(figsize=(6, 5))
+            ax.plot(recall, precision, color="tomato")
+            ax.set_xlabel("Recall"); ax.set_ylabel("Precision")
+            ax.set_title(f"{model_name}: Precision-Recall Curve")
+            return fig
+
+        if kind == "threshold" and task == "classification":
+            if not hasattr(model, "predict_proba"):
+                QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma), f"{model_name} does not support predict_proba.")
+                return None
+            classes = sorted(set(self.skl_y_test))
+            if len(classes) != 2:
+                QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma), "The Threshold plot is only available for binary classification.")
+                return None
+            y_score = model.predict_proba(self.skl_x_test)[:, 1]
+            precision, recall, thresholds = precision_recall_curve(self.skl_y_test, y_score, pos_label=classes[1])
+            f1_scores = np.where((precision + recall) > 0, 2 * precision * recall / (precision + recall + 1e-12), 0.0)
+            fig, ax = plt.subplots(figsize=(7, 5))
+            ax.plot(thresholds, precision[:-1], label="Precision", color="steelblue")
+            ax.plot(thresholds, recall[:-1], label="Recall", color="tomato")
+            ax.plot(thresholds, f1_scores[:-1], label="F1", color="seagreen")
+            ax.set_xlabel("Threshold"); ax.set_ylabel("Score")
+            ax.set_title(f"{model_name}: Precision / Recall / F1 vs Threshold")
+            ax.legend()
+            return fig
+
+        if kind == "calibration" and task == "classification":
+            if not hasattr(model, "predict_proba"):
+                QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma), f"{model_name} does not support predict_proba.")
+                return None
+            classes = sorted(set(self.skl_y_test))
+            if len(classes) != 2:
+                QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma), "The Calibration Curve is only available for binary classification.")
+                return None
+            y_score = model.predict_proba(self.skl_x_test)[:, 1]
+            y_true_bin = np.asarray(self.skl_y_test == classes[1]).astype(int)
+            frac_pos, mean_pred = calibration_curve(y_true_bin, y_score, n_bins=10)
+            fig, ax = plt.subplots(figsize=(6, 5))
+            ax.plot(mean_pred, frac_pos, marker="o", color="tomato", label=model_name)
+            ax.plot([0, 1], [0, 1], "k--", label="Perfectly calibrated")
+            ax.set_xlabel("Mean Predicted Probability"); ax.set_ylabel("Fraction of Positives")
+            ax.set_title(f"{model_name}: Calibration Curve")
+            ax.legend()
+            return fig
+
+        if kind == "lift" and task == "classification":
+            if not hasattr(model, "predict_proba"):
+                QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma), f"{model_name} does not support predict_proba.")
+                return None
+            classes = sorted(set(self.skl_y_test))
+            if len(classes) != 2:
+                QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma), "The Lift Curve is only available for binary classification.")
+                return None
+            y_score = model.predict_proba(self.skl_x_test)[:, 1]
+            y_true_bin = np.asarray(self.skl_y_test == classes[1]).astype(int)
+            order = np.argsort(-y_score)
+            y_sorted = y_true_bin[order]
+            overall_rate = y_sorted.mean()
+            n = len(y_sorted)
+            deciles = np.linspace(0.1, 1.0, 10)
+            lift_values = [
+                (y_sorted[:max(1, int(round(frac * n)))].mean() / overall_rate) if overall_rate > 0 else 0.0
+                for frac in deciles
+            ]
+            fig, ax = plt.subplots(figsize=(6, 5))
+            ax.plot(deciles * 100, lift_values, marker="o", color="tomato", label=model_name)
+            ax.axhline(1.0, linestyle="--", color="gray", label="Baseline")
+            ax.set_xlabel("% of Population (sorted by predicted probability)"); ax.set_ylabel("Lift")
+            ax.set_title(f"{model_name}: Lift Curve")
+            ax.legend()
+            return fig
+
+        if kind == "gain" and task == "classification":
+            if not hasattr(model, "predict_proba"):
+                QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma), f"{model_name} does not support predict_proba.")
+                return None
+            classes = sorted(set(self.skl_y_test))
+            if len(classes) != 2:
+                QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma), "The Cumulative Gains Curve is only available for binary classification.")
+                return None
+            y_score = model.predict_proba(self.skl_x_test)[:, 1]
+            y_true_bin = np.asarray(self.skl_y_test == classes[1]).astype(int)
+            order = np.argsort(-y_score)
+            y_sorted = y_true_bin[order]
+            n = len(y_sorted)
+            total_positives = y_sorted.sum()
+            cum_gains = np.cumsum(y_sorted) / total_positives if total_positives > 0 else np.zeros(n)
+            pop_frac = np.arange(1, n + 1) / n
+            fig, ax = plt.subplots(figsize=(6, 5))
+            ax.plot(pop_frac * 100, cum_gains * 100, color="tomato", label=model_name)
+            ax.plot([0, 100], [0, 100], "k--", label="Baseline")
+            ax.set_xlabel("% of Population (sorted by predicted probability)"); ax.set_ylabel("% of Positives Captured")
+            ax.set_title(f"{model_name}: Cumulative Gains Curve")
+            ax.legend()
+            return fig
+
+        if kind == "ks" and task == "classification":
+            if not hasattr(model, "predict_proba"):
+                QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma), f"{model_name} does not support predict_proba.")
+                return None
+            classes = sorted(set(self.skl_y_test))
+            if len(classes) != 2:
+                QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma), "The KS plot is only available for binary classification.")
+                return None
+            y_score = model.predict_proba(self.skl_x_test)[:, 1]
+            fpr, tpr, thresholds = roc_curve(self.skl_y_test, y_score, pos_label=classes[1])
+            finite_mask = np.isfinite(thresholds)
+            thresholds, fpr, tpr = thresholds[finite_mask], fpr[finite_mask], tpr[finite_mask]
+            ks_diff = tpr - fpr
+            ks_idx = ks_diff.argmax()
+            ks_stat = ks_diff[ks_idx]
+            fig, ax = plt.subplots(figsize=(7, 5))
+            ax.plot(thresholds, tpr, label="TPR (sensitivity)", color="tomato")
+            ax.plot(thresholds, fpr, label="FPR", color="steelblue")
+            ax.axvline(thresholds[ks_idx], linestyle="--", color="gray", label=f"KS = {ks_stat:.3f} @ {thresholds[ks_idx]:.3f}")
+            ax.set_xlabel("Threshold"); ax.set_ylabel("Rate")
+            ax.set_title(f"{model_name}: Kolmogorov-Smirnov Statistic")
+            ax.legend()
+            return fig
+
         if kind == "class_report" and task == "classification":
             y_pred = model.predict(self.skl_x_test)
             report = classification_report(self.skl_y_test, y_pred, output_dict=True)
@@ -21578,6 +19679,89 @@ class MainWindow(QMainWindow):
             ax.set_xlabel("PC1"); ax.set_ylabel("PC2")
             ax.set_title(f"{model_name}: PCA Scatter by Cluster")
             fig.colorbar(scatter, ax=ax, label="Cluster")
+            return fig
+
+        if kind == "tsne" and task == "clustering":
+            x = getattr(self, "skl_x", None)
+            if x is None:
+                return None
+            labels = model.labels_ if hasattr(model, "labels_") else model.predict(x)
+            n_samples = len(x)
+            perplexity = min(30, max(2, n_samples - 1))
+            tsne = TSNE(n_components=2, random_state=self._get_skl_random_state(), perplexity=perplexity)
+            coords = tsne.fit_transform(x)
+            fig, ax = plt.subplots(figsize=(6, 5))
+            scatter = ax.scatter(coords[:, 0], coords[:, 1], c=labels, cmap="tab10", alpha=0.7)
+            ax.set_xlabel("t-SNE 1"); ax.set_ylabel("t-SNE 2")
+            ax.set_title(f"{model_name}: t-SNE Scatter by Cluster")
+            fig.colorbar(scatter, ax=ax, label="Cluster")
+            return fig
+
+        if kind == "elbow" and task == "clustering":
+            x = getattr(self, "skl_x", None)
+            if x is None:
+                return None
+            if "n_clusters" not in model.get_params():
+                QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma), f"{model_name} does not expose 'n_clusters'; the Elbow chart is not applicable.")
+                return None
+            k_range = list(range(2, 11))
+            metric_values = []
+            use_inertia = True
+            for k in k_range:
+                candidate = clone(model)
+                candidate.set_params(n_clusters=k)
+                candidate.fit(x)
+                if hasattr(candidate, "inertia_"):
+                    metric_values.append(candidate.inertia_)
+                else:
+                    use_inertia = False
+                    labels_k = candidate.labels_ if hasattr(candidate, "labels_") else candidate.predict(x)
+                    metric_values.append(silhouette_score(x, labels_k) if len(set(labels_k)) > 1 else 0.0)
+            fig, ax = plt.subplots(figsize=(6, 5))
+            ax.plot(k_range, metric_values, marker="o", color="tomato")
+            ax.set_xlabel("Number of Clusters (k)")
+            ax.set_ylabel("Inertia" if use_inertia else "Silhouette Score")
+            ax.set_title(f"{model_name}: Elbow Method")
+            return fig
+
+        if kind == "silhouette" and task == "clustering":
+            x = getattr(self, "skl_x", None)
+            if x is None:
+                return None
+            labels = np.asarray(model.labels_ if hasattr(model, "labels_") else model.predict(x))
+            unique_labels = sorted(set(labels))
+            if len(unique_labels) < 2:
+                QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma), "Silhouette Plot needs at least 2 clusters.")
+                return None
+            sample_values = silhouette_samples(x, labels)
+            avg_score = sample_values.mean()
+            fig, ax = plt.subplots(figsize=(7, 6))
+            y_lower = 10
+            cmap = plt.get_cmap("tab10")
+            for i, cluster_id in enumerate(unique_labels):
+                cluster_values = np.sort(sample_values[labels == cluster_id])
+                size = len(cluster_values)
+                y_upper = y_lower + size
+                ax.fill_betweenx(np.arange(y_lower, y_upper), 0, cluster_values, facecolor=cmap(i % 10), alpha=0.8)
+                ax.text(-0.05, y_lower + 0.5 * size, str(cluster_id))
+                y_lower = y_upper + 10
+            ax.axvline(avg_score, linestyle="--", color="red", label=f"Average = {avg_score:.3f}")
+            ax.set_xlabel("Silhouette Coefficient"); ax.set_ylabel("Cluster")
+            ax.set_yticks([])
+            ax.set_title(f"{model_name}: Silhouette Plot")
+            ax.legend()
+            return fig
+
+        if kind == "distribution" and task == "clustering":
+            x = getattr(self, "skl_x", None)
+            if x is None:
+                return None
+            labels = model.labels_ if hasattr(model, "labels_") else model.predict(x)
+            counts = pd.Series(labels).value_counts().sort_index()
+            fig, ax = plt.subplots(figsize=(6, 5))
+            ax.bar([str(c) for c in counts.index], counts.values, color="tomato")
+            ax.set_xlabel("Cluster"); ax.set_ylabel("Number of Samples")
+            ax.set_title(f"{model_name}: Cluster Size Distribution")
             return fig
 
         QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma), f"Chart '{kind}' is not applicable to the current model/task.")

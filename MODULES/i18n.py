@@ -39,9 +39,9 @@ _TEXTOS = {
     "btn_cpu_gpu_monitor": {"en": "CPU/GPU Monitor", "pt": "Monitor de CPU/GPU"},
     "tooltip_cpu_gpu_monitor": {
         "en": "Open a separate CPU/GPU monitor window that keeps updating even while the main "
-              "window is busy running a heavy STEP 6 task.",
+              "window is busy running a heavy STEP 5 task.",
         "pt": "Abre uma janela separada de monitor de CPU/GPU que continua atualizando mesmo "
-              "quando a janela principal estiver ocupada rodando uma tarefa pesada da STEP 6.",
+              "quando a janela principal estiver ocupada rodando uma tarefa pesada da STEP 5.",
     },
 
     # ---------------------------------------------------------------- Tab names
@@ -54,7 +54,6 @@ _TEXTOS = {
     "tab_step5": {"en": "STEP 5", "pt": "ETAPA 5"},
     "tab_step6": {"en": "STEP 6", "pt": "ETAPA 6"},
     "tab_step7": {"en": "STEP 7", "pt": "ETAPA 7"},
-    "tab_step8": {"en": "STEP 8", "pt": "ETAPA 8"},
     "tab_edit": {"en": "EDIT", "pt": "EDITAR"},
 
     # ---------------------------------------------------------------- HOME tab
@@ -95,15 +94,15 @@ _TEXTOS = {
         "en": "Descriptor generation, structural processing and feature preparation",
         "pt": "Geração de descritores, processamento estrutural e preparação de atributos",
     },
-    "home_step5_name": {"en": "Step 5 — Applicability Domain", "pt": "Etapa 5 — Domínio de Aplicabilidade"},
+    "home_step5_name": {"en": "Step 5 — Machine Learning", "pt": "Etapa 5 — Aprendizado de Máquina"},
     "home_step5_desc": {
+        "en": "Scikit-learn setup, screening, tuning, saving and prediction workflows",
+        "pt": "Fluxos de configuração, seleção, ajuste, salvamento e predição com Scikit-learn",
+    },
+    "home_step6_name": {"en": "Step 6 — Applicability Domain", "pt": "Etapa 6 — Domínio de Aplicabilidade"},
+    "home_step6_desc": {
         "en": "Leverage, Mahalanobis distance and similarity-based domain assessment",
         "pt": "Avaliação de domínio por leverage, distância de Mahalanobis e similaridade",
-    },
-    "home_step6_name": {"en": "Step 6 — Machine Learning", "pt": "Etapa 6 — Aprendizado de Máquina"},
-    "home_step6_desc": {
-        "en": "PyCaret setup, screening, tuning, saving and prediction workflows",
-        "pt": "Fluxos de configuração, seleção, ajuste, salvamento e predição com PyCaret",
     },
     "home_step7_name": {"en": "Step 7 — Consensus Analysis", "pt": "Etapa 7 — Análise de Consenso"},
     "home_step7_desc": {
@@ -131,18 +130,14 @@ _TEXTOS = {
     },
     "title_step4": {"en": "Features Engineering", "pt": "Engenharia de Atributos"},
     "title_step5": {
-        "en": "Machine Learning Models: Screening, Tuning, Validation and Application (Pycaret)",
-        "pt": "Modelos de Aprendizado de Máquina: Seleção, Ajuste, Validação e Aplicação (Pycaret)",
-    },
-    "title_step6": {
         "en": "Machine Learning Models: Screening, Tuning, Validation and Application (Scikit-learn)",
         "pt": "Modelos de Aprendizado de Máquina: Seleção, Ajuste, Validação e Aplicação (Scikit-learn)",
     },
-    "title_step7": {
+    "title_step6": {
         "en": "Applicability Domain and Similarity Analysis",
         "pt": "Domínio de Aplicabilidade e Análise de Similaridade",
     },
-    "title_step8": {"en": "Consensus Analysis", "pt": "Análise de Consenso"},
+    "title_step7": {"en": "Consensus Analysis", "pt": "Análise de Consenso"},
     "title_edit": {"en": "Manipulate Dataframes", "pt": "Manipular Dataframes"},
 
     # ---------------------------------------------------------------- CONFIG tab
@@ -437,46 +432,20 @@ _TEXTOS = {
         "pt": "Ocorreu um erro ao construir a aba da ETAPA 4:\n{e}",
     },
 
-    # ---------------------------------------------------------------- STEP 5 (PyCaret)
+    # ---------------------------------------------------------------- STEP 5 (scikit-learn)
     "btn_select_internal_df": {"en": "Select Internal DataFrame", "pt": "Selecionar DataFrame Interno"},
     "btn_select_external_df": {"en": "Select External DataFrame", "pt": "Selecionar DataFrame Externo"},
     "s5_lbl_usi": {"en": "USI:", "pt": "USI:"},
-    "s5_tooltip_usi": {"en": "Use Sample Index", "pt": "Índice de Amostra Utilizado"},
-    "s5_subtab_setup": {"en": "Setup", "pt": "Configuração"},
-    "s5_subtab_compare": {"en": "Compare", "pt": "Comparar"},
-    "s5_subtab_create_assign": {"en": "Create/Assign", "pt": "Criar/Atribuir"},
-    "s5_subtab_evaluate": {"en": "Evaluate", "pt": "Avaliar"},
-    "s5_subtab_tunning": {"en": "Tunning", "pt": "Ajuste"},
-    "s5_subtab_save_load": {"en": "Save/Load", "pt": "Salvar/Carregar"},
     "s5_subtab_predict": {"en": "Predict", "pt": "Predizer"},
-    "s5_lbl_set_setup_params": {"en": "Set Setup Parameters:", "pt": "Definir Parâmetros de Configuração:"},
-    "chk_internal_dataframe": {"en": "Internal Dataframe", "pt": "Dataframe Interno"},
-    "chk_external_dataframe": {"en": "External Dataframe", "pt": "Dataframe Externo"},
-    "s5_lbl_select_y_column": {"en": "Select Y column:", "pt": "Selecione a coluna Y:"},
-    "s5_lbl_set_compare_params": {"en": "Set Compare Parameters:", "pt": "Definir Parâmetros de Comparação:"},
-    "s5_lbl_set_evaluate_params": {"en": "Set Evaluate Parameters:", "pt": "Definir Parâmetros de Avaliação:"},
-    "s5_lbl_set_tunning_params": {"en": "Set Tunning Parameters:", "pt": "Definir Parâmetros de Ajuste:"},
-    "s5_lbl_set_create_assign_params": {"en": "Set Create/Assign Parameters:", "pt": "Definir Parâmetros de Criar/Atribuir:"},
-    "s5_lbl_set_save_params": {"en": "Set Save Parameters:", "pt": "Definir Parâmetros de Salvamento:"},
-    "s5_lbl_compare_position": {"en": "Compare position:", "pt": "Posição na comparação:"},
-    "s5_lbl_set_predict_params": {"en": "Set Predict Parameters:", "pt": "Definir Parâmetros de Predição:"},
     "lbl_descriptors_columns_range": {"en": "Descriptors Columns Range:", "pt": "Intervalo de Colunas de Descritores:"},
-    "s5_grp_chart_selection": {"en": "Chart Selection", "pt": "Seleção de Gráfico"},
-    "lbl_regression": {"en": "Regression:", "pt": "Regressão:"},
-    "lbl_classification": {"en": "Classification:", "pt": "Classificação:"},
-    "lbl_clustering": {"en": "Clustering:", "pt": "Clusterização:"},
     "btn_plot_model": {"en": "Plot Model", "pt": "Plotar Modelo"},
-    "btn_create": {"en": "Create", "pt": "Criar"},
-    "btn_assign": {"en": "Assign", "pt": "Atribuir"},
-    "btn_save": {"en": "Save", "pt": "Salvar"},
-    "btn_load": {"en": "Load", "pt": "Carregar"},
     "msg_step5_build_error_title": {"en": "STEP 5 build error", "pt": "Erro ao construir a ETAPA 5"},
     "msg_step5_build_error": {
         "en": "There was an error building the STEP 5 TAB:\n{e}",
         "pt": "Ocorreu um erro ao construir a aba da ETAPA 5:\n{e}",
     },
 
-    # ---------------------------------------------------------------- STEP 6 (scikit-learn)
+    # ---------------------------------------------------------------- STEP 5 (scikit-learn), continued
     "s6_tooltip_random_state": {"en": "Random State", "pt": "Estado Aleatório"},
     "s6_tooltip_usi": {
         "en": "Use Sample Index — type a new code (used by Run Screening) or pick an existing "
@@ -525,7 +494,7 @@ _TEXTOS = {
         "pt": "Ocorreu um erro ao construir a aba da ETAPA 6:\n{e}",
     },
 
-    # ---------------------------------------------------------------- STEP 7 (Applicability Domain)
+    # ---------------------------------------------------------------- STEP 6 (Applicability Domain)
     "s7_grp_set_ad_params": {"en": "Set AD Parameters", "pt": "Definir Parâmetros de DA"},
     "s7_chk_project_pca": {"en": "Project PCA for plots", "pt": "Projetar PCA para os gráficos"},
     "s7_lbl_k_knn": {"en": "k (kNN):", "pt": "k (kNN):"},
@@ -543,7 +512,7 @@ _TEXTOS = {
         "pt": "Ocorreu um erro ao construir a aba da ETAPA 7:\n{e}",
     },
 
-    # ---------------------------------------------------------------- STEP 8 (Consensus Analysis)
+    # ---------------------------------------------------------------- STEP 7 (Consensus Analysis)
     "s8_btn_select_dataframe_n": {"en": "Select Dataframe {slot}", "pt": "Selecionar Dataframe {slot}"},
     "s8_placeholder_dataframe_n": {"en": "DataFrame {slot}", "pt": "DataFrame {slot}"},
     "s8_lbl_id_column": {"en": "ID Column:", "pt": "Coluna de ID:"},
@@ -594,11 +563,6 @@ _TEXTOS = {
     "s8_btn_consensus_generate": {"en": "Consensus Generate", "pt": "Gerar Consenso"},
     "btn_clear": {"en": "Clear", "pt": "Limpar"},
     "s8_btn_generate_final_report": {"en": "Generate Final Report", "pt": "Gerar Relatório Final"},
-    "msg_step8_build_error_title": {"en": "STEP 8 build error", "pt": "Erro ao construir a ETAPA 8"},
-    "msg_step8_build_error": {
-        "en": "There was an error building the STEP 8 TAB:\n{e}",
-        "pt": "Ocorreu um erro ao construir a aba da ETAPA 8:\n{e}",
-    },
 
     # ---------------------------------------------------------------- EDIT tab
     "edit_grp_merge_remove_compare": {"en": "Merge, Remove or Compare", "pt": "Combinar, Remover ou Comparar"},
@@ -679,18 +643,10 @@ _TEXTOS = {
     "msg_title_generate_final_report": {"en": "Generate Final Report", "pt": "Gerar Relatório Final"},
     "msg_title_compare_files": {"en": "Compare Files", "pt": "Comparar Arquivos"},
     "msg_title_download_stopped": {"en": "Download Stopped", "pt": "Download Interrompido"},
-    "msg_title_pycaret_load": {"en": "PyCaret Load", "pt": "Carregar PyCaret"},
     "msg_title_monitor": {"en": "Monitor", "pt": "Monitor"},
     "msg_title_monitor_error": {"en": "Monitor error", "pt": "Erro no monitor"},
     "msg_title_units_incompatible_source": {"en": "Units: incompatible source", "pt": "Unidades: origem incompatível"},
     "msg_title_error_during_unit_conversion": {"en": "Error during unit conversion", "pt": "Erro durante a conversão de unidade"},
-    "msg_title_pycaret": {"en": "PyCaret", "pt": "PyCaret"},
-    "msg_title_pycaret_setup": {"en": "PyCaret Setup", "pt": "Configuração PyCaret"},
-    "msg_title_pycaret_compare": {"en": "PyCaret Compare", "pt": "Comparação PyCaret"},
-    "msg_title_pycaret_evaluate": {"en": "PyCaret Evaluate", "pt": "Avaliação PyCaret"},
-    "msg_title_pycaret_tune": {"en": "PyCaret Tune", "pt": "Ajuste PyCaret"},
-    "msg_title_pycaret_save": {"en": "PyCaret Save", "pt": "Salvar PyCaret"},
-    "msg_title_pycaret_predict": {"en": "PyCaret Predict", "pt": "Predição PyCaret"},
     "msg_title_confirm_deletion": {"en": "Confirm deletion", "pt": "Confirmar exclusão"},
     "msg_title_finished": {"en": "Finished", "pt": "Concluído"},
     "msg_title_current_job": {"en": "Current Job", "pt": "Job Atual"},
@@ -716,18 +672,14 @@ _TEXTOS = {
     },
     "menu_step4": {"en": "Step 4 - Features Engineering", "pt": "Etapa 4 - Engenharia de Atributos"},
     "menu_step5": {
-        "en": "Step 5 - Machine Learning Models Screening (PyCaret)",
-        "pt": "Etapa 5 - Seleção de Modelos de Aprendizado de Máquina (PyCaret)",
+        "en": "Step 5 - Machine Learning Models Screening (Scikit-learn)",
+        "pt": "Etapa 5 - Seleção de Modelos de Aprendizado de Máquina (Scikit-learn)",
     },
     "menu_step6": {
-        "en": "Step 6 - Machine Learning Models Screening (Scikit-learn)",
-        "pt": "Etapa 6 - Seleção de Modelos de Aprendizado de Máquina (Scikit-learn)",
+        "en": "Step 6 - Applicability Domain and Similarity Analysis",
+        "pt": "Etapa 6 - Domínio de Aplicabilidade e Análise de Similaridade",
     },
-    "menu_step7": {
-        "en": "Step 7 - Applicability Domain and Similarity Analysis",
-        "pt": "Etapa 7 - Domínio de Aplicabilidade e Análise de Similaridade",
-    },
-    "menu_step8": {"en": "Step 8 - Consensus Analysis", "pt": "Etapa 8 - Análise de Consenso"},
+    "menu_step7": {"en": "Step 7 - Consensus Analysis", "pt": "Etapa 7 - Análise de Consenso"},
     "menu_edit": {"en": "Edit", "pt": "Editar"},
     "menu_exit": {"en": "Exit", "pt": "Sair"},
     "menu_install_requirements": {"en": "Install Requirements", "pt": "Instalar Dependências"},
@@ -770,17 +722,16 @@ _TEXTOS = {
         "pt": "openjdk-<versão>-jre será instalado via apt, ex.: 'openjdk-11-jre'.",
     },
     "req_chk_scikitlearn": {"en": "Install scikit-learn", "pt": "Instalar scikit-learn"},
-    "req_chk_pycaret": {"en": "Install PyCaret", "pt": "Instalar PyCaret"},
     "req_chk_cuml": {
-        "en": "Install cuML (RAPIDS, optional GPU backend for PyCaret use_gpu)",
-        "pt": "Instalar cuML (RAPIDS, backend de GPU opcional para o use_gpu do PyCaret)",
+        "en": "Install cuML (RAPIDS, optional GPU backend for Scikit-learn)",
+        "pt": "Instalar cuML (RAPIDS, backend de GPU opcional para o Scikit-learn)",
     },
     "req_tooltip_cuml_unavailable": {
         "en": "Unavailable: {reason} cuML pip wheels only support Linux with an NVIDIA GPU "
-              "(CUDA 11.4+/12.x). PyCaret works fine without it; the 'soft dependency' warning is "
-              "harmless CPU-only fallback.",
+              "(CUDA 11.4+/12.x). Scikit-learn works fine without it; the 'soft dependency' warning "
+              "is harmless CPU-only fallback.",
         "pt": "Indisponível: {reason} Os pacotes pip do cuML só funcionam em Linux com GPU NVIDIA "
-              "(CUDA 11.4+/12.x). O PyCaret funciona normalmente sem ele; o aviso de "
+              "(CUDA 11.4+/12.x). O Scikit-learn funciona normalmente sem ele; o aviso de "
               "'soft dependency' é inofensivo (fallback para CPU).",
     },
     "req_chk_chembl": {"en": "Install chembl_webresource_client", "pt": "Instalar chembl_webresource_client"},
@@ -822,10 +773,10 @@ _TEXTOS = {
     "req_log_pytorch_installed": {"en": "PyTorch installed ({variant}{version}).\n", "pt": "PyTorch instalado ({variant}{version}).\n"},
     "req_log_cuml_skip": {
         "en": "[WARN] Skipping cuML: pip wheels require Linux + NVIDIA GPU with CUDA 11.4+/12.x "
-              "({reason}). PyCaret keeps working on CPU-only estimators; the 'soft dependency' "
+              "({reason}). Scikit-learn keeps working on CPU-only estimators; the 'soft dependency' "
               "warning in the logs is harmless.\n",
         "pt": "[AVISO] Pulando cuML: os pacotes pip exigem Linux + GPU NVIDIA com CUDA 11.4+/12.x "
-              "({reason}). O PyCaret continua funcionando com estimadores somente-CPU; o aviso de "
+              "({reason}). O Scikit-learn continua funcionando com estimadores somente-CPU; o aviso de "
               "'soft dependency' nos logs é inofensivo.\n",
     },
     "req_log_cuml_installed": {"en": "cuML installed ({spec}).\n", "pt": "cuML instalado ({spec}).\n"},

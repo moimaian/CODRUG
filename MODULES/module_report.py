@@ -14,14 +14,14 @@
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Final report generator for CODRUG (STEP 8 "Generate Final Report", .docx).
+"""Final report generator for CODRUG (STEP 7 "Generate Final Report", .docx).
 
 Mirrors the structure of CODOC's MODULES/module_report.py: pulls its data from the unified
-per-job JSON (job_dir/<job_name>.json, written incrementally as STEP 1-8 buttons run) plus the
+per-job JSON (job_dir/<job_name>.json, written incrementally as STEP 1-7 buttons run) plus the
 result files each step already writes to disk (CSVs, USI session JSONs, plots). Kept free of
 PyQt so it can be unit-tested and reused without a running GUI.
 
-Each of the six report sections (STEP 1, STEP 2+3, STEP 4, STEP 5+6, STEP 7, STEP 8) is built
+Each of the six report sections (STEP 1, STEP 2+3, STEP 4, STEP 5, STEP 6, STEP 7) is built
 only from what the job's JSON actually recorded as executed - a step nobody ran is skipped
 silently rather than shown as "not run", matching the source methodology template's own
 instruction (METODOLOGIA_EXEMPLO.docx).
@@ -597,16 +597,15 @@ def _add_step4_section(document: Any, job_dir: str, state: dict[str, Any]) -> bo
 
 
 # --------------------------------------------------------------------------------------
-# Section 4: STEP 5 + STEP 6 - Machine Learning Models
+# Section 4: STEP 5 - Machine Learning Models (Scikit-learn)
 # --------------------------------------------------------------------------------------
 
-def _add_step5_6_section(document: Any, job_dir: str, state: dict[str, Any]) -> bool:
-    step5 = state.get("step5_pycaret") if isinstance(state.get("step5_pycaret"), dict) else {}
+def _add_step5_section(document: Any, job_dir: str, state: dict[str, Any]) -> bool:
     step6 = state.get("step6_sklearn") if isinstance(state.get("step6_sklearn"), dict) else {}
-    if not step5 and not step6:
+    if not step6:
         return False
 
-    _bar(document, "STEP 5 and 6 - Machine Learning Models: Screening, Tuning, Validation and Application", COLOR_SECTION_BAR)
+    _bar(document, "STEP 5 - Machine Learning Models: Screening, Tuning, Validation and Application", COLOR_SECTION_BAR)
 
     added_any = False
     usi_root = os.path.join(job_dir, "RESULTS", "USI")
@@ -665,46 +664,12 @@ def _add_step5_6_section(document: Any, job_dir: str, state: dict[str, Any]) -> 
             _add_dataframe_table(document, _read_csv(cv_csv))
         added_any = True
 
-    pyc_usi = step5.get("current_usi")
-    if pyc_usi:
-        session_path = os.path.join(usi_root, pyc_usi, "pycaret_session.json")
-        session = {}
-        if os.path.isfile(session_path):
-            try:
-                session = json.loads(Path(session_path).read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                session = {}
-        p = _para(document)
-
-        def add(text: str, bold: bool = False) -> None:
-            _add(p, text, bold)
-
-        add("Model screening (PyCaret) was performed for the ", False)
-        add(str(session.get("task", "")), True)
-        add(" task", False)
-        if session.get("best_model_label"):
-            add(", with the best performing model being ", False)
-            add(str(session["best_model_label"]), True)
-        add(". ", False)
-
-        compare_csv = _latest_glob(os.path.join(usi_root, pyc_usi, "DATA", "df_pycaret_compare_*.csv"))
-        _add_dataframe_table(document, _read_csv(compare_csv))
-        tune_csv = _latest_glob(os.path.join(usi_root, pyc_usi, "DATA", "df_pycaret_tune_*.csv"))
-        if tune_csv:
-            document.add_paragraph().add_run("Hyperparameter tuning results:").bold = True
-            _add_dataframe_table(document, _read_csv(tune_csv))
-        added_any = True
-
-        midia_dir = os.path.join(usi_root, pyc_usi, "MIDIA")
-        for plot_path in sorted(glob.glob(os.path.join(midia_dir, "*.png")))[:2]:
-            _add_image(document, plot_path)
-
     document.add_paragraph()
     return added_any
 
 
 # --------------------------------------------------------------------------------------
-# Section 5: STEP 7 - Applicability Domain and Similarity Analysis
+# Section 5: STEP 6 - Applicability Domain and Similarity Analysis
 # --------------------------------------------------------------------------------------
 
 def _add_step7_section(document: Any, job_dir: str, state: dict[str, Any]) -> bool:
@@ -712,7 +677,7 @@ def _add_step7_section(document: Any, job_dir: str, state: dict[str, Any]) -> bo
     if not isinstance(step7, dict) or not step7:
         return False
 
-    _bar(document, "STEP 7 - Applicability Domain and Similarity Analysis", COLOR_SECTION_BAR)
+    _bar(document, "STEP 6 - Applicability Domain and Similarity Analysis", COLOR_SECTION_BAR)
     p = _para(document)
 
     def add(text: str, bold: bool = False) -> None:
@@ -773,7 +738,7 @@ def _add_step7_section(document: Any, job_dir: str, state: dict[str, Any]) -> bo
 
 
 # --------------------------------------------------------------------------------------
-# Section 6: STEP 8 - Consensus Analysis
+# Section 6: STEP 7 - Consensus Analysis
 # --------------------------------------------------------------------------------------
 
 def _find_smiles_lookup(job_dir: str, ids: set[str]) -> dict[str, str]:
@@ -801,7 +766,7 @@ def _find_smiles_lookup(job_dir: str, ids: set[str]) -> dict[str, str]:
 
 
 def _add_step8_section(document: Any, job_dir: str, state: dict[str, Any]) -> bool:
-    """Reads the "hits" CSV that STEP 8 itself already computed (df_consensus_hits_*.csv,
+    """Reads the "hits" CSV that STEP 7 itself already computed (df_consensus_hits_*.csv,
     referenced by step8_consensus.last_hits_file) rather than re-deriving the CV%/Hit% filter
     here - CODRUG.run_consensus_generate is the single source of truth for that logic, so the
     report can never drift out of sync with what the UI actually shows/saves."""
@@ -824,7 +789,7 @@ def _add_step8_section(document: Any, job_dir: str, state: dict[str, Any]) -> bo
     cv_max = step8.get("cv_max_percent")
     hit_percent = step8.get("hit_percent")
 
-    _bar(document, "STEP 8 - Consensus Analysis", COLOR_SECTION_BAR)
+    _bar(document, "STEP 7 - Consensus Analysis", COLOR_SECTION_BAR)
     p = _para(document)
 
     def add(text: str, bold: bool = False) -> None:
@@ -925,14 +890,14 @@ def generate_final_report(
     added_23 = _add_step2_3_section(document, job_dir, state)
     report("Building STEP 4 - Features Engineering...")
     added_4 = _add_step4_section(document, job_dir, state)
-    report("Building STEP 5/6 - Machine Learning Models...")
-    added_56 = _add_step5_6_section(document, job_dir, state)
-    report("Building STEP 7 - Applicability Domain and Similarity Analysis...")
+    report("Building STEP 5 - Machine Learning Models...")
+    added_5 = _add_step5_section(document, job_dir, state)
+    report("Building STEP 6 - Applicability Domain and Similarity Analysis...")
     added_7 = _add_step7_section(document, job_dir, state)
-    report("Building STEP 8 - Consensus Analysis...")
+    report("Building STEP 7 - Consensus Analysis...")
     added_8 = _add_step8_section(document, job_dir, state)
 
-    if not any((added_1, added_23, added_4, added_56, added_7, added_8)):
+    if not any((added_1, added_23, added_4, added_5, added_7, added_8)):
         raise RuntimeError(
             "No recorded state was found for this job. Run at least one STEP (Generate Base "
             "Dataset, Outlier Elimination, Compute AD, Consensus Generate, etc.) before "
