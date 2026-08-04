@@ -128,8 +128,8 @@ QPushButton:disabled { background: #1C2E20; color: #3D6B4A; border-color: #2A4A3
 """
 # --------------------------- helpers ---------------------------
 
-def _run(cmd: list, check=False) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=check)
+def _run(cmd: list, check=False, env=None) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=check, env=env)
 
 def _run_interactive(cmd: list[str]) -> int:
     proc = subprocess.run(cmd)
