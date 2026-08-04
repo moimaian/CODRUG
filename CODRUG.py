@@ -163,15 +163,29 @@ try:
 
     #Modelos de regressão:
     from sklearn.ensemble import RandomForestRegressor, AdaBoostRegressor, BaggingRegressor, GradientBoostingRegressor, ExtraTreesRegressor
-    from sklearn.linear_model import Ridge, Lasso, ElasticNet, BayesianRidge
+    from sklearn.linear_model import Ridge, Lasso, ElasticNet, BayesianRidge, LinearRegression, HuberRegressor, PassiveAggressiveRegressor, SGDRegressor
     from sklearn.neighbors import KNeighborsRegressor
     from sklearn.svm import NuSVR, SVR
     from sklearn.tree import DecisionTreeRegressor
-    # from sklearn.experimental import enable_hist_gradient_boosting 
+    # from sklearn.experimental import enable_hist_gradient_boosting
     from sklearn.ensemble import HistGradientBoostingRegressor
     import lightgbm as lgb
     import xgboost as xgb
     print("✅ Regressor Models imported successfully.")
+
+    # CatBoost é opcional (não faz parte do conjunto padrão de dependências instalado pelo
+    # 'Instalar Dependências' — precisa ser adicionado manualmente via "Install another libs").
+    # Import isolado num try/except próprio para que sua ausência não derrube TODO o restante
+    # dos registries de regressão/classificação (o try/except externo é 'except Exception',
+    # então uma falha aqui não interromperia o bloco, mas isolamos mesmo assim por clareza).
+    try:
+        import catboost as cb
+        _CATBOOST_AVAILABLE = True
+        print("✅ CatBoost imported successfully.")
+    except Exception as _cb_exc:
+        cb = None
+        _CATBOOST_AVAILABLE = False
+        print("⚠️ CatBoost not available (optional). Use 'Install requirements' at home menu.")
 
     #Modelos de classificação:
     from sklearn.ensemble import (RandomForestClassifier, BaggingClassifier,
@@ -180,14 +194,16 @@ try:
     from sklearn.tree import DecisionTreeClassifier
     from sklearn.svm import SVC, NuSVC
     from sklearn.neighbors import KNeighborsClassifier
-    from sklearn.linear_model import LogisticRegression, RidgeClassifier, SGDClassifier
+    from sklearn.linear_model import LogisticRegression, RidgeClassifier, SGDClassifier, PassiveAggressiveClassifier
     from sklearn.naive_bayes import GaussianNB
+    from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
     # from sklearn.experimental import enable_hist_gradient_boosting
     from sklearn.ensemble import HistGradientBoostingClassifier
     print("✅ Classifier Models imported successfully.")
 
     # Modelos de Clustering:
-    from sklearn.cluster import KMeans, AgglomerativeClustering, DBSCAN
+    from sklearn.cluster import KMeans, AgglomerativeClustering, DBSCAN, HDBSCAN, Birch
+    from sklearn.mixture import GaussianMixture
     print("✅ Clustering Models imported successfully.")
 
     # Modelos de redes neurais:
@@ -248,7 +264,16 @@ try:
         "ElasticNet": (ElasticNet, {"alpha": 1.0, "l1_ratio": 0.5, "max_iter": 1000}),
         "BayesianRidge": (BayesianRidge, {"max_iter": 300, "tol": 1e-3, "alpha_1": 1e-6, "alpha_2": 1e-6, "lambda_1": 1e-6, "lambda_2": 1e-6, "compute_score": False}),
         "MLPRegressor": (MLPRegressor, {"hidden_layer_sizes": (100, 50), "max_iter": 500}),
+        "LinearRegression": (LinearRegression, {}),
+        "HuberRegressor": (HuberRegressor, {"epsilon": 1.35, "alpha": 0.0001, "max_iter": 200}),
+        "PassiveAggressiveRegressor": (PassiveAggressiveRegressor, {"C": 1.0, "epsilon": 0.1, "max_iter": 1000}),
+        "SGDRegressor": (SGDRegressor, {"loss": "squared_error", "penalty": "l2", "alpha": 0.0001, "max_iter": 1000}),
     }
+    if _CATBOOST_AVAILABLE:
+        SKL_REGRESSORS["CatBoostRegressor"] = (
+            cb.CatBoostRegressor,
+            {"iterations": 100, "learning_rate": 0.1, "depth": 6, "l2_leaf_reg": 3, "verbose": False, "allow_writing_files": False},
+        )
 
     # Modelos de classificação disponíveis para o screening:
     SKL_CLASSIFIERS = {
@@ -268,13 +293,23 @@ try:
         "SGDClassifier": (SGDClassifier, {"loss": "hinge", "penalty": "l2", "max_iter": 1000, "tol": 1e-3}),
         "GaussianNB": (GaussianNB, {}),
         "MLPClassifier": (MLPClassifier, {"hidden_layer_sizes": (100, 50), "max_iter": 500}),
+        "PassiveAggressiveClassifier": (PassiveAggressiveClassifier, {"C": 1.0, "max_iter": 1000}),
+        "LinearDiscriminantAnalysis": (LinearDiscriminantAnalysis, {"solver": "svd"}),
     }
+    if _CATBOOST_AVAILABLE:
+        SKL_CLASSIFIERS["CatBoostClassifier"] = (
+            cb.CatBoostClassifier,
+            {"iterations": 100, "learning_rate": 0.1, "depth": 6, "l2_leaf_reg": 3, "verbose": False, "allow_writing_files": False},
+        )
 
     # Modelos de clusterização disponíveis para o screening:
     SKL_CLUSTERERS = {
         "KMeans": (KMeans, {"n_clusters": 3, "n_init": 10}),
         "AgglomerativeClustering": (AgglomerativeClustering, {"n_clusters": 3}),
         "DBSCAN": (DBSCAN, {"eps": 0.5, "min_samples": 5}),
+        "HDBSCAN": (HDBSCAN, {"min_cluster_size": 5}),
+        "GaussianMixture": (GaussianMixture, {"n_components": 3}),
+        "Birch": (Birch, {"n_clusters": 3, "threshold": 0.5}),
     }
 except NameError:
     # sklearn/xgboost/lightgbm não disponíveis — o screening da STEP 6 ficará indisponível.
@@ -299,6 +334,11 @@ SKL_PARAM_GRIDS = {
     "ElasticNet": [("alpha", "0.001,0.01,0.1,1.0"), ("l1_ratio", "0.1,0.5,0.9")],
     "BayesianRidge": [("alpha_1", "1e-6,1e-5"), ("lambda_1", "1e-6,1e-5"), ("max_iter", "300,500")],
     "MLPRegressor": [("hidden_layer_sizes", "(50,),(100,),(100,50)"), ("alpha", "0.0001,0.001,0.01"), ("max_iter", "500,1000")],
+    "LinearRegression": [("fit_intercept", "True,False"), ("positive", "True,False")],
+    "HuberRegressor": [("epsilon", "1.1,1.35,1.5,2.0"), ("alpha", "0.0001,0.001,0.01"), ("max_iter", "100,200,500")],
+    "PassiveAggressiveRegressor": [("C", "0.1,1.0,10.0"), ("epsilon", "0.01,0.1,0.5"), ("max_iter", "1000,2000")],
+    "SGDRegressor": [("alpha", "0.0001,0.001,0.01"), ("penalty", "l2,l1,elasticnet"), ("max_iter", "1000,2000")],
+    "CatBoostRegressor": [("iterations", "100,200,300"), ("learning_rate", "0.01,0.05,0.1"), ("depth", "4,6,8"), ("l2_leaf_reg", "1,3,5")],
 
     "RandomForestClassifier": [("n_estimators", "100,200,300"), ("max_depth", "None,10,20,30"), ("min_samples_split", "2,5,10"), ("criterion", "gini,entropy")],
     "XGBClassifier": [("n_estimators", "100,200,300"), ("learning_rate", "0.01,0.05,0.1,0.2"), ("max_depth", "3,6,10"), ("subsample", "0.8,1.0")],
@@ -316,10 +356,16 @@ SKL_PARAM_GRIDS = {
     "SGDClassifier": [("alpha", "0.0001,0.001,0.01"), ("penalty", "l2,l1,elasticnet")],
     "GaussianNB": [("var_smoothing", "1e-9,1e-8,1e-7")],
     "MLPClassifier": [("hidden_layer_sizes", "(50,),(100,),(100,50)"), ("alpha", "0.0001,0.001,0.01"), ("max_iter", "500,1000")],
+    "PassiveAggressiveClassifier": [("C", "0.1,1.0,10.0"), ("max_iter", "1000,2000")],
+    "LinearDiscriminantAnalysis": [("solver", "svd,lsqr,eigen")],
+    "CatBoostClassifier": [("iterations", "100,200,300"), ("learning_rate", "0.01,0.05,0.1"), ("depth", "4,6,8"), ("l2_leaf_reg", "1,3,5")],
 
     "KMeans": [("n_clusters", "2,3,4,5,6"), ("init", "k-means++,random")],
     "AgglomerativeClustering": [("n_clusters", "2,3,4,5,6"), ("linkage", "ward,complete,average")],
     "DBSCAN": [("eps", "0.3,0.5,0.8,1.0"), ("min_samples", "3,5,10")],
+    "HDBSCAN": [("min_cluster_size", "5,10,15,20"), ("min_samples", "None,5,10")],
+    "GaussianMixture": [("n_components", "2,3,4,5,6"), ("covariance_type", "full,tied,diag,spherical")],
+    "Birch": [("n_clusters", "2,3,4,5,6"), ("threshold", "0.3,0.5,0.7")],
 }
 
 
@@ -336,14 +382,18 @@ def _skl_instantiate(cls, kwargs, random_state=None):
 
 
 def _skl_force_single_thread_kwargs(cls, kwargs):
-    """XGBoost/LightGBM usam threading nativo próprio (OpenMP), independente do backend do joblib —
-    'joblib.parallel_backend(\"threading\")' não tem efeito sobre eles. Em loops que reinstanciam e
-    refazem fit() dezenas/centenas de vezes numa QThread de background (ex.: curva Sort metric vs.
-    Parameter/n_features), forçamos n_jobs=1 para evitar instabilidade do threading nativo repetido."""
+    """XGBoost/LightGBM/CatBoost usam threading nativo próprio (OpenMP), independente do backend
+    do joblib — 'joblib.parallel_backend(\"threading\")' não tem efeito sobre eles. Em loops que
+    reinstanciam e refazem fit() dezenas/centenas de vezes numa QThread de background (ex.: curva
+    Sort metric vs. Parameter/n_features), forçamos single-thread para evitar instabilidade do
+    threading nativo repetido. CatBoost usa 'thread_count' em vez de 'n_jobs'."""
     module_name = getattr(cls, "__module__", "") or ""
     if module_name.startswith("xgboost") or module_name.startswith("lightgbm"):
         kwargs = dict(kwargs)
         kwargs["n_jobs"] = 1
+    elif module_name.startswith("catboost"):
+        kwargs = dict(kwargs)
+        kwargs["thread_count"] = 1
     return kwargs
 
 
@@ -2780,6 +2830,7 @@ class MainWindow(QMainWindow):
             ("RDKit", "rdkit", "__version__"),
             ("PaDELPy", "padelpy", "__version__"),
             ("LightGBM", "lightgbm", "__version__"),
+            ("CatBoost", "catboost", "__version__"),
             ("ChEMBL_Webresource_Client", "chembl_webresource_client", "__version__"),
             ("joblib", "joblib", "__version__"),
         ]

@@ -1062,6 +1062,7 @@ class RequirementsInstaller(cast(Any, QWidget)):
             "pydantic": None,
             "xgboost": None,
             "lightgbm": None,
+            "catboost": None,
             "scikit-posthocs": None,
             "pygam": None,
             "statsmodels": None,
@@ -1069,7 +1070,7 @@ class RequirementsInstaller(cast(Any, QWidget)):
             "streamlit": None,
             "psutil": None,
             "openpyxl": None,
-            "python-docx": None,  # STEP 8 "Generate Final Report" (.docx)
+            "python-docx": None,  # STEP 7 "Generate Final Report" (.docx)
             "Pillow": None,       # composite report figures (module_report)
         }
 
