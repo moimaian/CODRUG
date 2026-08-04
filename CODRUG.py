@@ -2830,7 +2830,6 @@ class MainWindow(QMainWindow):
             ("RDKit", "rdkit", "__version__"),
             ("PaDELPy", "padelpy", "__version__"),
             ("LightGBM", "lightgbm", "__version__"),
-            ("CatBoost", "catboost", "__version__"),
             ("ChEMBL_Webresource_Client", "chembl_webresource_client", "__version__"),
             ("joblib", "joblib", "__version__"),
         ]
@@ -2842,6 +2841,21 @@ class MainWindow(QMainWindow):
                 rows.append((display, version))
             except Exception:
                 rows.append((display, "not installed"))
+
+        # Java (JRE) — dependência de sistema (usada pelo PaDEL-Descriptor), não um pacote Python,
+        # então a versão vem de "java -version" (que imprime no stderr) em vez de importlib.
+        if shutil.which("java"):
+            try:
+                java_out = subprocess.run(
+                    ["java", "-version"], capture_output=True, text=True, timeout=3
+                )
+                text = java_out.stderr or java_out.stdout
+                match = re.search(r'version "([^"]+)"', text)
+                rows.append(("Java (JRE)", match.group(1) if match else "installed"))
+            except Exception:
+                rows.append(("Java (JRE)", "N/A"))
+        else:
+            rows.append(("Java (JRE)", "not installed"))
 
         if shutil.which("nvidia-smi"):
             try:
@@ -3559,12 +3573,7 @@ class MainWindow(QMainWindow):
         ("rep_method", "list_methods_rep"),
         ("rep_check_column", "list_columns_rep_check"),
         ("transform_column", "list_columns_trans"),
-        ("transform_log10", "chk_log10"),
-        ("transform_ln", "chk_logn"),
-        ("transform_sqrt", "chk_sqrt"),
-        ("transform_cbrt", "chk_cbrt"),
-        ("transform_boxcox", "chk_boxcox"),
-        ("transform_yeojohnson", "chk_yeojohnson"),
+        ("transform_type", "cb_transformation"),
         ("stat_column", "list_columns_stat"),
         ("dist_chart_type", "list_dist_chart"),
         ("outlier_threshold", "threshold_outlier"),
@@ -5019,8 +5028,14 @@ class MainWindow(QMainWindow):
         df = self.df_selecionado.copy()
         col_data = pd.to_numeric(df[col], errors='coerce')
 
-        # Aplica as transformações conforme os checkboxes
-        if self.chk_log10.isChecked():
+        # Aplica a transformação selecionada na combobox (uma por execução, no lugar dos
+        # checkboxes anteriores que permitiam aplicar várias de uma vez):
+        transform_idx = self.cb_transformation.currentIndex() if hasattr(self, "cb_transformation") else -1
+        if transform_idx < 0:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a transformation.")
+            return
+
+        if transform_idx == 0:
             # -log10(x), ignora valores <= 0. For recognized potency/dose acronyms (IC50, MIC,
             # EC50, ED50...) use the standard pharmacology "p" prefix (pIC50, pMIC...) instead
             # of the generic '-log10' column name.
@@ -5028,16 +5043,16 @@ class MainWindow(QMainWindow):
             is_potency_acronym = col_name_stripped.upper() in self.POTENCY_ACRONYMS
             log10_col_name = f"p{col_name_stripped}" if is_potency_acronym else "-log10"
             df[log10_col_name] = col_data.apply(lambda x: -np.log10(x) if pd.notnull(x) and x > 0 else np.nan)
-        if self.chk_logn.isChecked():
+        elif transform_idx == 1:
             # ln(x), ignora valores <= 0
             df['ln'] = col_data.apply(lambda x: np.log(x) if pd.notnull(x) and x > 0 else np.nan)
-        if self.chk_sqrt.isChecked():
+        elif transform_idx == 2:
             # sqrt(x), ignora valores < 0
             df['sqrt'] = col_data.apply(lambda x: np.sqrt(x) if pd.notnull(x) and x >= 0 else np.nan)
-        if self.chk_cbrt.isChecked():
+        elif transform_idx == 3:
             # cbrt(x), aceita todos os valores
             df['cbrt'] = col_data.apply(lambda x: np.cbrt(x) if pd.notnull(x) else np.nan)
-        if self.chk_boxcox.isChecked():
+        elif transform_idx == 4:
             # boxcox(x), apenas valores > 0
             try:
                 valid = col_data.dropna()
@@ -5047,9 +5062,9 @@ class MainWindow(QMainWindow):
                     df.loc[valid.index, 'boxcox'] = transformed
                 else:
                     df['boxcox'] = np.nan
-            except Exception as e:
+            except Exception:
                 df['boxcox'] = np.nan
-        if self.chk_yeojohnson.isChecked():
+        elif transform_idx == 5:
             # yeojohnson(x), aceita valores negativos e zero
             try:
                 valid = col_data.dropna()
@@ -5058,7 +5073,7 @@ class MainWindow(QMainWindow):
                     df.loc[valid.index, 'yeo'] = transformed
                 else:
                     df['yeo'] = np.nan
-            except Exception as e:
+            except Exception:
                 df['yeo'] = np.nan
 
         # Salva o dataframe e exibe:
@@ -7673,7 +7688,7 @@ class MainWindow(QMainWindow):
                     lines.append("")
                     lines.append(f"Pairwise Bonferroni failed: {e}")
 
-        self._show_test_report("ANOVA Result", lines)
+        self._show_test_report(f"{value_col} ANOVA Result", lines)
         self._plot_density_per_group(value_col, class_col, group_names, group_vectors, title_suffix="ANOVA")
 
     def run_kruskal_wallis_test(self):
@@ -7803,7 +7818,7 @@ class MainWindow(QMainWindow):
                     lines.append("")
                     lines.append(f"Conover–Iman failed: {e} (install scikit-posthocs).")
 
-        self._show_test_report("Kruskal–Wallis Result", lines)
+        self._show_test_report(f"{value_col} Kruskal–Wallis Result", lines)
         self._plot_density_per_group(value_col, class_col, group_names, group_vectors, title_suffix="Kruskal–Wallis")
 
     def run_mann_whitney_test(self):
@@ -7844,7 +7859,7 @@ class MainWindow(QMainWindow):
         else:
             lines.append("Conclusion: Fail to reject H0 at α=0.05 (no evidence of difference).")
 
-        self._show_test_report("Mann–Whitney Result", lines)
+        self._show_test_report(f"{value_col} Mann–Whitney Result", lines)
         self._plot_density_per_group(value_col, class_col, group_names, group_vectors, title_suffix="Mann–Whitney")
 
     def run_tstudent_test(self, equal_var: bool = False):
@@ -7907,463 +7922,301 @@ class MainWindow(QMainWindow):
             lines.append(f"Conclusion: Fail to reject H0 p-value > 0.05 (no evidence of difference).")
 
         # 7) Mesmo fluxo de exibição/plot que você já usa
-        self._show_test_report("t-Student Result", lines)
+        self._show_test_report(f"{value_col} t-Student Result", lines)
         self._plot_density_per_group(
             value_col, class_col, group_names, group_vectors,
             title_suffix="t-Student (Welch)" if not equal_var else "t-Student (pooled)"
     )
 
-    def run_scatter_plot(self):
-        # -------------------- Checagens básicas/DataFrame --------------------
-        if getattr(self, "df_selecionado", None) is None or self.df_selecionado.empty:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "No DataFrame loaded.")
-            return
+    def _corr_strength_label(self, abs_stat):
+        if abs_stat is None or (isinstance(abs_stat, float) and np.isnan(abs_stat)):
+            return "Undefined"
+        if abs_stat < 0.1:
+            return "Negligible"
+        if abs_stat < 0.4:
+            return "Weak"
+        if abs_stat < 0.7:
+            return "Moderate"
+        if abs_stat < 0.9:
+            return "Strong"
+        return "Very Strong"
 
-        alias_x = "__x__"
-        alias_y = "__y__"
-        alias_z = "__z__"
-        alias_class = "__class__"
-
-        # --- Combos de variáveis e classe
-        x_col = self.list_columns_var1.currentText().strip() if hasattr(self, "list_columns_var1") else ""
-        y_col = self.list_columns_var2.currentText().strip() if hasattr(self, "list_columns_var2") else ""
-        z_col = self.list_columns_var3.currentText().strip() if hasattr(self, "list_columns_var3") else ""
-        class_col = self.list_class_column.currentText().strip() if hasattr(self, "list_class_column") else ""
-
-        if not x_col or x_col not in self.df_selecionado.columns:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid X variable in 'Select Variables 1'.")
-            return
-        if not y_col or y_col not in self.df_selecionado.columns:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid Y variable in 'Select Variables 2'.")
-            return
-        if not class_col or class_col not in self.df_selecionado.columns:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid class column in 'Select class column'.")
-            return
-
-        # Tipo de plot (g13): 2D ou 3D
-        is_3d = bool(getattr(self, "chk_3D_plot", None) and self.chk_3D_plot.isChecked())
-        if is_3d:
-            # Precisa da 3ª variável
-            if not z_col or z_col not in self.df_selecionado.columns:
-                QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "For 3D plot, select a valid Z variable in 'Select Variables 3'.")
-                return
-            specs = {
-                alias_x: (x_col, "numeric"),
-                alias_y: (y_col, "numeric"),
-                alias_z: (z_col, "numeric"),
-                alias_class: (class_col, "string"),
-            }
-        else:
-            specs = {
-                alias_x: (x_col, "numeric"),
-                alias_y: (y_col, "numeric"),
-                alias_class: (class_col, "string"),
-            }
-
-        # Cópia saneada
-        df = self._build_selected_columns_dataframe(specs)
-        if is_3d:
-            df = df.dropna(subset=[alias_x, alias_y, alias_z])
-        else:
-            df = df.dropna(subset=[alias_x, alias_y])
-
-        if df.empty:
-            QMessageBox.information(self, i18n.t("msg_title_attention", self._idioma), "No valid numeric data for the selected variables.")
-            return
-
-        # Filtrar pelos grupos selecionados (fallback: todos)
-        if hasattr(self, "list_groups") and self.list_groups is not None:
-            sel = [it.text().strip() for it in self.list_groups.selectedItems()]
-            if sel:
-                df = df[df[alias_class].isin(sel)]
-        if df.empty:
-            QMessageBox.information(self, i18n.t("msg_title_attention", self._idioma), "No data after filtering by selected groups.")
-            return
-
-        # -------------------- Preparar grupos e mapeamento de cores genérico --------------------
-        # Coletar dados por grupo
-        group_data = {}
-        for g, sub in df.groupby(alias_class):
-            if is_3d:
-                xv, yv, zv = sub[alias_x].values, sub[alias_y].values, sub[alias_z].values
-                if len(xv) > 0:
-                    group_data[str(g)] = (xv, yv, zv)
-            else:
-                xv, yv = sub[alias_x].values, sub[alias_y].values
-                if len(xv) > 0:
-                    group_data[str(g)] = (xv, yv)
-
-        if not group_data:
-            QMessageBox.information(self, i18n.t("msg_title_attention", self._idioma), "No groups with data to plot.")
-            return
-
-        # Ordem genérica estável e legível: alfabética case-insensitive
-        ordered_groups = sorted(group_data.keys(), key=lambda s: s.lower())
-
-        # -------------------- Mapeamento de cores independente do nome da classe --------------------
-        base_colors = [
-            "#499b35",  # Azul
-            "#c05237",  # Laranja
-            "#5272b9",  # Verde
-            "#cc9159",  # Vermelho
-            "#a647ff",  # Roxo
-            "#5a3028",  # Marrom
-        ]
-
-        # Se houver mais classes que cores definidas, repete as cores ciclicamente
-        palette = [base_colors[i % len(base_colors)] for i in range(len(ordered_groups))]
-        color_map = {g: palette[i] for i, g in enumerate(ordered_groups)}
-
-        # Contagens por classe
-        counts = {g: (len(group_data[g][0]) if is_3d else len(group_data[g][0])) for g in ordered_groups}
-
-        # -------------------- Janela / Canvas / Toolbar --------------------
-        try:
-            from matplotlib.backends.qt_editor.figureoptions import figure_edit
-        except Exception:
-            figure_edit = None
-
-        if is_3d:
-            from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
-
-        fig = plt.figure(figsize=(10, 7))
-        if is_3d:
-            ax = fig.add_subplot(111, projection='3d')
-            ax.set_title(f"3D Scatter: {x_col} vs {y_col} vs {z_col}")
-            ax.set_xlabel(x_col)
-            ax.set_ylabel(y_col)
-            ax.set_zlabel(z_col)
-        else:
-            ax = fig.add_subplot(111)
-            ax.set_title(f"Scatter: {x_col} vs {y_col}")
-            ax.set_xlabel(x_col)
-            ax.set_ylabel(y_col)
-        ax.grid(True, linestyle='--', alpha=0.2, linewidth=1)
-
-        # -------------------- Desenho dos pontos --------------------
-        for g in ordered_groups:
-            if is_3d:
-                xg, yg, zg = group_data[g]
-                ax.scatter(
-                    xg, yg, zg, s=30, alpha=0.75,
-                    color=color_map[g],
-                    depthshade=True,
-                    label=f"{g} (n={len(xg)})"
-                )
-            else:
-                xg, yg = group_data[g]
-                ax.scatter(
-                    xg, yg, s=30, alpha=0.65,
-                    color=color_map[g],
-                    edgecolor="none",
-                    label=f"{g} (n={len(xg)})"
-                )
-
-        # -------------------- Tendência linear + IC (apenas 2D) --------------------
-        if (not is_3d) and getattr(self, "chk_linear_trend_line", None) and self.chk_linear_trend_line.isChecked():
+    def _compute_correlation_stat(self, method, X, Y):
+        """Computes the correlation statistic for one of 'pearson'/'spearman'/'kendall'.
+        Returns (test_title, stat_label, stat_value, p_value, strength, extra_line_or_None)."""
+        if method == "pearson":
+            r, pval = stats.pearsonr(X, Y)
+            test_title, stat_label, stat_val = "Pearson correlation", "r", r
+            extra_prefix = "OLS line"
+        elif method == "spearman":
+            rho, pval = stats.spearmanr(X, Y, nan_policy="omit")
+            test_title, stat_label, stat_val = "Spearman rank correlation", "rho", rho
+            extra_prefix = "OLS line (for visualization)"
+        elif method == "kendall":
             try:
-                X_all = df[alias_x].values.astype(float)
-                Y_all = df[alias_y].values.astype(float)
+                tau_b, pval = stats.kendalltau(X, Y, variant='b')
+            except TypeError:
+                tau_b, pval = stats.kendalltau(X, Y)
+            test_title, stat_label, stat_val = "Kendall rank correlation (Tau-b)", "tau-b", tau_b
+            extra_prefix = "OLS line (for visualization)"
+        else:
+            raise ValueError(f"Unknown correlation method: {method}")
 
-                if len(X_all) >= 2 and len(np.unique(X_all)) >= 2:
-                    coef = np.polyfit(X_all, Y_all, deg=1)
-                    a, b = coef[0], coef[1]
-                    x_line = np.linspace(np.nanmin(X_all), np.nanmax(X_all), 300)
-                    y_line = a * x_line + b
-                    ax.plot(x_line, y_line, lw=2.2, ls="-", color="black", alpha=0.9, label="Linear trend")
+        abs_stat = abs(float(stat_val)) if stat_val is not None else float("nan")
+        strength = self._corr_strength_label(abs_stat)
 
-                    try:
-                        ci_val = float(self.ed_conf_int.text().strip().replace(",", ".")) if hasattr(self, "ed_conf_int") else 95.0
-                    except Exception:
-                        ci_val = 95.0
-                    ci_val = float(np.clip(ci_val, 50.0, 99.9))
-                    alpha_ci = 1.0 - (ci_val / 100.0)
+        try:
+            slope, intercept = np.polyfit(X, Y, deg=1)
+            extra = f"{extra_prefix}: Y = {slope:.6g} * X + {intercept:.6g}"
+        except Exception:
+            extra = None
 
-                    n = X_all.size
-                    mean_x = X_all.mean()
-                    tcrit = stats.t.ppf(1.0 - alpha_ci/2.0, df=max(n - 2, 1))
-                    y_hat_all = a * X_all + b
-                    s_err = np.sqrt(np.sum((Y_all - y_hat_all) ** 2) / max(n - 2, 1))
-                    Sxx = np.sum((X_all - mean_x) ** 2)
-                    se_mean = s_err * np.sqrt((1.0 / n) + ((x_line - mean_x) ** 2) / max(Sxx, np.finfo(float).eps))
-                    y_upper = y_line + tcrit * se_mean
-                    y_lower = y_line - tcrit * se_mean
+        return test_title, stat_label, stat_val, pval, strength, extra
 
-                    ax.fill_between(x_line, y_lower, y_upper, color="lightgray", alpha=0.5,
-                                    label=f"{int(round(ci_val))}% CI (mean)")
+    def _build_correlation_report_lines(self, method, x_name, y_name, X, Y):
+        test_title, stat_label, stat_val, pval, strength, extra = self._compute_correlation_stat(method, X, Y)
+        lines = [
+            f"Test: {test_title}",
+            f"Variables: {x_name} (X) vs {y_name} (Y)",
+            f"N = {len(X)}",
+            f"{stat_label} = {stat_val:.4f}",
+            f"p-value = {pval:.4e}",
+            f"Correlation significance: {strength}",
+        ]
+        if extra:
+            lines.append(extra)
+        return lines
 
+    def _get_trend_num_samples(self) -> int:
+        """Number of points used to draw each trend curve (linspace resolution), same convention
+        as the 'Num Samples' field already used by STEP 2's histogram trend line."""
+        try:
+            val = int(float(self.ed_trend_num_samples.text().strip())) if hasattr(self, "ed_trend_num_samples") else 1000
+        except Exception:
+            val = 1000
+        return max(10, min(val, 100000))
+
+    def _get_selected_trend_curve_types(self) -> list:
+        if not hasattr(self, "list_trend_curve_types"):
+            return []
+        return [it.text() for it in self.list_trend_curve_types.selectedItems()]
+
+    def _r_squared(self, y_true, y_pred):
+        y_true = np.asarray(y_true, dtype=float)
+        y_pred = np.asarray(y_pred, dtype=float)
+        ss_res = np.sum((y_true - y_pred) ** 2)
+        ss_tot = np.sum((y_true - y_true.mean()) ** 2)
+        if ss_tot <= 0:
+            return float("nan")
+        return 1.0 - ss_res / ss_tot
+
+    def _equation_suffix(self, equation: str, r2: float) -> str:
+        """Builds the ': y = ... (R²=...)' suffix appended to a trend curve's legend label
+        when 'Plot Equation' is checked. Skips R² if it couldn't be computed."""
+        if not (getattr(self, "chk_plot_equation", None) and self.chk_plot_equation.isChecked()):
+            return ""
+        suffix = f": {equation}"
+        if r2 is not None and not (isinstance(r2, float) and np.isnan(r2)):
+            suffix += f" (R²={r2:.3f})"
+        return suffix
+
+    def _draw_correlation_trend_curves(self, ax, X, Y):
+        """Draws the curve types selected in the multi-select list (Linear, Moving Average,
+        Exponential, Logarithmic, Polynomial, LOESS/LOWESS, Splines, GAMs) while 'Trend Line' is
+        checked. Used by the Pearson/Spearman/Kendall correlation plots (2D only)."""
+        if not (getattr(self, "chk_linear_trend_line", None) and self.chk_linear_trend_line.isChecked()):
+            return
+
+        X = np.asarray(X, dtype=float)
+        Y = np.asarray(Y, dtype=float)
+        if len(X) < 2 or len(np.unique(X)) < 2:
+            return
+
+        selected = set(self._get_selected_trend_curve_types())
+        if not selected:
+            return
+
+        samples = self._get_trend_num_samples()
+        x_line = np.linspace(np.nanmin(X), np.nanmax(X), samples)
+
+        # ---- Linear trend + CI ----
+        if "Linear" in selected:
+            try:
+                coef = np.polyfit(X, Y, deg=1)
+                a, b = coef[0], coef[1]
+                y_line = a * x_line + b
+                r2 = self._r_squared(Y, a * X + b)
+                eq = f"y = {a:.4g}x {'+' if b >= 0 else '-'} {abs(b):.4g}"
+                label = "Linear trend" + self._equation_suffix(eq, r2)
+                ax.plot(x_line, y_line, lw=2.2, ls="-", color="black", alpha=0.9, label=label)
+
+                try:
+                    ci_val = float(self.ed_conf_int.text().strip().replace(",", ".")) if hasattr(self, "ed_conf_int") else 95.0
+                except Exception:
+                    ci_val = 95.0
+                ci_val = float(np.clip(ci_val, 50.0, 99.9))
+                alpha_ci = 1.0 - (ci_val / 100.0)
+
+                n = X.size
+                mean_x = X.mean()
+                tcrit = stats.t.ppf(1.0 - alpha_ci / 2.0, df=max(n - 2, 1))
+                y_hat_all = a * X + b
+                s_err = np.sqrt(np.sum((Y - y_hat_all) ** 2) / max(n - 2, 1))
+                Sxx = np.sum((X - mean_x) ** 2)
+                se_mean = s_err * np.sqrt((1.0 / n) + ((x_line - mean_x) ** 2) / max(Sxx, np.finfo(float).eps))
+                y_upper = y_line + tcrit * se_mean
+                y_lower = y_line - tcrit * se_mean
+
+                ax.fill_between(x_line, y_lower, y_upper, color="lightgray", alpha=0.5,
+                                label=f"{int(round(ci_val))}% CI (mean)")
             except Exception as e:
                 QMessageBox.information(self, "Linear trend", f"Failed to compute linear trend/CI: {e}")
 
-        # -------------------- Outras curvas opcionais (apenas 2D, mantidas) --------------------
-        if not is_3d:
-            X_all = df[alias_x].values
-            Y_all = df[alias_y].values
-            if len(X_all) >= 2 and len(np.unique(X_all)) >= 2:
-                x_line = np.linspace(np.nanmin(X_all), np.nanmax(X_all), 300)
+        # Moving Average
+        if "Moving Average" in selected:
+            try:
+                order = np.argsort(X)
+                xs = X[order]; ys = Y[order]
+                win = max(3, int(round(0.05 * len(xs))))
+                s = pd.Series(ys).rolling(window=win, center=True, min_periods=max(2, win // 2)).mean().values
+                mask = ~np.isnan(s)
+                if mask.sum() >= 2:
+                    ax.plot(xs[mask], s[mask], lw=2, ls="--", alpha=0.9, color="#FF5757", label=f"Moving Avg (win={win})")
+            except Exception as e:
+                QMessageBox.information(self, "Moving Average", f"Failed to compute moving average: {e}")
 
-                # Moving Average
-                if getattr(self, "chk_mov_avg", None) and self.chk_mov_avg.isChecked():
-                    try:
-                        order = np.argsort(X_all)
-                        xs = X_all[order]; ys = Y_all[order]
-                        win = max(3, int(round(0.05 * len(xs))))
-                        s = pd.Series(ys).rolling(window=win, center=True, min_periods=max(2, win//2)).mean().values
-                        mask = ~np.isnan(s)
-                        if mask.sum() >= 2:
-                            ax.plot(xs[mask], s[mask], lw=2, ls="--", alpha=0.9, color="#FF5757", label=f"Moving Avg (win={win})")
-                    except Exception as e:
-                        QMessageBox.information(self, "Moving Average", f"Failed to compute moving average: {e}")
+        # Exponential: y = a * exp(b*(x - x_mean)) + c
+        # X is centered on its mean before fitting: a*exp(b*x)+c on raw X (e.g. molecular weight
+        # ~150-500) is numerically ill-conditioned — b*x barely varies across the data range, so
+        # least-squares finds a near-degenerate near-linear solution using huge/tiny compensating
+        # a/b/c (e.g. a=1258, b=-1.9e-06) that fits fine but reads as nonsense. Centering keeps
+        # b*(x-x_mean) in a well-scaled range and a bound on b keeps exp() from blowing up.
+        if "Exponential" in selected:
+            try:
+                from scipy.optimize import curve_fit
+                x_mean = X.mean()
+                Xc = X - x_mean
+                span = (Xc.max() - Xc.min()) or 1.0
+                def _exp_f(x, a, b, c):
+                    return a * np.exp(b * x) + c
+                p0 = [(Y.max() - Y.min()) or 1.0, 0.0, Y.mean()]
+                b_bound = 10.0 / span
+                popt, _ = curve_fit(
+                    _exp_f, Xc, Y, p0=p0, maxfev=20000,
+                    bounds=([-np.inf, -b_bound, -np.inf], [np.inf, b_bound, np.inf]),
+                )
+                y_exp = _exp_f(x_line - x_mean, *popt)
+                r2 = self._r_squared(Y, _exp_f(Xc, *popt))
+                eq = f"y = {popt[0]:.4g}*e^({popt[1]:.4g}*(x-{x_mean:.4g})) {'+' if popt[2] >= 0 else '-'} {abs(popt[2]):.4g}"
+                label = "Exponential" + self._equation_suffix(eq, r2)
+                ax.plot(x_line, y_exp, lw=2, ls="-.", alpha=0.9, color="#e8590c", label=label)
+            except Exception as e:
+                QMessageBox.information(self, "Exponential", f"Failed to fit exponential curve: {e}")
 
-                # Polynomial
-                if getattr(self, "chk_Polinomial", None) and self.chk_Polinomial.isChecked():
-                    try:
-                        deg = 2
-                        if hasattr(self, "spin_poly_degree"):
-                            try:
-                                deg = int(self.spin_poly_degree.value())
-                            except Exception:
-                                pass
-                        deg = max(2, min(deg, 6))
-                        pcoef = np.polyfit(X_all, Y_all, deg=deg)
-                        y_poly = np.polyval(pcoef, x_line)
-                        ax.plot(x_line, y_poly, lw=2, ls=":", alpha=0.9, color="#2b8a3e", label=f"Polynomial (deg={deg})")
-                    except Exception as e:
-                        QMessageBox.information(self, "Polynomial", f"Failed to fit polynomial: {e}")
+        # Logarithmic: y = a + b*ln(x) (requires X > 0)
+        if "Logarithmic" in selected:
+            try:
+                mask = X > 0
+                if mask.sum() < 2:
+                    raise ValueError("Logarithmic fit requires X > 0.")
+                b, a = np.polyfit(np.log(X[mask]), Y[mask], deg=1)
+                x_line_pos = x_line[x_line > 0]
+                if len(x_line_pos) < 2:
+                    raise ValueError("No positive X range to draw the logarithmic curve.")
+                y_log = a + b * np.log(x_line_pos)
+                r2 = self._r_squared(Y[mask], a + b * np.log(X[mask]))
+                eq = f"y = {a:.4g} {'+' if b >= 0 else '-'} {abs(b):.4g}*ln(x)"
+                label = "Logarithmic" + self._equation_suffix(eq, r2)
+                ax.plot(x_line_pos, y_log, lw=2, ls="-.", alpha=0.9, color="#087f5b", label=label)
+            except Exception as e:
+                QMessageBox.information(self, "Logarithmic", f"Failed to fit logarithmic curve: {e}")
 
-                # LOESS
-                if getattr(self, "chk_loess", None) and self.chk_loess.isChecked():
-                    try:
-                        from statsmodels.nonparametric.smoothers_lowess import lowess
-                        order = np.argsort(X_all)
-                        xs = X_all[order]; ys = Y_all[order]
-                        frac = 0.3
-                        if hasattr(self, "spin_loess_frac"):
-                            try:
-                                val = float(self.spin_loess_frac.value())
-                                frac = val / 100.0 if val > 1.0 else val
-                                frac = min(max(frac, 0.05), 0.8)
-                            except Exception:
-                                pass
-                        lo = lowess(ys, xs, frac=frac, return_sorted=True)
-                        ax.plot(lo[:, 0], lo[:, 1], lw=2, ls="-.", alpha=0.9, color="#1c7ed6", label=f"LOESS (frac={frac:.2f})")
-                    except Exception as e:
-                        QMessageBox.information(self, "LOESS", f"Failed to compute LOESS: {e}")
+        # Polynomial (degree 2)
+        if "Polynomial" in selected:
+            try:
+                deg = 2
+                pcoef = np.polyfit(X, Y, deg=deg)
+                y_poly = np.polyval(pcoef, x_line)
+                r2 = self._r_squared(Y, np.polyval(pcoef, X))
+                eq = "y = " + " ".join(
+                    f"{'+' if c >= 0 else '-'} {abs(c):.4g}{'x' + (f'^{deg - i}' if (deg - i) > 1 else '') if (deg - i) > 0 else ''}"
+                    for i, c in enumerate(pcoef)
+                ).lstrip("+ ")
+                label = f"Polynomial (deg={deg})" + self._equation_suffix(eq, r2)
+                ax.plot(x_line, y_poly, lw=2, ls=":", alpha=0.9, color="#2b8a3e", label=label)
+            except Exception as e:
+                QMessageBox.information(self, "Polynomial", f"Failed to fit polynomial: {e}")
 
-                # Splines
-                if getattr(self, "chk_splines", None) and self.chk_splines.isChecked():
-                    try:
-                        from scipy.interpolate import UnivariateSpline
-                        # Tied X values (e.g. dilution-series potency data) make
-                        # UnivariateSpline place a knot at every duplicate, which
-                        # can silently degenerate to an all-NaN fit (no exception
-                        # raised). Collapse duplicates by averaging Y per unique X
-                        # before fitting to keep the spline well-posed.
-                        xu, inv = np.unique(X_all, return_inverse=True)
-                        yu = np.array([Y_all[inv == i].mean() for i in range(len(xu))])
-                        if len(xu) < 4:
-                            raise ValueError("Not enough unique X values for a cubic spline (need >= 4).")
-                        spl = UnivariateSpline(xu, yu, s=None, k=3)
-                        y_spline = spl(x_line)
-                        if not np.all(np.isfinite(y_spline)):
-                            raise ValueError("Spline fit produced non-finite values.")
-                        ax.plot(x_line, y_spline, lw=2, alpha=0.9, color="#ae3ec9", label="Cubic spline")
-                    except Exception as e:
-                        # fallback linear
-                        try:
-                            xu, idx = np.unique(X_all, return_index=True)
-                            yu = Y_all[idx]
-                            yu_sorted = yu[np.argsort(xu)]
-                            xu_sorted = np.sort(xu)
-                            y_lin = np.interp(x_line, xu_sorted, yu_sorted)
-                            ax.plot(x_line, y_lin, lw=2, alpha=0.9, color="#ae3ec9", ls="--", label="Spline (fallback interp.)")
-                        except Exception as e2:
-                            QMessageBox.information(self, "Splines", f"Spline failed: {e}\nFallback failed: {e2}")
+        # LOESS/LOWESS
+        if "LOESS/LOWESS" in selected:
+            try:
+                from statsmodels.nonparametric.smoothers_lowess import lowess
+                order = np.argsort(X)
+                xs = X[order]; ys = Y[order]
+                lo = lowess(ys, xs, frac=0.3, return_sorted=True)
+                ax.plot(lo[:, 0], lo[:, 1], lw=2, ls="-.", alpha=0.9, color="#1c7ed6", label="LOESS (frac=0.30)")
+            except Exception as e:
+                QMessageBox.information(self, "LOESS", f"Failed to compute LOESS: {e}")
 
-                # GAMs
-                if getattr(self, "chk_GAMs", None) and self.chk_GAMs.isChecked():
-                    try:
-                        from pygam import LinearGAM, s as pg_s
-                        gam = LinearGAM(pg_s(0, n_splines=20)).fit(X_all.reshape(-1, 1), Y_all)
-                        y_gam = gam.predict(x_line.reshape(-1, 1))
-                        ax.plot(x_line, y_gam, lw=2, alpha=0.95, color="#d9480f", label="GAM (spline term)")
-                    except Exception as e:
-                        try:
-                            import statsmodels.api as sm
-                            from patsy import dmatrix
-                            x_spline = dmatrix("bs(x, df=6, degree=3, include_intercept=False)",
-                                            {"x": X_all}, return_type='dataframe')
-                            gam_sm = sm.GLM(Y_all, x_spline, family=sm.families.Gaussian()).fit()
-                            xline_spline = dmatrix("bs(x, df=6, degree=3, include_intercept=False)",
-                                                {"x": x_line}, return_type='dataframe')
-                            y_gam = gam_sm.predict(xline_spline)
-                            ax.plot(x_line, y_gam, lw=2, alpha=0.95, color="#d9480f", ls="--", label="GAM (statsmodels)")
-                        except Exception as e2:
-                            QMessageBox.information(self, "GAMs", f"GAM unavailable: {e}\nAlternative failed: {e2}")
+        # Splines
+        if "Splines" in selected:
+            try:
+                from scipy.interpolate import UnivariateSpline
+                # Tied X values make UnivariateSpline place a knot at every duplicate, which can
+                # silently degenerate to an all-NaN fit. Collapse duplicates by averaging Y per
+                # unique X before fitting to keep the spline well-posed.
+                xu, inv = np.unique(X, return_inverse=True)
+                yu = np.array([Y[inv == i].mean() for i in range(len(xu))])
+                if len(xu) < 4:
+                    raise ValueError("Not enough unique X values for a cubic spline (need >= 4).")
+                spl = UnivariateSpline(xu, yu, s=None, k=3)
+                y_spline = spl(x_line)
+                if not np.all(np.isfinite(y_spline)):
+                    raise ValueError("Spline fit produced non-finite values.")
+                ax.plot(x_line, y_spline, lw=2, alpha=0.9, color="#ae3ec9", label="Cubic spline")
+            except Exception as e:
+                try:
+                    xu, idx = np.unique(X, return_index=True)
+                    yu = Y[idx]
+                    yu_sorted = yu[np.argsort(xu)]
+                    xu_sorted = np.sort(xu)
+                    y_lin = np.interp(x_line, xu_sorted, yu_sorted)
+                    ax.plot(x_line, y_lin, lw=2, alpha=0.9, color="#ae3ec9", ls="--", label="Spline (fallback interp.)")
+                except Exception as e2:
+                    QMessageBox.information(self, "Splines", f"Spline failed: {e}\nFallback failed: {e2}")
 
-        # -------------------- Legenda/Layout --------------------
-        ax.legend(frameon=False)
-        fig.tight_layout()
+        # GAMs
+        if "GAMs" in selected:
+            try:
+                from pygam import LinearGAM, s as pg_s
+                gam = LinearGAM(pg_s(0, n_splines=20)).fit(X.reshape(-1, 1), Y)
+                y_gam = gam.predict(x_line.reshape(-1, 1))
+                ax.plot(x_line, y_gam, lw=2, alpha=0.95, color="#d9480f", label="GAM (spline term)")
+            except Exception as e:
+                try:
+                    import statsmodels.api as sm
+                    from patsy import dmatrix
+                    x_spline = dmatrix("bs(x, df=6, degree=3, include_intercept=False)",
+                                    {"x": X}, return_type='dataframe')
+                    gam_sm = sm.GLM(Y, x_spline, family=sm.families.Gaussian()).fit()
+                    xline_spline = dmatrix("bs(x, df=6, degree=3, include_intercept=False)",
+                                        {"x": x_line}, return_type='dataframe')
+                    y_gam = gam_sm.predict(xline_spline)
+                    ax.plot(x_line, y_gam, lw=2, alpha=0.95, color="#d9480f", ls="--", label="GAM (statsmodels)")
+                except Exception as e2:
+                    QMessageBox.information(self, "GAMs", f"GAM unavailable: {e}\nAlternative failed: {e2}")
 
-        # -------------------- Diálogo interativo com Toolbar --------------------
-        dialog = QDialog(self)
-        dialog.setWindowTitle("3D Scatter" if is_3d else "Scatter")
-        layout = QVBoxLayout(dialog)
-
-        canvas = FigureCanvas(fig)
-        toolbar = NavigationToolbar(canvas, dialog)
-        layout.addWidget(toolbar)
-        layout.addWidget(canvas)
-
-        # Contagens por classe
-        counts_text = " | ".join([f"{g}: n={counts[g]}" for g in ordered_groups if g in counts])
-        lbl_counts = QLabel(f"<b>Counts</b> — {counts_text}")
-        lbl_counts.setTextFormat(Qt.RichText)
-        layout.addWidget(lbl_counts)
-
-        # Botões
-        btn_row = QHBoxLayout()
-        btn_save = QPushButton("Save")
-        btn_close = QPushButton("Close")
-        for b in (btn_save, btn_close):
-            b.setFixedWidth(160)
-        btn_row.addWidget(btn_save)
-        btn_row.addWidget(btn_close)
-        _style_dialog_buttons(btn_save, btn_close)
-        layout.addLayout(btn_row)
-
-        def save_figure():
-            default_dir = os.path.join(self.job_dir, "RESULTS", "STATISTICS")
-            os.makedirs(default_dir, exist_ok=True)
-            base = f"{'scatter3d' if is_3d else 'scatter'}_{x_col}_vs_{y_col}" + (f"_vs_{z_col}" if is_3d else "")
-            file_path, _ = QFileDialog.getSaveFileName(
-                dialog, "Save chart",
-                os.path.join(default_dir, f"{base}.png"),
-                "PNG Files (*.png);;SVG Files (*.svg);;PDF Files (*.pdf);;All Files (*)"
-            )
-            if file_path:
-                fig.savefig(file_path, dpi=500)
-                QMessageBox.information(dialog, "Saved", f"Chart saved to:\n{file_path}")
-                
-        btn_save.clicked.connect(save_figure)
-        btn_close.clicked.connect(dialog.close)
-
-        dialog.resize(980, 760)
-        dialog.exec_()
-
-    def run_mann_kendall_test(self, alpha: float = 0.05):
+    def _run_correlation_test(self, method: str, title_prefix: str, file_prefix: str):
         """
-        Mann–Kendall trend test of Y vs X (Y ordered by increasing X).
-        Writes:
-        - ed_mann_kendall_trend: "Increasing" | "Decreasing" | "No monotonic trend"
-        - ed_mann_kendall_slope: Sen's slope (median pairwise slope)
+        Shared implementation for Pearson/Spearman/Kendall (STEP 3, 'Correlate Variables').
+
+        2D (default, chk_3D_plot unchecked): single X vs Y pair — scatter colored by class plus
+        the optional trend curve(s) (see _draw_correlation_trend_curves).
+
+        3D (chk_3D_plot checked + a valid Select Variable 3): runs the same test for all 3 pairwise
+        combinations among X, Y, Z, shows all 3 results in a single report window (savable via
+        Save .txt), and renders one 3D scatter colored by class (no curve overlays in 3D).
         """
-        # ---- validations
-        if getattr(self, "df_selecionado", None) is None or self.df_selecionado.empty:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "No DataFrame loaded.")
-            return
-
-        x_col = self.list_columns_var1.currentText().strip() if hasattr(self, "list_columns_var1") else ""
-        y_col = self.list_columns_var2.currentText().strip() if hasattr(self, "list_columns_var2") else ""
-
-        if not x_col or x_col not in self.df_selecionado.columns:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid X variable in 'Select Variables 1'.")
-            return
-        if not y_col or y_col not in self.df_selecionado.columns:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid Y variable in 'Select Variables 2'.")
-            return
-
-        # numeric & sort by X (stable sort keeps original order for ties)
-        df = self.df_selecionado[[x_col, y_col]].copy()
-        df[x_col] = pd.to_numeric(df[x_col], errors="coerce")
-        df[y_col] = pd.to_numeric(df[y_col], errors="coerce")
-        df = df.dropna(subset=[x_col, y_col]).sort_values(by=x_col, kind="mergesort")
-
-        if len(df) < 3:
-            QMessageBox.information(self, i18n.t("msg_title_attention", self._idioma), "Need at least 3 valid observations.")
-            return
-
-        x = df[x_col].to_numpy(dtype=float)
-        y = df[y_col].to_numpy(dtype=float)
-        n = len(y)
-
-        # ---- Mann–Kendall (with tie correction in Y)
-        S = 0
-        for i in range(n - 1):
-            diffs = y[i+1:] - y[i]
-            S += np.sum(np.sign(diffs))
-
-        # Var(S) with ties in Y
-        _, counts = np.unique(y, return_counts=True)
-        tie_term = np.sum(counts * (counts - 1) * (2 * counts + 5))
-        varS = (n * (n - 1) * (2 * n + 5) - tie_term) / 18.0
-
-        if S > 0:
-            Z = (S - 1) / np.sqrt(varS) if varS > 0 else 0.0
-        elif S < 0:
-            Z = (S + 1) / np.sqrt(varS) if varS > 0 else 0.0
-        else:
-            Z = 0.0
-
-        try:
-            p_two = 2.0 * (1.0 - stats.norm.cdf(abs(Z)))
-        except Exception:
-            p_two = np.nan
-
-        # Kendall's tau (optional)
-        denom = n * (n - 1) / 2.0
-        tau = S / denom if denom > 0 else np.nan
-
-        # ---- Sen's slope (median of all pairwise slopes dy/dx for x_j != x_i)
-        slopes = []
-        for i in range(n - 1):
-            dx = x[i+1:] - x[i]
-            valid = dx != 0
-            if np.any(valid):
-                dy = y[i+1:] - y[i]
-                s = dy[valid] / dx[valid]
-                if s.size:
-                    slopes.append(s)
-        if len(slopes):
-            slope = float(np.median(np.concatenate(slopes)))
-        else:
-            slope = float("nan")
-
-        # ---- Trend in English
-        if (not np.isnan(p_two)) and (p_two < alpha) and (S != 0):
-            trend = "Increasing" if S > 0 else "Decreasing"
-        else:
-            trend = "No monotonic trend"
-
-        # ---- Write outputs
-        try:
-            # trend -> ed_mann_kendall_trend
-            if hasattr(self, "ed_mann_kendall_trend"):
-                if hasattr(self.ed_mann_kendall_trend, "setText"):
-                    self.ed_mann_kendall_trend.setText(trend)
-                elif hasattr(self.ed_mann_kendall_trend, "append"):
-                    self.ed_mann_kendall_trend.append(trend)
-
-            # slope -> ed_mann_kendall_slope  (string with sensible precision)
-            slope_str = "NA" if np.isnan(slope) else f"{slope:.6g}"
-            if hasattr(self, "ed_mann_kendall_slope"):
-                if hasattr(self.ed_mann_kendall_slope, "setText"):
-                    self.ed_mann_kendall_slope.setText(slope_str)
-                elif hasattr(self.ed_mann_kendall_slope, "append"):
-                    self.ed_mann_kendall_slope.append(slope_str)
-
-        except Exception as e:
-            QMessageBox.information(self, "Mann–Kendall", f"Trend: {trend}\nSlope: {slope_str}\n(detail: {e})")
-
-    def run_pearson_test(self):
-        """
-        Pearson correlation between the variables selected in
-        list_columns_var1 (X) and list_columns_var2 (Y).
-
-        - Shows a text report (r, R², p-value, significance).
-        - Plots scatter colored by class, OLS regression line and 95% CI.
-        """
-        # -------- Validations and data prep
         if getattr(self, "df_selecionado", None) is None or self.df_selecionado.empty:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "No DataFrame loaded.")
             return
@@ -8371,6 +8224,8 @@ class MainWindow(QMainWindow):
         x_col = self.list_columns_var1.currentText().strip() if hasattr(self, "list_columns_var1") else ""
         y_col = self.list_columns_var2.currentText().strip() if hasattr(self, "list_columns_var2") else ""
         class_col = self.list_class_column.currentText().strip() if hasattr(self, "list_class_column") else ""
+        is_3d = bool(getattr(self, "chk_3D_plot", None) and self.chk_3D_plot.isChecked())
+        z_col = self.list_columns_var3.currentText().strip() if (is_3d and hasattr(self, "list_columns_var3")) else ""
 
         if not x_col or x_col not in self.df_selecionado.columns:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid X variable in 'Select Variables 1'.")
@@ -8381,14 +8236,17 @@ class MainWindow(QMainWindow):
         if not class_col or class_col not in self.df_selecionado.columns:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid class column in 'Select class column'.")
             return
+        if is_3d and (not z_col or z_col not in self.df_selecionado.columns):
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "For 3D plot, select a valid Z variable in 'Select Variables 3'.")
+            return
 
-        df = self.df_selecionado[[x_col, y_col, class_col]].copy()
-        df[x_col] = pd.to_numeric(df[x_col], errors="coerce")
-        df[y_col] = pd.to_numeric(df[y_col], errors="coerce")
+        numeric_cols = [x_col, y_col] + ([z_col] if is_3d else [])
+        df = self.df_selecionado[numeric_cols + [class_col]].copy()
+        for c in numeric_cols:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
         df[class_col] = df[class_col].astype(str)
-        df = df.dropna(subset=[x_col, y_col])
+        df = df.dropna(subset=numeric_cols)
 
-        # Optional: filter by selected groups
         if hasattr(self, "list_groups") and self.list_groups is not None:
             sel = [it.text().strip() for it in self.list_groups.selectedItems()]
             if sel:
@@ -8398,59 +8256,27 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, i18n.t("msg_title_attention", self._idioma), "Need at least 3 valid paired observations.")
             return
 
-        X = df[x_col].to_numpy(dtype=float)
-        Y = df[y_col].to_numpy(dtype=float)
+        pairs = [(x_col, y_col), (x_col, z_col), (y_col, z_col)] if is_3d else [(x_col, y_col)]
 
-        # -------- Pearson correlation
-        try:
-            r, pval = stats.pearsonr(X, Y)
-        except Exception as e:
-            QMessageBox.critical(self, "Pearson error", str(e))
-            return
-        r2 = r ** 2
+        all_lines = []
+        for i, (a_col, b_col) in enumerate(pairs):
+            Xp = df[a_col].to_numpy(dtype=float)
+            Yp = df[b_col].to_numpy(dtype=float)
+            try:
+                pair_lines = self._build_correlation_report_lines(method, a_col, b_col, Xp, Yp)
+            except Exception as e:
+                QMessageBox.critical(self, f"{title_prefix} error", str(e))
+                return
+            if i > 0:
+                all_lines.append("")
+            all_lines.extend(pair_lines)
 
-        # Significance label by |r|
-        abs_r = abs(r)
-        if abs_r < 0.1:
-            strength = "Negligible"
-        elif abs_r < 0.4:
-            strength = "Weak"
-        elif abs_r < 0.7:
-            strength = "Moderate"
-        elif abs_r < 0.9:
-            strength = "Strong"
-        else:
-            strength = "Very Strong"
+        title_suffix = f"{x_col} vs {y_col} vs {z_col}" if is_3d else f"{x_col} vs {y_col}"
+        self._show_test_report(f"{title_prefix} Correlation Result {title_suffix}", all_lines)
 
-        # Linear fit (for reporting slope/intercept, optional)
-        try:
-            slope, intercept = np.polyfit(X, Y, deg=1)
-        except Exception:
-            slope, intercept = (np.nan, np.nan)
-
-        # -------- Text report
-        lines = []
-        lines.append("Test: Pearson correlation")
-        lines.append(f"Variables: {x_col} (X) vs {y_col} (Y)")
-        lines.append(f"N = {len(X)}")
-        lines.append(f"r = {r:.4f}")
-        lines.append(f"R² = {r2:.4f}")
-        lines.append(f"p-value = {pval:.4e}")
-        lines.append(f"Correlation significance: {strength}")
-        if not np.isnan(slope):
-            lines.append(f"OLS line: Y = {slope:.6g} * X + {intercept:.6g}")
-
-        self._show_test_report(f"Pearson Correlation Result {x_col} vs {y_col}", lines)
-
-        # -------- Plot: scatter by class + OLS with 95% CI
+        # -------- Plot: scatter by class (+ trend curves in 2D; 3D scatter otherwise)
         from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-        fig, ax = plt.subplots(figsize=(10, 7))
-        ax.set_title(f"Pearson correlation: {x_col} vs {y_col}")
-        ax.set_xlabel(x_col)
-        ax.set_ylabel(y_col)
-        ax.grid(False)
 
-        # Order groups for consistent legend
         def _ord(g):
             gl = g.lower()
             if "active" in gl or "ativo" in gl: return 0
@@ -8458,41 +8284,37 @@ class MainWindow(QMainWindow):
             if "inactive" in gl or "inativo" in gl: return 2
             return 3
 
-        # Scatter colored by class
-        palette = {}
-        for g in sorted(df[class_col].unique(), key=_ord):
-            palette[g] = self._color_for_class(g)
+        palette = {g: self._color_for_class(g) for g in sorted(df[class_col].unique(), key=_ord)}
 
-        try:
-            # One call that handles all classes
-            sns.scatterplot(data=df, x=x_col, y=y_col, hue=class_col,
-                            palette=palette, s=36, alpha=0.7, edgecolor="none", ax=ax)
-        except Exception:
-            # Fallback: manual loop
+        if is_3d:
+            from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+            fig = plt.figure(figsize=(10, 7))
+            ax = fig.add_subplot(111, projection='3d')
+            ax.set_title(f"{title_prefix} (3D): {x_col} vs {y_col} vs {z_col}")
+            ax.set_xlabel(x_col); ax.set_ylabel(y_col); ax.set_zlabel(z_col)
             for g, sub in df.groupby(class_col):
-                ax.scatter(sub[x_col], sub[y_col], s=36, alpha=0.7,
-                        color=self._color_for_class(g), edgecolor="none", label=str(g))
+                ax.scatter(sub[x_col], sub[y_col], sub[z_col], s=30, alpha=0.75,
+                          color=palette.get(g, "#499b35"), depthshade=True, label=f"{g} (n={len(sub)})")
+            ax.legend(frameon=False)
+        else:
+            fig, ax = plt.subplots(figsize=(10, 7))
+            ax.set_title(f"{title_prefix} correlation: {x_col} vs {y_col}")
+            ax.set_xlabel(x_col); ax.set_ylabel(y_col); ax.grid(False)
+            try:
+                sns.scatterplot(data=df, x=x_col, y=y_col, hue=class_col,
+                                palette=palette, s=36, alpha=0.7, edgecolor="none", ax=ax)
+            except Exception:
+                for g, sub in df.groupby(class_col):
+                    ax.scatter(sub[x_col], sub[y_col], s=36, alpha=0.7,
+                              color=palette.get(g, "#499b35"), edgecolor="none", label=str(g))
+            self._draw_correlation_trend_curves(ax, df[x_col].to_numpy(dtype=float), df[y_col].to_numpy(dtype=float))
+            ax.legend(frameon=False)
 
-        # OLS regression line + 95% CI across all points
-        try:
-            sns.regplot(x=df[x_col], y=df[y_col], ax=ax, scatter=False, ci=95,
-                        line_kws={"lw": 2.2, "color": "black"})
-        except Exception:
-            # Fallback simple line without CI
-            xx = np.linspace(np.nanmin(X), np.nanmax(X), 300)
-            if not np.isnan(slope):
-                yy = slope * xx + (intercept if not np.isnan(intercept) else 0.0)
-                ax.plot(xx, yy, lw=2.2, color="black")
-
-        # Legend with stats
-        ax.plot([], [], ' ', label=f"r = {r:.3f} | R² = {r2:.3f} | p = {pval:.2e}")
-        ax.plot([], [], ' ', label=f"Correlation significance: {strength}")
-        ax.legend(frameon=False)
         fig.tight_layout()
 
         # -------- Dialog with Save / Close
         dialog = QDialog(self)
-        dialog.setWindowTitle(f"Scatter: {x_col} vs {y_col}")
+        dialog.setWindowTitle(f"{title_prefix} (3D): {title_suffix}" if is_3d else f"Scatter ({title_prefix}): {x_col} vs {y_col}")
         layout = QVBoxLayout(dialog)
         canvas = FigureCanvas(fig)
         layout.addWidget(canvas)
@@ -8509,10 +8331,10 @@ class MainWindow(QMainWindow):
         def save_figure():
             default_dir = os.path.join(self.job_dir, "RESULTS", "STATISTICS")
             os.makedirs(default_dir, exist_ok=True)
+            base = f"{file_prefix}_{x_col}_vs_{y_col}" + (f"_vs_{z_col}" if is_3d else "")
             file_path, _ = QFileDialog.getSaveFileName(
-                dialog,
-                "Save chart",
-                os.path.join(default_dir, f"pearson_{x_col}_vs_{y_col}.png"),
+                dialog, "Save chart",
+                os.path.join(default_dir, f"{base}.png"),
                 "PNG Files (*.png);;SVG Files (*.svg);;PDF Files (*.pdf);;All Files (*)"
             )
             if file_path:
@@ -8523,316 +8345,22 @@ class MainWindow(QMainWindow):
         btn_close.clicked.connect(dialog.close)
         dialog.resize(950, 720)
         dialog.exec_()
+
+    def run_pearson_test(self):
+        """Pearson correlation between the variables selected in STEP 3's 'Correlate Variables'
+        group. See _run_correlation_test for the shared 2D/3D implementation."""
+        self._run_correlation_test("pearson", "Pearson", "pearson")
 
     def run_spearman_test(self):
-        """
-        Spearman rank correlation between list_columns_var1 (X) and list_columns_var2 (Y).
-        Shows a text report and a scatter plot colored by class, with OLS line + 95% CI.
-        """
-        # ---- Validations and data prep
-        if getattr(self, "df_selecionado", None) is None or self.df_selecionado.empty:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "No DataFrame loaded.")
-            return
-
-        x_col = self.list_columns_var1.currentText().strip() if hasattr(self, "list_columns_var1") else ""
-        y_col = self.list_columns_var2.currentText().strip() if hasattr(self, "list_columns_var2") else ""
-        class_col = self.list_class_column.currentText().strip() if hasattr(self, "list_class_column") else ""
-
-        if not x_col or x_col not in self.df_selecionado.columns:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid X variable in 'Select Variables 1'.")
-            return
-        if not y_col or y_col not in self.df_selecionado.columns:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid Y variable in 'Select Variables 2'.")
-            return
-        if not class_col or class_col not in self.df_selecionado.columns:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid class column in 'Select class column'.")
-            return
-
-        df = self.df_selecionado[[x_col, y_col, class_col]].copy()
-        df[x_col] = pd.to_numeric(df[x_col], errors="coerce")
-        df[y_col] = pd.to_numeric(df[y_col], errors="coerce")
-        df[class_col] = df[class_col].astype(str)
-        df = df.dropna(subset=[x_col, y_col])
-
-        # Optional: filter by selected groups
-        if hasattr(self, "list_groups") and self.list_groups is not None:
-            sel = [it.text().strip() for it in self.list_groups.selectedItems()]
-            if sel:
-                df = df[df[class_col].isin(sel)]
-
-        if len(df) < 3:
-            QMessageBox.information(self, i18n.t("msg_title_attention", self._idioma), "Need at least 3 valid paired observations.")
-            return
-
-        X = df[x_col].to_numpy(dtype=float)
-        Y = df[y_col].to_numpy(dtype=float)
-
-        # ---- Spearman
-        try:
-            rho, pval = stats.spearmanr(X, Y, nan_policy="omit")
-        except Exception as e:
-            QMessageBox.critical(self, "Spearman error", str(e))
-            return
-
-        # Strength (by |rho|)
-        abs_r = abs(float(rho)) if rho is not None else np.nan
-        if np.isnan(abs_r):
-            strength = "Undefined"
-        elif abs_r < 0.1:
-            strength = "Negligible"
-        elif abs_r < 0.4:
-            strength = "Weak"
-        elif abs_r < 0.7:
-            strength = "Moderate"
-        elif abs_r < 0.9:
-            strength = "Strong"
-        else:
-            strength = "Very Strong"
-
-        # OLS (just for visual trend line & optional reporting)
-        try:
-            slope, intercept = np.polyfit(X, Y, deg=1)
-        except Exception:
-            slope, intercept = (np.nan, np.nan)
-
-        # ---- Text report
-        lines = []
-        lines.append("Test: Spearman rank correlation")
-        lines.append(f"Variables: {x_col} (X) vs {y_col} (Y)")
-        lines.append(f"N = {len(X)}")
-        lines.append(f"rho = {rho:.4f}")
-        lines.append(f"p-value = {pval:.4e}")
-        lines.append(f"Correlation significance: {strength}")
-        if not np.isnan(slope):
-            lines.append(f"OLS line (for visualization): Y = {slope:.6g} * X + {intercept:.6g}")
-
-        self._show_test_report(f"Spearman Correlation Result {x_col} vs {y_col}", lines)
-
-        # ---- Plot: scatter by class + OLS with 95% CI
-        from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-        fig, ax = plt.subplots(figsize=(10, 7))
-        ax.set_title(f"Spearman: {x_col} vs {y_col}")
-        ax.set_xlabel(x_col); ax.set_ylabel(y_col); ax.grid(False)
-
-        def _ord(g):
-            gl = g.lower()
-            if "active" in gl or "ativo" in gl: return 0
-            if "intermediate" in gl or "intermedi" in gl: return 1
-            if "inactive" in gl or "inativo" in gl: return 2
-            return 3
-
-        palette = {g: self._color_for_class(g) for g in sorted(df[class_col].unique(), key=_ord)}
-
-        try:
-            sns.scatterplot(data=df, x=x_col, y=y_col, hue=class_col,
-                            palette=palette, s=36, alpha=0.7, edgecolor="none", ax=ax)
-        except Exception:
-            for g, sub in df.groupby(class_col):
-                ax.scatter(sub[x_col], sub[y_col], s=36, alpha=0.7,
-                        color=self._color_for_class(g), edgecolor="none", label=str(g))
-
-        try:
-            sns.regplot(x=df[x_col], y=df[y_col], ax=ax, scatter=False, ci=95,
-                        line_kws={"lw": 2.2, "color": "black"})
-        except Exception:
-            xx = np.linspace(np.nanmin(X), np.nanmax(X), 300)
-            if not np.isnan(slope):
-                yy = slope * xx + (intercept if not np.isnan(intercept) else 0.0)
-                ax.plot(xx, yy, lw=2.2, color="black")
-
-        ax.plot([], [], ' ', label=f"rho = {rho:.3f} | p = {pval:.2e}")
-        ax.plot([], [], ' ', label=f"Correlation significance: {strength}")
-        ax.legend(frameon=False)
-        fig.tight_layout()
-
-        # Dialog Save/Close
-        dialog = QDialog(self)
-        dialog.setWindowTitle(f"Scatter (Spearman): {x_col} vs {y_col}")
-        layout = QVBoxLayout(dialog)
-        canvas = FigureCanvas(fig)
-        layout.addWidget(canvas)
-
-        btn_save = QPushButton("Save Chart"); btn_save.setFixedWidth(200)
-        btn_close = QPushButton("Close"); btn_close.setFixedWidth(200)
-        _style_dialog_buttons(btn_save, btn_close)
-
-        hl = QHBoxLayout(); hl.addWidget(btn_save); hl.addWidget(btn_close)
-        layout.addLayout(hl)
-
-        def save_figure():
-            default_dir = os.path.join(self.job_dir, "RESULTS", "STATISTICS")
-            os.makedirs(default_dir, exist_ok=True)
-            file_path, _ = QFileDialog.getSaveFileName(
-                dialog, "Save chart",
-                os.path.join(default_dir, f"spearman_{x_col}_vs_{y_col}.png"),
-                "PNG Files (*.png);;SVG Files (*.svg);;PDF Files (*.pdf);;All Files (*)"
-            )
-            if file_path:
-                fig.savefig(file_path, dpi=500)
-                QMessageBox.information(dialog, "Saved", f"Chart saved to:\n{file_path}")
-
-        btn_save.clicked.connect(save_figure)
-        btn_close.clicked.connect(dialog.close)
-        dialog.resize(950, 720)
-        dialog.exec_()
+        """Spearman rank correlation between the variables selected in STEP 3's 'Correlate
+        Variables' group. See _run_correlation_test for the shared 2D/3D implementation."""
+        self._run_correlation_test("spearman", "Spearman", "spearman")
 
     def run_kendall_test(self):
-        """
-        Kendall's rank correlation (Tau-b) between list_columns_var1 (X) and list_columns_var2 (Y).
-        Shows a text report and a scatter plot colored by class, with OLS line + 95% CI.
-        """
-        # ---- Validations and data prep
-        if getattr(self, "df_selecionado", None) is None or self.df_selecionado.empty:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "No DataFrame loaded.")
-            return
+        """Kendall's rank correlation (Tau-b) between the variables selected in STEP 3's
+        'Correlate Variables' group. See _run_correlation_test for the shared 2D/3D implementation."""
+        self._run_correlation_test("kendall", "Kendall", "kendall")
 
-        x_col = self.list_columns_var1.currentText().strip() if hasattr(self, "list_columns_var1") else ""
-        y_col = self.list_columns_var2.currentText().strip() if hasattr(self, "list_columns_var2") else ""
-        class_col = self.list_class_column.currentText().strip() if hasattr(self, "list_class_column") else ""
-
-        if not x_col or x_col not in self.df_selecionado.columns:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid X variable in 'Select Variables 1'.")
-            return
-        if not y_col or y_col not in self.df_selecionado.columns:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid Y variable in 'Select Variables 2'.")
-            return
-        if not class_col or class_col not in self.df_selecionado.columns:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid class column in 'Select class column'.")
-            return
-
-        df = self.df_selecionado[[x_col, y_col, class_col]].copy()
-        df[x_col] = pd.to_numeric(df[x_col], errors="coerce")
-        df[y_col] = pd.to_numeric(df[y_col], errors="coerce")
-        df[class_col] = df[class_col].astype(str)
-        df = df.dropna(subset=[x_col, y_col])
-
-        # Optional: filter by selected groups
-        if hasattr(self, "list_groups") and self.list_groups is not None:
-            sel = [it.text().strip() for it in self.list_groups.selectedItems()]
-            if sel:
-                df = df[df[class_col].isin(sel)]
-
-        if len(df) < 3:
-            QMessageBox.information(self, i18n.t("msg_title_attention", self._idioma), "Need at least 3 valid paired observations.")
-            return
-
-        X = df[x_col].to_numpy(dtype=float)
-        Y = df[y_col].to_numpy(dtype=float)
-
-        # ---- Kendall's Tau-b
-        try:
-            # SciPy newer: stats.kendalltau(X, Y, variant='b')
-            tau_b, pval = stats.kendalltau(X, Y, variant='b')
-        except TypeError:
-            # Older SciPy without 'variant'
-            tau_b, pval = stats.kendalltau(X, Y)
-        except Exception as e:
-            QMessageBox.critical(self, "Kendall error", str(e))
-            return
-
-        # Strength (by |tau_b|)
-        abs_t = abs(float(tau_b)) if tau_b is not None else np.nan
-        if np.isnan(abs_t):
-            strength = "Undefined"
-        elif abs_t < 0.1:
-            strength = "Negligible"
-        elif abs_t < 0.4:
-            strength = "Weak"
-        elif abs_t < 0.7:
-            strength = "Moderate"
-        elif abs_t < 0.9:
-            strength = "Strong"
-        else:
-            strength = "Very Strong"
-
-        # OLS for visualization
-        try:
-            slope, intercept = np.polyfit(X, Y, deg=1)
-        except Exception:
-            slope, intercept = (np.nan, np.nan)
-
-        # ---- Text report
-        lines = []
-        lines.append("Test: Kendall rank correlation (Tau-b)")
-        lines.append(f"Variables: {x_col} (X) vs {y_col} (Y)")
-        lines.append(f"N = {len(X)}")
-        lines.append(f"tau-b = {tau_b:.4f}")
-        lines.append(f"p-value = {pval:.4e}")
-        lines.append(f"Correlation significance: {strength}")
-        if not np.isnan(slope):
-            lines.append(f"OLS line (for visualization): Y = {slope:.6g} * X + {intercept:.6g}")
-
-        self._show_test_report(f"Kendall Correlation Result {x_col} vs {y_col}", lines)
-
-        # ---- Plot: scatter by class + OLS with 95% CI
-        from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-        fig, ax = plt.subplots(figsize=(10, 7))
-        ax.set_title(f"Kendall (Tau-b): {x_col} vs {y_col}")
-        ax.set_xlabel(x_col); ax.set_ylabel(y_col); ax.grid(False)
-
-        def _ord(g):
-            gl = g.lower()
-            if "active" in gl or "ativo" in gl: return 0
-            if "intermediate" in gl or "intermedi" in gl: return 1
-            if "inactive" in gl or "inativo" in gl: return 2
-            return 3
-
-        palette = {g: self._color_for_class(g) for g in sorted(df[class_col].unique(), key=_ord)}
-
-        try:
-            sns.scatterplot(data=df, x=x_col, y=y_col, hue=class_col,
-                            palette=palette, s=36, alpha=0.7, edgecolor="none", ax=ax)
-        except Exception:
-            for g, sub in df.groupby(class_col):
-                ax.scatter(sub[x_col], sub[y_col], s=36, alpha=0.7,
-                        color=self._color_for_class(g), edgecolor="none", label=str(g))
-
-        try:
-            sns.regplot(x=df[x_col], y=df[y_col], ax=ax, scatter=False, ci=95,
-                        line_kws={"lw": 2.2, "color": "black"})
-        except Exception:
-            xx = np.linspace(np.nanmin(X), np.nanmax(X), 300)
-            if not np.isnan(slope):
-                yy = slope * xx + (intercept if not np.isnan(intercept) else 0.0)
-                ax.plot(xx, yy, lw=2.2, color="black")
-
-        ax.plot([], [], ' ', label=f"tau-b = {tau_b:.3f} | p = {pval:.2e}")
-        ax.plot([], [], ' ', label=f"Correlation significance: {strength}")
-        ax.legend(frameon=False)
-        fig.tight_layout()
-
-        # Dialog Save/Close
-        dialog = QDialog(self)
-        dialog.setWindowTitle(f"Scatter (Kendall): {x_col} vs {y_col}")
-        layout = QVBoxLayout(dialog)
-        canvas = FigureCanvas(fig)
-        layout.addWidget(canvas)
-
-        btn_save = QPushButton("Save Chart"); btn_save.setFixedWidth(200)
-        btn_close = QPushButton("Close"); btn_close.setFixedWidth(200)
-        _style_dialog_buttons(btn_save, btn_close)
-        
-        hl = QHBoxLayout(); hl.addWidget(btn_save); hl.addWidget(btn_close)
-        layout.addLayout(hl)
-
-        def save_figure():
-            default_dir = os.path.join(self.job_dir, "RESULTS", "STATISTICS")
-            os.makedirs(default_dir, exist_ok=True)
-            file_path, _ = QFileDialog.getSaveFileName(
-                dialog, "Save chart",
-                os.path.join(default_dir, f"kendall_{x_col}_vs_{y_col}.png"),
-                "PNG Files (*.png);;SVG Files (*.svg);;PDF Files (*.pdf);;All Files (*)"
-            )
-            if file_path:
-                fig.savefig(file_path, dpi=500)
-                QMessageBox.information(dialog, "Saved", f"Chart saved to:\n{file_path}")
-
-        btn_save.clicked.connect(save_figure)
-        btn_close.clicked.connect(dialog.close)
-        dialog.resize(950, 720)
-        dialog.exec_()
-
-# STEP 4: FEATURE ENGINEERING
     def select_dataframe5(self):
         initial_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
         file_path, _ = QFileDialog.getOpenFileName(
@@ -15264,38 +14792,23 @@ class MainWindow(QMainWindow):
             # Layout principal vertical para o QGroupBox
             g8_main_layout = QVBoxLayout(g8)
 
-            select_column_trans_layout = QHBoxLayout()
             label_select_column_trans = self._trL("lbl_select_column"); label_select_column_trans.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
             self.list_columns_trans = QComboBox(); self.list_columns_trans.addItems([]); self.list_columns_trans.setFixedWidth(200)
-            select_column_trans_layout.addWidget(label_select_column_trans, alignment=Qt.AlignRight)
-            select_column_trans_layout.addWidget(self.list_columns_trans, alignment=Qt.AlignLeft)
-            g8_main_layout.addLayout(select_column_trans_layout)
 
-            # Primeiro grid:
-            gL12_widget = QWidget()
-            gL12 = QGridLayout(gL12_widget)     
-
-            # Cria os checkboxes
+            # Combobox única de seleção de transformação (uma por execução), no lugar dos
+            # checkboxes anteriores (que permitiam aplicar várias transformações de uma vez).
             label_select_trans = self._trL("s2_lbl_select_transformations"); label_select_trans.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
-            self.chk_log10 = QCheckBox(); self._tr("s2_chk_log10", self.chk_log10.setText)
-            self.chk_logn = QCheckBox(); self._tr("s2_chk_logn", self.chk_logn.setText)
-            self.chk_sqrt = QCheckBox(); self._tr("s2_chk_sqrt", self.chk_sqrt.setText)
-            self.chk_cbrt = QCheckBox(); self._tr("s2_chk_cbrt", self.chk_cbrt.setText)
-            self.chk_boxcox = QCheckBox(); self._tr("s2_chk_boxcox", self.chk_boxcox.setText)
-            self.chk_yeojohnson = QCheckBox(); self._tr("s2_chk_yeojohnson", self.chk_yeojohnson.setText)
+            self.cb_transformation = QComboBox()
+            self.cb_transformation.addItems([
+                "-Log10 (Only > 0 - pIC50|pMIC)",
+                "ln (Only > 0)",
+                "Square root (Only >= 0)",
+                "Cubic root (All values)",
+                "Box-Cox (Only > 0)",
+                "Yeo-Johnson (All values)",
+            ])
+            self.cb_transformation.setFixedWidth(260)
 
-            # Layout vertical para os checkboxes
-            checkbox_layout = QVBoxLayout()
-            checkbox_layout.addWidget(label_select_trans)
-            checkbox_layout.addWidget(self.chk_log10)
-            checkbox_layout.addWidget(self.chk_logn)
-            checkbox_layout.addWidget(self.chk_sqrt)
-            checkbox_layout.addWidget(self.chk_cbrt)
-            checkbox_layout.addWidget(self.chk_boxcox)
-            checkbox_layout.addWidget(self.chk_yeojohnson)
-
-            # Layout vertical para botões:
-            btn_layout = QVBoxLayout()
             btn_set_trans = QPushButton()
             self._tr("s2_btn_run_transformation", btn_set_trans.setText)
             btn_set_trans.setProperty("role", "primary")
@@ -15306,16 +14819,21 @@ class MainWindow(QMainWindow):
             btn_inf.setProperty("role", "danger")
             btn_inf.setFixedSize(200, 60)
             btn_inf.clicked.connect(self.run_inf_value)
-            btn_layout.addWidget(btn_set_trans, alignment=Qt.AlignCenter)
-            btn_layout.addWidget(btn_inf)
-            
-            
-            checkbox_container = QWidget()
-            checkbox_container.setLayout(checkbox_layout)
-            gL12.addWidget(checkbox_container, 0, 0, alignment=Qt.AlignVCenter | Qt.AlignCenter); gL12.addLayout(btn_layout, 0, 1)
+
+            # Grid único: 2 colunas x 3 linhas.
+            #   linha 0: label "Select column:" (col0, direita) + combobox de coluna (col1, esquerda)
+            #   linha 1: label "Select Transformation:" (col0, direita) + combobox de transformação (col1, esquerda)
+            #   linha 2: botão Run Transformation (col0) + botão Eliminating invalid... (col1)
+            gL12_widget = QWidget()
+            gL12 = QGridLayout(gL12_widget)
+            gL12.addWidget(label_select_column_trans, 0, 0, alignment=Qt.AlignRight)
+            gL12.addWidget(self.list_columns_trans, 0, 1, alignment=Qt.AlignLeft)
+            gL12.addWidget(label_select_trans, 1, 0, alignment=Qt.AlignRight)
+            gL12.addWidget(self.cb_transformation, 1, 1, alignment=Qt.AlignLeft)
+            gL12.addWidget(btn_set_trans, 2, 0, alignment=Qt.AlignCenter)
+            gL12.addWidget(btn_inf, 2, 1, alignment=Qt.AlignCenter)
             gL12.setColumnStretch(0, 1); gL12.setColumnStretch(1, 1)
-    
-            
+
             g8_main_layout.addWidget(gL12_widget)
             g8_main_layout.addStretch()
 
@@ -15916,54 +15434,69 @@ class MainWindow(QMainWindow):
             g13_main_layout.addLayout(select_var_layout)
             g13_main_layout.addSpacing(10)
             
-            # Cria o botão para ver o gráfico de dispersão:
-            btn_scatter = QPushButton()
-            self._tr("s3_btn_scatter_plot", btn_scatter.setText)
-            # btn_scatter.setStyleSheet("QPushButton{background:#DFFFE0;font-size:12px;font-weight:bold;border:1px solid #222;border-radius:4px}")
-            btn_scatter.setFixedWidth(150)
-            btn_scatter.clicked.connect(self.run_scatter_plot)
-            btn_mann_kendall = QPushButton("Mann-Kendall \nTrend Test")
-            # btn_mann_kendall.setStyleSheet("QPushButton{background:#DFFFE0;font-size:12px;font-weight:bold;border:1px solid #222;border-radius:4px}")
-            btn_mann_kendall.setFixedWidth(150)
-            btn_mann_kendall.clicked.connect(self.run_mann_kendall_test)
-            self.ed_mann_kendall_trend = QLineEdit(); self.ed_mann_kendall_trend.setPlaceholderText("Trend"); self.ed_mann_kendall_trend.setReadOnly(True); self.ed_mann_kendall_trend.setFixedSize(150, 25); self.ed_mann_kendall_trend.setAlignment(Qt.AlignCenter)
-            self.ed_mann_kendall_slope = QLineEdit(); self.ed_mann_kendall_slope.setPlaceholderText("Slope"); self.ed_mann_kendall_slope.setReadOnly(True); self.ed_mann_kendall_slope.setFixedSize(75, 25); self.ed_mann_kendall_slope.setAlignment(Qt.AlignCenter)
-            btn_scatter_mann_kendall_layout = QVBoxLayout()
-            btn_scatter_mann_kendall_layout.addWidget(btn_scatter, alignment=Qt.AlignCenter)
-            btn_scatter_mann_kendall_layout.addWidget(btn_mann_kendall, alignment=Qt.AlignCenter)
-            btn_scatter_mann_kendall_layout.addWidget(self.ed_mann_kendall_trend, alignment=Qt.AlignCenter)
-            btn_scatter_mann_kendall_layout.addWidget(self.ed_mann_kendall_slope, alignment=Qt.AlignCenter)
-            
-            self.chk_mov_avg = QCheckBox(); self._tr("s3_chk_moving_average", self.chk_mov_avg.setText); self.chk_mov_avg.setChecked(True)
-            self.chk_Polinomial = QCheckBox("Polinomial 2°"); self.chk_Polinomial.setChecked(False)
-            self.chk_loess = QCheckBox("LOESS/LOWESS"); self.chk_loess.setChecked(False)
-            self.chk_splines = QCheckBox("Splines"); self.chk_splines.setChecked(False)
-            self.chk_GAMs = QCheckBox("GAMs"); self.chk_GAMs.setChecked(False)
-            # Cria o layout vertical para os checkboxes de ajuste de curva:
-            curve_fit_layout = QVBoxLayout()
-            curve_fit_layout.addWidget(self.chk_mov_avg)
-            curve_fit_layout.addWidget(self.chk_Polinomial)
-            curve_fit_layout.addWidget(self.chk_loess)
-            curve_fit_layout.addWidget(self.chk_splines)
-            curve_fit_layout.addWidget(self.chk_GAMs)
-            
-            # Cria um layout vertical para novos checkbox:
-            curve_fit_trend_layout = QVBoxLayout()
+            # Tipos de linha de tendência: seleção múltipla, "Linear" vem primeiro e pré-selecionada.
+            # Só habilitada quando "Trend Line" é marcado (mesmo padrão visual de cinza/desabilitado
+            # usado nos botões de teste do grupo "Compare Classes" — ver _set_test_button_active).
+            # Aplicadas nos gráficos gerados pelos testes de correlação Pearson/Spearman/Kendall.
+            self.list_trend_curve_types = QListWidget()
+            self.list_trend_curve_types.setSelectionMode(QAbstractItemView.MultiSelection)
+            self.list_trend_curve_types.addItems([
+                "Linear", "Moving Average", "Exponential", "Logarithmic", "Polynomial", "LOESS/LOWESS", "Splines", "GAMs",
+            ])
+            self.list_trend_curve_types.item(0).setSelected(True)
+            self.list_trend_curve_types.setFixedWidth(160)
+            # Altura ajustada ao conteúdo (uma linha por item, sem sobra nem scroll):
+            row_h = self.list_trend_curve_types.sizeHintForRow(0)
+            frame = 2 * self.list_trend_curve_types.frameWidth()
+            self.list_trend_curve_types.setFixedHeight(row_h * self.list_trend_curve_types.count() + frame + 4)
+            self.list_trend_curve_types.setStyleSheet("""
+                QListWidget:disabled {
+                    background: #1B2730;
+                    color: #4F6577;
+                    border-color: #344654;
+                }
+            """)
+
             self.chk_linear_trend_line = QCheckBox(); self._tr("chk_trend_line", self.chk_linear_trend_line.setText); self.chk_linear_trend_line.setChecked(True)
-            label_conf_int = self._trL("s3_lbl_confidence_interval"); label_conf_int.setStyleSheet("color: #C9D1D9; font-size: 10pt")
-            self.ed_conf_int = QLineEdit("Confidence Interval (%)"); self.ed_conf_int.setText("95") ; self.ed_conf_int.setFixedSize(75, 25)
             self.chk_2D_plot = QCheckBox(); self._tr("s3_chk_2d_plot", self.chk_2D_plot.setText); self.chk_2D_plot.setChecked(True)
             self.chk_3D_plot = QCheckBox(); self._tr("s3_chk_3d_plot", self.chk_3D_plot.setText); self.chk_3D_plot.setChecked(False)
+            # Ao marcar, adiciona ao gráfico a equação da linha de tendência ativa (Linear, ou
+            # Exponential/Logarithmic/Polynomial quando selecionadas acima) e o R² correspondente.
+            self.chk_plot_equation = QCheckBox(); self._tr("s3_chk_plot_equation", self.chk_plot_equation.setText); self.chk_plot_equation.setChecked(False)
+            label_num_samples = self._trL("s3_lbl_num_samples"); label_num_samples.setStyleSheet("color: #C9D1D9; font-size: 10pt")
+            self.ed_trend_num_samples = QLineEdit(); self.ed_trend_num_samples.setText("1000"); self.ed_trend_num_samples.setFixedSize(75, 25)
+            label_conf_int = self._trL("s3_lbl_confidence_interval"); label_conf_int.setStyleSheet("color: #C9D1D9; font-size: 10pt")
+            self.ed_conf_int = QLineEdit("Confidence Interval (%)"); self.ed_conf_int.setText("95") ; self.ed_conf_int.setFixedSize(75, 25)
 
-            curve_fit_trend_layout.addWidget(self.chk_linear_trend_line, alignment=Qt.AlignLeft)
-            curve_fit_trend_layout.addWidget(self.chk_2D_plot, alignment=Qt.AlignLeft)
-            curve_fit_trend_layout.addWidget(self.chk_3D_plot, alignment=Qt.AlignLeft)
-            curve_fit_trend_layout.addWidget(label_conf_int)
-            curve_fit_trend_layout.addWidget(self.ed_conf_int, alignment=Qt.AlignLeft)
+            # Grid 3 colunas:
+            #   col0: Trend Line (r0) | lista de tipos de curva (r1-r4, rowspan=4)
+            #   col1: 2D Plot (r0) | 3D Plot (r1) | Plot Equation (r2)
+            #   col2: Num Samples label/caixa (r0/r1) | Confidence Interval label/caixa (r2/r3)
+            curve_fit_trend_layout = QGridLayout()
+            curve_fit_trend_layout.addWidget(self.chk_linear_trend_line, 0, 0, alignment=Qt.AlignLeft)
+            curve_fit_trend_layout.addWidget(self.list_trend_curve_types, 1, 0, 4, 1)
+            curve_fit_trend_layout.addWidget(self.chk_2D_plot, 0, 1, alignment=Qt.AlignLeft)
+            curve_fit_trend_layout.addWidget(self.chk_3D_plot, 1, 1, alignment=Qt.AlignLeft)
+            curve_fit_trend_layout.addWidget(self.chk_plot_equation, 2, 1, alignment=Qt.AlignLeft)
+            curve_fit_trend_layout.addWidget(label_num_samples, 0, 2)
+            curve_fit_trend_layout.addWidget(self.ed_trend_num_samples, 1, 2, alignment=Qt.AlignLeft)
+            curve_fit_trend_layout.addWidget(label_conf_int, 2, 2)
+            curve_fit_trend_layout.addWidget(self.ed_conf_int, 3, 2, alignment=Qt.AlignLeft)
+
+            # A lista de tipos de curva e "Plot Equation" só ficam habilitadas quando "Trend Line"
+            # está marcado (permanecem visíveis, só desabilitadas — as curvas adicionais e a
+            # equação só fazem sentido junto da linha de tendência):
+            def on_trend_line_toggled(checked):
+                self.list_trend_curve_types.setEnabled(bool(checked))
+                self.chk_plot_equation.setEnabled(bool(checked))
+            self.chk_linear_trend_line.toggled.connect(on_trend_line_toggled)
+            on_trend_line_toggled(self.chk_linear_trend_line.isChecked())
 
             # --- Conexões para alternância exclusiva entre 2D e 3D ---
             # Select Variable 1/2 são usadas nos dois modos; Select Variable 3 só faz sentido
-            # (e só fica habilitada) quando 3D Plot está marcado.
+            # (e só fica habilitada) quando 3D Plot está marcado. Com 3D Plot marcado e a
+            # Variável 3 selecionada, os testes de correlação (Pearson/Spearman/Kendall) passam
+            # a avaliar os 3 pares (X-Y, X-Z, Y-Z) e exibem um gráfico de dispersão 3D.
             def on_2d_changed(state):
                 if state == Qt.Checked:
                     self.chk_3D_plot.setChecked(False)
@@ -15982,22 +15515,13 @@ class MainWindow(QMainWindow):
             self.chk_3D_plot.stateChanged.connect(on_3d_changed)
             self.list_columns_var3.setEnabled(self.chk_3D_plot.isChecked())
 
-            # Cria o layout horizontal para o botão e os checkboxes:
-            btn_curve_layout = QHBoxLayout()
-            btn_curve_layout.addLayout(btn_scatter_mann_kendall_layout)
-            btn_curve_layout.addLayout(curve_fit_layout)
-            btn_curve_layout.addLayout(curve_fit_trend_layout)
-            g13_main_layout.addLayout(btn_curve_layout)
+            g13_main_layout.addLayout(curve_fit_trend_layout)
             
             g13_main_layout.addSpacing(10)
             label_correlation = self._trL("s3_lbl_correlation_tests")
             label_correlation.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
             label_correlation.setAlignment(Qt.AlignCenter)
             g13_main_layout.addWidget(label_correlation)
-            label_correlation_hint = self._trL("s3_lbl_correlation_hint")
-            label_correlation_hint.setStyleSheet("color: #C9D1D9; font-size: 9pt; font-weight: normal;")
-            label_correlation_hint.setAlignment(Qt.AlignCenter)
-            g13_main_layout.addWidget(label_correlation_hint)
 
             btn_correlation_layout = QHBoxLayout()
             btn_pearson = QPushButton("Pearson")
