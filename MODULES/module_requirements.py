@@ -61,7 +61,8 @@ pyqtSignal = cast(Any, None)
 try:
     from PyQt5.QtWidgets import (
         QWidget, QVBoxLayout, QLabel, QCheckBox, QPushButton,
-        QTextEdit, QApplication, QHBoxLayout, QMessageBox, QProgressBar, QLineEdit, QGridLayout
+        QTextEdit, QApplication, QHBoxLayout, QMessageBox, QProgressBar, QLineEdit, QGridLayout,
+        QRadioButton, QButtonGroup
     )
     from PyQt5.QtCore import Qt, pyqtSignal as _pyqtSignal
     pyqtSignal = _pyqtSignal
@@ -98,6 +99,7 @@ except Exception as exc:
     QWidget = cast(Any, _DummyWidget)
     QVBoxLayout = QLabel = QCheckBox = QPushButton = QTextEdit = QApplication = cast(Any, _DummyWidget)
     QHBoxLayout = QMessageBox = QProgressBar = QLineEdit = QGridLayout = cast(Any, _DummyWidget)
+    QRadioButton = QButtonGroup = cast(Any, _DummyWidget)
 
 _SS_BTN_DANGER = """
 QPushButton {
@@ -126,6 +128,27 @@ QPushButton:hover { background: #27AE60; color: #0D1B2A; }
 QPushButton:pressed { background: #1E8449; color: #FFF; }
 QPushButton:disabled { background: #1C2E20; color: #3D6B4A; border-color: #2A4A36; }
 """
+
+# role="secondary" (cinza), mesma paleta usada em CODRUG.py para botões secundários.
+_SS_BTN_SECONDARY = """
+QPushButton {
+    background: #243746;
+    color: #A9BED1;
+    font-weight: bold;
+    border: 1px solid #6E8CA8;
+    border-radius: 5px;
+    padding: 6px 16px;
+}
+QPushButton:hover { background: #37536C; color: #C9D1D9; }
+QPushButton:pressed { background: #1C3249; color: #FFF; }
+QPushButton:disabled { background: #1B2730; color: #4F6577; border-color: #344654; }
+"""
+
+# Mesma altura/fonte dos botões acima, só com o padding horizontal reduzido pela
+# metade (16px -> 8px) para deixar os botões "Instalar Selecionados" / "Fechar"
+# desta janela mais estreitos, sem mexer na altura nem no texto.
+_SS_BTN_DANGER_NARROW = _SS_BTN_DANGER.replace("padding: 6px 16px;", "padding: 6px 8px;")
+_SS_BTN_PRIMARY_NARROW = _SS_BTN_PRIMARY.replace("padding: 6px 16px;", "padding: 6px 8px;")
 # --------------------------- helpers ---------------------------
 
 def _run(cmd: list, check=False, env=None) -> subprocess.CompletedProcess:
@@ -548,6 +571,7 @@ def recommend_installer_defaults(hw: Optional[dict] = None) -> dict:
     cuml_info = select_cuml_variant(hw["gpu"])
     return {
         "python_version": "3.10.12",
+        "java_version": "11",
         "scikitlearn_version": "1.4.2",
         "pycaret_version": "3.3.2",
         "chembl_version": "0.10.9",
@@ -595,21 +619,20 @@ class RequirementsInstaller(cast(Any, QWidget)):
         layout = QVBoxLayout()
         self._hw = detect_hardware()
         self._defaults = recommend_installer_defaults(self._hw)
+        self._version_groups: list = []
 
         env_info = QLabel(
             i18n.t(
                 "req_env_info", self._idioma,
                 python_exe=sys.executable,
                 python_ver=sys.version.split()[0],
-                cpu=self._hw['cpu']['brand'],
-                ram=self._hw['ram']['total_gb'],
-                gpu=self._hw['gpu']['name'] or i18n.t("req_gpu_not_detected", self._idioma),
             )
         )
         layout.addWidget(env_info)
 
         # Default versions (editable)
         self.python_version = self._defaults["python_version"]
+        self.java_version = self._defaults["java_version"]
         self.scikitlearn_version = self._defaults["scikitlearn_version"]
         self.pycaret_version = self._defaults["pycaret_version"]
         self.chembl_version = self._defaults["chembl_version"]
@@ -635,17 +658,33 @@ class RequirementsInstaller(cast(Any, QWidget)):
         self.ed_python_version = QLineEdit(); self.ed_python_version.setText(self.python_version)
         self.ed_python_version.setToolTip(i18n.t("req_tooltip_venv", self._idioma))
 
+        self.check_java = QCheckBox(i18n.t("req_chk_java", self._idioma))
+        self.rb_java_default = QRadioButton(i18n.t("req_java_default_label", self._idioma))
+        self.rb_java_version = QRadioButton(i18n.t("req_java_version_label", self._idioma))
+        self.rb_java_version.setChecked(True)
+        self.java_version_group = QButtonGroup(self)
+        self.java_version_group.addButton(self.rb_java_default)
+        self.java_version_group.addButton(self.rb_java_version)
+        self.ed_java_version = QLineEdit(); self.ed_java_version.setText(self.java_version)
+        self.ed_java_version.setToolTip(i18n.t("req_tooltip_java_version", self._idioma))
+        self.rb_java_default.toggled.connect(lambda checked: self.ed_java_version.setEnabled(not checked))
+        java_box = QWidget(); java_row = QHBoxLayout(java_box); java_row.setContentsMargins(0, 0, 0, 0)
+        java_row.addWidget(self.rb_java_default)
+        java_row.addWidget(self.rb_java_version)
+        java_row.addWidget(self.ed_java_version)
+
         self.check_scikitlearn = QCheckBox(i18n.t("req_chk_scikitlearn", self._idioma))
-        self.ed_scikitlearn_version = QLineEdit(); self.ed_scikitlearn_version.setText(self.scikitlearn_version)
+        scikitlearn_box, self.rb_scikitlearn_latest, self.rb_scikitlearn_version, self.ed_scikitlearn_version = \
+            self._make_version_row(self.scikitlearn_version)
 
         self.check_pycaret = QCheckBox(i18n.t("req_chk_pycaret", self._idioma))
-        self.ed_pycaret_version = QLineEdit(); self.ed_pycaret_version.setText(self.pycaret_version)
+        pycaret_box, self.rb_pycaret_latest, self.rb_pycaret_version, self.ed_pycaret_version = \
+            self._make_version_row(self.pycaret_version)
 
         self.check_cuml = QCheckBox(i18n.t("req_chk_cuml", self._idioma))
-        self.ed_cuml_version = QLineEdit()
+        cuml_box, self.rb_cuml_latest, self.rb_cuml_version, self.ed_cuml_version = \
+            self._make_version_row(self.cuml_version)
         self.ed_cuml_version.setPlaceholderText(i18n.t("req_placeholder_cuml_version", self._idioma, pkg=self.cuml_pkg))
-        if self.cuml_version:
-            self.ed_cuml_version.setText(self.cuml_version)
         if not self.cuml_available:
             self.check_cuml.setEnabled(False)
             self.check_cuml.setToolTip(
@@ -653,59 +692,70 @@ class RequirementsInstaller(cast(Any, QWidget)):
             )
 
         self.check_chembl = QCheckBox(i18n.t("req_chk_chembl", self._idioma))
-        self.ed_chembl_version = QLineEdit(); self.ed_chembl_version.setText(self.chembl_version)
+        chembl_box, self.rb_chembl_latest, self.rb_chembl_version, self.ed_chembl_version = \
+            self._make_version_row(self.chembl_version)
 
         self.check_padelpy = QCheckBox(i18n.t("req_chk_padelpy", self._idioma))
-        self.ed_padelpy_version = QLineEdit(); self.ed_padelpy_version.setText(self.padelpy_version)
+        padelpy_box, self.rb_padelpy_latest, self.rb_padelpy_version, self.ed_padelpy_version = \
+            self._make_version_row(self.padelpy_version)
 
         self.check_rdkit = QCheckBox(i18n.t("req_chk_rdkit", self._idioma))
-        self.ed_rdkit_version = QLineEdit(); self.ed_rdkit_version.setText(self.rdkit_version)
+        rdkit_box, self.rb_rdkit_latest, self.rb_rdkit_version, self.ed_rdkit_version = \
+            self._make_version_row(self.rdkit_version)
 
         self.check_matplotlib = QCheckBox(i18n.t("req_chk_matplotlib", self._idioma))
-        self.ed_matplotlib_version = QLineEdit(); self.ed_matplotlib_version.setText(self.matplotlib_version)
+        matplotlib_box, self.rb_matplotlib_latest, self.rb_matplotlib_version, self.ed_matplotlib_version = \
+            self._make_version_row(self.matplotlib_version)
 
         self.check_seaborn = QCheckBox(i18n.t("req_chk_seaborn", self._idioma))
-        self.ed_seaborn_version = QLineEdit(); self.ed_seaborn_version.setText(self.seaborn_version)
+        seaborn_box, self.rb_seaborn_latest, self.rb_seaborn_version, self.ed_seaborn_version = \
+            self._make_version_row(self.seaborn_version)
 
         self.check_joblib = QCheckBox(i18n.t("req_chk_joblib", self._idioma))
-        self.ed_joblib_version = QLineEdit(); self.ed_joblib_version.setText(self.joblib_version)
+        joblib_box, self.rb_joblib_latest, self.rb_joblib_version, self.ed_joblib_version = \
+            self._make_version_row(self.joblib_version)
 
         self.check_pandas = QCheckBox(i18n.t("req_chk_pandas", self._idioma))
-        self.ed_pandas_version = QLineEdit(); self.ed_pandas_version.setText(self.pandas_version)
+        pandas_box, self.rb_pandas_latest, self.rb_pandas_version, self.ed_pandas_version = \
+            self._make_version_row(self.pandas_version)
 
         self.check_numpy = QCheckBox(i18n.t("req_chk_numpy", self._idioma))
-        self.ed_numpy_version = QLineEdit(); self.ed_numpy_version.setText(self.numpy_version)
+        numpy_box, self.rb_numpy_latest, self.rb_numpy_version, self.ed_numpy_version = \
+            self._make_version_row(self.numpy_version)
 
         # PyTorch / TensorFlow
         self.check_pytorch = QCheckBox(i18n.t("req_chk_pytorch", self._idioma))
         self.ed_pytorch_variant = QLineEdit(); self.ed_pytorch_variant.setText(self.pytorch_cuda_variant)
-        self.ed_pytorch_version = QLineEdit(); self.ed_pytorch_version.setText(self.pytorch_version)
+        pytorch_version_box, self.rb_pytorch_latest, self.rb_pytorch_version, self.ed_pytorch_version = \
+            self._make_version_row(self.pytorch_version)
         self.ed_pytorch_index = QLineEdit(); self.ed_pytorch_index.setText(self.pytorch_index_url)
         pytorch_box = QWidget(); pytorch_row = QHBoxLayout(pytorch_box); pytorch_row.setContentsMargins(0,0,0,0)
-        pytorch_row.addWidget(self.ed_pytorch_variant); pytorch_row.addWidget(self.ed_pytorch_version); pytorch_row.addWidget(self.ed_pytorch_index)
+        pytorch_row.addWidget(self.ed_pytorch_variant); pytorch_row.addWidget(pytorch_version_box); pytorch_row.addWidget(self.ed_pytorch_index)
 
         self.check_tensorflow = QCheckBox(i18n.t("req_chk_tensorflow", self._idioma))
-        self.ed_tensorflow_version = QLineEdit(); self.ed_tensorflow_version.setText(self.tensorflow_version)
+        tensorflow_box, self.rb_tensorflow_latest, self.rb_tensorflow_version, self.ed_tensorflow_version = \
+            self._make_version_row(self.tensorflow_version)
 
         self.check_libs = QCheckBox(i18n.t("req_chk_libs", self._idioma))
         self.ed_libs_version = QLineEdit(); self.ed_libs_version.setPlaceholderText(i18n.t("req_placeholder_libs_version", self._idioma))
 
         r = 0
         gL.addWidget(self.check_venv, r, 0); gL.addWidget(self.ed_python_version, r, 1); r += 1
-        gL.addWidget(self.check_scikitlearn, r, 0); gL.addWidget(self.ed_scikitlearn_version, r, 1); r += 1
-        gL.addWidget(self.check_pycaret, r, 0); gL.addWidget(self.ed_pycaret_version, r, 1); r += 1
-        gL.addWidget(self.check_cuml, r, 0); gL.addWidget(self.ed_cuml_version, r, 1); r += 1
-        gL.addWidget(self.check_chembl, r, 0); gL.addWidget(self.ed_chembl_version, r, 1); r += 1
-        gL.addWidget(self.check_padelpy, r, 0); gL.addWidget(self.ed_padelpy_version, r, 1); r += 1
-        gL.addWidget(self.check_rdkit, r, 0); gL.addWidget(self.ed_rdkit_version, r, 1); r += 1
-        gL.addWidget(self.check_matplotlib, r, 0); gL.addWidget(self.ed_matplotlib_version, r, 1); r += 1
-        gL.addWidget(self.check_seaborn, r, 0); gL.addWidget(self.ed_seaborn_version, r, 1); r += 1
-        gL.addWidget(self.check_joblib, r, 0); gL.addWidget(self.ed_joblib_version, r, 1); r += 1
-        gL.addWidget(self.check_pandas, r, 0); gL.addWidget(self.ed_pandas_version, r, 1); r += 1
-        gL.addWidget(self.check_numpy, r, 0); gL.addWidget(self.ed_numpy_version, r, 1); r += 1
+        gL.addWidget(self.check_java, r, 0); gL.addWidget(java_box, r, 1); r += 1
+        gL.addWidget(self.check_scikitlearn, r, 0); gL.addWidget(scikitlearn_box, r, 1); r += 1
+        gL.addWidget(self.check_pycaret, r, 0); gL.addWidget(pycaret_box, r, 1); r += 1
+        gL.addWidget(self.check_cuml, r, 0); gL.addWidget(cuml_box, r, 1); r += 1
+        gL.addWidget(self.check_chembl, r, 0); gL.addWidget(chembl_box, r, 1); r += 1
+        gL.addWidget(self.check_padelpy, r, 0); gL.addWidget(padelpy_box, r, 1); r += 1
+        gL.addWidget(self.check_rdkit, r, 0); gL.addWidget(rdkit_box, r, 1); r += 1
+        gL.addWidget(self.check_matplotlib, r, 0); gL.addWidget(matplotlib_box, r, 1); r += 1
+        gL.addWidget(self.check_seaborn, r, 0); gL.addWidget(seaborn_box, r, 1); r += 1
+        gL.addWidget(self.check_joblib, r, 0); gL.addWidget(joblib_box, r, 1); r += 1
+        gL.addWidget(self.check_pandas, r, 0); gL.addWidget(pandas_box, r, 1); r += 1
+        gL.addWidget(self.check_numpy, r, 0); gL.addWidget(numpy_box, r, 1); r += 1
 
         gL.addWidget(self.check_pytorch, r, 0); gL.addWidget(pytorch_box, r, 1); r += 1
-        gL.addWidget(self.check_tensorflow, r, 0); gL.addWidget(self.ed_tensorflow_version, r, 1); r += 1
+        gL.addWidget(self.check_tensorflow, r, 0); gL.addWidget(tensorflow_box, r, 1); r += 1
 
         gL.addWidget(self.check_libs, r, 0); r += 1
 
@@ -719,13 +769,21 @@ class RequirementsInstaller(cast(Any, QWidget)):
         layout.addWidget(self.log)
 
         btns = QHBoxLayout()
+        btns.addStretch(1)
+        self.btn_select_all = QPushButton(i18n.t("req_btn_select_all", self._idioma))
+        self.btn_select_all.setProperty("role", "secondary")
+        self.btn_select_all.setStyleSheet(_SS_BTN_SECONDARY)
+        self.btn_select_all.clicked.connect(self.select_all)
+        btns.addWidget(self.btn_select_all)
         self.btn_install = QPushButton(i18n.t("req_btn_install_selected", self._idioma)); self.btn_install.clicked.connect(self.start_installation)
+        self.btn_install.setStyleSheet(_SS_BTN_PRIMARY_NARROW)
         btns.addWidget(self.btn_install)
         self.btn_close = QPushButton(i18n.t("req_btn_close", self._idioma))
         self.btn_close.setProperty("role", "danger")
-        self.btn_close.setStyleSheet(_SS_BTN_DANGER)
+        self.btn_close.setStyleSheet(_SS_BTN_DANGER_NARROW)
         self.btn_close.clicked.connect(self.close)
         btns.addWidget(self.btn_close)
+        btns.addStretch(1)
         layout.addLayout(btns)
 
         self.setLayout(layout)
@@ -734,13 +792,70 @@ class RequirementsInstaller(cast(Any, QWidget)):
         self.progress_signal.connect(self._set_progress)
         self.enable_install_signal.connect(self._set_install_enabled)
 
+    # --------------------------- widget helpers ---------------------------
+
+    def _make_version_row(self, tested_version: str):
+        """
+        Cria o par de opções "instalar mais recente" vs. "instalar versão já
+        testada" (mesma lógica usada para o Java), com a versão testada marcada
+        por padrão. Quando não há versão testada curada (string vazia), a opção
+        "mais recente" começa marcada.
+        Retorna (box_widget, rb_latest, rb_tested, ed_version).
+        """
+        rb_latest = QRadioButton(i18n.t("req_opt_latest", self._idioma))
+        rb_tested = QRadioButton(i18n.t("req_opt_tested", self._idioma))
+        group = QButtonGroup(self)
+        group.addButton(rb_latest)
+        group.addButton(rb_tested)
+        self._version_groups.append(group)
+
+        ed_version = QLineEdit(); ed_version.setText(tested_version)
+        use_latest = not tested_version
+        rb_latest.setChecked(use_latest)
+        rb_tested.setChecked(not use_latest)
+        ed_version.setEnabled(not use_latest)
+        rb_latest.toggled.connect(lambda checked: ed_version.setEnabled(not checked))
+
+        box = QWidget(); row = QHBoxLayout(box); row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(rb_latest); row.addWidget(rb_tested); row.addWidget(ed_version)
+        return box, rb_latest, rb_tested, ed_version
+
+    def _version_spec(self, pkgname: str, rb_latest: "QRadioButton", version: str) -> str:
+        """
+        Monta o especificador de instalação pip: sem pin de versão quando
+        "mais recente" está selecionado (ou não há versão preenchida), com
+        pin (pkg==version) caso contrário.
+        """
+        version = (version or "").strip()
+        if rb_latest.isChecked() or not version:
+            return pkgname
+        return f"{pkgname}=={version}"
+
     # --------------------------- actions ---------------------------
+
+    def select_all(self):
+        """
+        Alterna entre marcar e desmarcar todas as checkboxes habilitadas: se todas já
+        estiverem marcadas, o clique desmarca; caso contrário (nenhuma ou algumas
+        marcadas), o clique marca todas.
+        """
+        checkboxes = [
+            self.check_venv, self.check_java, self.check_scikitlearn, self.check_pycaret,
+            self.check_cuml, self.check_chembl, self.check_padelpy, self.check_rdkit,
+            self.check_matplotlib, self.check_seaborn, self.check_joblib, self.check_pandas,
+            self.check_numpy, self.check_pytorch, self.check_tensorflow, self.check_libs,
+        ]
+        enabled = [chk for chk in checkboxes if chk.isEnabled()]
+        all_checked = bool(enabled) and all(chk.isChecked() for chk in enabled)
+        for chk in enabled:
+            chk.setChecked(not all_checked)
 
     def start_installation(self):
         self.btn_install.setEnabled(False)
         self.progress.setValue(0)
 
         # update from UI
+        self.java_version        = self.ed_java_version.text().strip() or self._defaults["java_version"]
         self.scikitlearn_version = self.ed_scikitlearn_version.text().strip()
         self.pycaret_version     = self.ed_pycaret_version.text().strip()
         self.chembl_version      = self.ed_chembl_version.text().strip()
@@ -760,6 +875,7 @@ class RequirementsInstaller(cast(Any, QWidget)):
 
         steps = sum([
             self.check_venv.isChecked(),
+            self.check_java.isChecked(),
             self.check_scikitlearn.isChecked(),
             self.check_pycaret.isChecked(),
             self.check_cuml.isChecked(),
@@ -803,20 +919,30 @@ class RequirementsInstaller(cast(Any, QWidget)):
 
             pybin = p["python"]
 
-            # 2) installs
+            # 2) Java (JRE, system package via apt)
+            if self.check_java.isChecked():
+                self.log_signal.emit(i18n.t("req_log_installing", self._idioma, name="Java (JRE)"))
+                ok = self.install_java(self.java_version, self.rb_java_default.isChecked())
+                step += 1; self.progress_signal.emit(step)
+                if not ok: return self._abort("Java (JRE)")
+
+            # 3) installs
             if self.check_chembl.isChecked():
                 self.log_signal.emit(i18n.t("req_log_installing", self._idioma, name="chembl_webresource_client"))
-                ok = self.install_pkg(pybin, f"chembl_webresource_client=={self.chembl_version}"); step += 1; self.progress_signal.emit(step)
+                spec = self._version_spec("chembl_webresource_client", self.rb_chembl_latest, self.chembl_version)
+                ok = self.install_pkg(pybin, spec); step += 1; self.progress_signal.emit(step)
                 if not ok: return self._abort("chembl_webresource_client")
 
             if self.check_scikitlearn.isChecked():
                 self.log_signal.emit(i18n.t("req_log_installing", self._idioma, name="scikit-learn"))
-                ok = self.install_pkg(pybin, f"scikit-learn=={self.scikitlearn_version}"); step += 1; self.progress_signal.emit(step)
+                spec = self._version_spec("scikit-learn", self.rb_scikitlearn_latest, self.scikitlearn_version)
+                ok = self.install_pkg(pybin, spec); step += 1; self.progress_signal.emit(step)
                 if not ok: return self._abort("scikit-learn")
 
             if self.check_pycaret.isChecked():
                 self.log_signal.emit(i18n.t("req_log_installing", self._idioma, name="PyCaret"))
-                ok = self.install_pkg(pybin, f"pycaret[full]=={self.pycaret_version}")
+                spec = self._version_spec("pycaret[full]", self.rb_pycaret_latest, self.pycaret_version)
+                ok = self.install_pkg(pybin, spec)
                 step += 1; self.progress_signal.emit(step)
                 if not ok: return self._abort("PyCaret")
 
@@ -828,43 +954,50 @@ class RequirementsInstaller(cast(Any, QWidget)):
 
             if self.check_padelpy.isChecked():
                 self.log_signal.emit(i18n.t("req_log_installing", self._idioma, name="padelpy"))
-                ok = self.install_pkg(pybin, f"padelpy=={self.padelpy_version}")
+                spec = self._version_spec("padelpy", self.rb_padelpy_latest, self.padelpy_version)
+                ok = self.install_pkg(pybin, spec)
                 step += 1; self.progress_signal.emit(step)
                 if not ok: return self._abort("padelpy")
 
             if self.check_rdkit.isChecked():
                 self.log_signal.emit(i18n.t("req_log_installing", self._idioma, name="RDKit (rdkit-pypi)"))
-                ok = self.install_pkg(pybin, f"rdkit-pypi=={self.rdkit_version}")
+                spec = self._version_spec("rdkit-pypi", self.rb_rdkit_latest, self.rdkit_version)
+                ok = self.install_pkg(pybin, spec)
                 step += 1; self.progress_signal.emit(step)
                 if not ok: return self._abort("rdkit-pypi")
 
             if self.check_matplotlib.isChecked():
                 self.log_signal.emit(i18n.t("req_log_installing", self._idioma, name="Matplotlib"))
-                ok = self.install_pkg(pybin, f"matplotlib=={self.matplotlib_version}")
+                spec = self._version_spec("matplotlib", self.rb_matplotlib_latest, self.matplotlib_version)
+                ok = self.install_pkg(pybin, spec)
                 step += 1; self.progress_signal.emit(step)
                 if not ok: return self._abort("matplotlib")
 
             if self.check_seaborn.isChecked():
                 self.log_signal.emit(i18n.t("req_log_installing", self._idioma, name="Seaborn"))
-                ok = self.install_pkg(pybin, f"seaborn=={self.seaborn_version}")
+                spec = self._version_spec("seaborn", self.rb_seaborn_latest, self.seaborn_version)
+                ok = self.install_pkg(pybin, spec)
                 step += 1; self.progress_signal.emit(step)
                 if not ok: return self._abort("seaborn")
 
             if self.check_joblib.isChecked():
                 self.log_signal.emit(i18n.t("req_log_installing", self._idioma, name="joblib"))
-                ok = self.install_pkg(pybin, f"joblib=={self.joblib_version}")
+                spec = self._version_spec("joblib", self.rb_joblib_latest, self.joblib_version)
+                ok = self.install_pkg(pybin, spec)
                 step += 1; self.progress_signal.emit(step)
                 if not ok: return self._abort("joblib")
 
             if self.check_pandas.isChecked():
                 self.log_signal.emit(i18n.t("req_log_installing", self._idioma, name="pandas"))
-                ok = self.install_pkg(pybin, f"pandas=={self.pandas_version}")
+                spec = self._version_spec("pandas", self.rb_pandas_latest, self.pandas_version)
+                ok = self.install_pkg(pybin, spec)
                 step += 1; self.progress_signal.emit(step)
                 if not ok: return self._abort("pandas")
 
             if self.check_numpy.isChecked():
                 self.log_signal.emit(i18n.t("req_log_installing", self._idioma, name="numpy"))
-                ok = self.install_pkg(pybin, f"numpy=={self.numpy_version}")
+                spec = self._version_spec("numpy", self.rb_numpy_latest, self.numpy_version)
+                ok = self.install_pkg(pybin, spec)
                 step += 1; self.progress_signal.emit(step)
                 if not ok: return self._abort("numpy")
 
@@ -906,6 +1039,24 @@ class RequirementsInstaller(cast(Any, QWidget)):
         self.btn_install.setEnabled(enabled)
 
     # --------------------------- installers ---------------------------
+
+    def install_java(self, version: str, use_default: bool) -> bool:
+        """
+        Instala o JRE via apt (pacote de sistema, não pip). 'use_default' instala
+        'default-jre'; caso contrário instala 'openjdk-<version>-jre'.
+        """
+        if not _supports_apt_bootstrap():
+            self.log_signal.emit(i18n.t("req_log_java_skip", self._idioma))
+            return True
+        pkg = "default-jre" if use_default else f"openjdk-{version}-jre"
+        if _run_interactive(["sudo", "apt", "update"]) != 0:
+            self.log_signal.emit(i18n.t("req_log_java_apt_update_failed", self._idioma))
+            return False
+        if _run_interactive(["sudo", "apt", "install", "-y", pkg]) != 0:
+            self.log_signal.emit(i18n.t("req_log_java_apt_install_failed", self._idioma, pkg=pkg))
+            return False
+        self.log_signal.emit(i18n.t("req_log_pkg_installed", self._idioma, spec=pkg))
+        return True
 
     def install_pkg(self, pybin: str, spec: str) -> bool:
         res = _pip_install(pybin, [spec])
@@ -954,7 +1105,7 @@ class RequirementsInstaller(cast(Any, QWidget)):
 
     def install_pytorch(self, pybin: str) -> bool:
         variant = (self.pytorch_cuda_variant or self._defaults["pytorch_variant"]).lower()
-        version = self.pytorch_version.strip()
+        version = "" if self.rb_pytorch_latest.isChecked() else self.pytorch_version.strip()
         base_pkgs = ["torch", "torchvision", "torchaudio"]
 
         if variant not in ("cu128", "cu121", "cu118", "cpu"):
@@ -981,7 +1132,8 @@ class RequirementsInstaller(cast(Any, QWidget)):
             )
             return True
         pkg = self.cuml_pkg or "cuml-cu12"
-        spec = f"{pkg}=={self.cuml_version}" if self.cuml_version else pkg
+        version = "" if self.rb_cuml_latest.isChecked() else self.cuml_version.strip()
+        spec = f"{pkg}=={version}" if version else pkg
         cmd = [pybin, "-m", "pip", "install", "--extra-index-url", "https://pypi.nvidia.com", spec]
         res = _run(cmd)
         if res.returncode != 0:
@@ -991,12 +1143,15 @@ class RequirementsInstaller(cast(Any, QWidget)):
         return True
 
     def install_tensorflow(self, pybin: str) -> bool:
-        ver = self.tensorflow_version or "2.15.*"
-        res = _pip_install(pybin, [f"tensorflow=={ver}"])
+        ver = "" if self.rb_tensorflow_latest.isChecked() else (self.tensorflow_version or "").strip()
+        spec = f"tensorflow=={ver}" if ver else "tensorflow"
+        res = _pip_install(pybin, [spec])
         if res.returncode != 0:
             self.log_signal.emit(res.stdout + "\n")
             return False
-        self.log_signal.emit(i18n.t("req_log_tensorflow_installed", self._idioma, ver=ver))
+        self.log_signal.emit(
+            i18n.t("req_log_tensorflow_installed", self._idioma, ver=(ver or i18n.t("req_opt_latest", self._idioma)))
+        )
         return True
 
 

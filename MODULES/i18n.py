@@ -750,18 +750,24 @@ _TEXTOS = {
     "req_env_info": {
         "en": "Selected packages will be installed into the CODRUG Python virtual environment "
               "(~/.venv/CODRUG).<br>"
-              "Active Python: <b>{python_exe}</b> ({python_ver})<br>"
-              "CPU: {cpu} | RAM: {ram} GB | GPU: {gpu}",
+              "Active Python: <b>{python_exe}</b> ({python_ver})",
         "pt": "Os pacotes selecionados serão instalados no ambiente virtual Python do CODRUG "
               "(~/.venv/CODRUG).<br>"
-              "Python ativo: <b>{python_exe}</b> ({python_ver})<br>"
-              "CPU: {cpu} | RAM: {ram} GB | GPU: {gpu}",
+              "Python ativo: <b>{python_exe}</b> ({python_ver})",
     },
-    "req_gpu_not_detected": {"en": "not detected", "pt": "não detectada"},
+    "req_opt_latest": {"en": "Latest", "pt": "Mais recente"},
+    "req_opt_tested": {"en": "Version:", "pt": "Versão:"},
     "req_chk_venv": {"en": "Create/repair CODRUG Python environment (venv)", "pt": "Criar/reparar o ambiente Python do CODRUG (venv)"},
     "req_tooltip_venv": {
         "en": "Using the current Python to create the venv. Field is informative.",
         "pt": "Usa o Python atual para criar o venv. Campo apenas informativo.",
+    },
+    "req_chk_java": {"en": "Install Java (JRE, required by PaDEL-Descriptor)", "pt": "Instalar Java (JRE, necessário para o PaDEL-Descriptor)"},
+    "req_java_default_label": {"en": "Default (default-jre)", "pt": "Padrão (default-jre)"},
+    "req_java_version_label": {"en": "Version:", "pt": "Versão:"},
+    "req_tooltip_java_version": {
+        "en": "openjdk-<version>-jre will be installed via apt, e.g. 'openjdk-11-jre'.",
+        "pt": "openjdk-<versão>-jre será instalado via apt, ex.: 'openjdk-11-jre'.",
     },
     "req_chk_scikitlearn": {"en": "Install scikit-learn", "pt": "Instalar scikit-learn"},
     "req_chk_pycaret": {"en": "Install PyCaret", "pt": "Instalar PyCaret"},
@@ -793,6 +799,7 @@ _TEXTOS = {
     "req_chk_libs": {"en": "Install another libs (default set)", "pt": "Instalar outras bibliotecas (conjunto padrão)"},
     "req_placeholder_cuml_version": {"en": "{pkg} version (blank = latest)", "pt": "versão do {pkg} (em branco = mais recente)"},
     "req_placeholder_libs_version": {"en": "(not used, default curated set)", "pt": "(não usado, conjunto padrão pré-definido)"},
+    "req_btn_select_all": {"en": "Select All", "pt": "Selecionar Tudo"},
     "req_btn_install_selected": {"en": "Install Selected", "pt": "Instalar Selecionados"},
     "req_btn_close": {"en": "Close", "pt": "Fechar"},
     "req_msg_no_selection_title": {"en": "No Selection", "pt": "Nada Selecionado"},
@@ -823,6 +830,14 @@ _TEXTOS = {
     },
     "req_log_cuml_installed": {"en": "cuML installed ({spec}).\n", "pt": "cuML instalado ({spec}).\n"},
     "req_log_tensorflow_installed": {"en": "TensorFlow installed (version={ver}).\n", "pt": "TensorFlow instalado (versão={ver}).\n"},
+    "req_log_java_skip": {
+        "en": "[WARN] Skipping Java: apt bootstrap is only supported on Ubuntu/Debian-based Linux "
+              "with 'sudo'. Install manually, e.g. 'sudo apt install openjdk-11-jre'.\n",
+        "pt": "[AVISO] Pulando Java: o bootstrap via apt só é suportado em Linux baseado em "
+              "Ubuntu/Debian com 'sudo'. Instale manualmente, ex.: 'sudo apt install openjdk-11-jre'.\n",
+    },
+    "req_log_java_apt_update_failed": {"en": "Failed to run 'sudo apt update'.\n", "pt": "Falha ao executar 'sudo apt update'.\n"},
+    "req_log_java_apt_install_failed": {"en": "Failed to install {pkg} via apt.\n", "pt": "Falha ao instalar {pkg} via apt.\n"},
 }
 
 
