@@ -2409,6 +2409,10 @@ class MainWindow(QMainWindow):
         self._tr("menu_edit", edit_action.setText)
         edit_action.triggered.connect(lambda: self.tabs.setCurrentIndex(9))  # Edit
         dp_menu.addAction(edit_action)
+        statistics_action = QAction(self)
+        self._tr("menu_statistics", statistics_action.setText)
+        statistics_action.triggered.connect(lambda: self.tabs.setCurrentIndex(10))  # Statistics
+        dp_menu.addAction(statistics_action)
 
         dp_menu.addSeparator()
         exit_action = QAction(self)
@@ -3574,15 +3578,11 @@ class MainWindow(QMainWindow):
         ("rep_check_column", "list_columns_rep_check"),
         ("transform_column", "list_columns_trans"),
         ("transform_type", "cb_transformation"),
-        ("stat_column", "list_columns_stat"),
-        ("dist_chart_type", "list_dist_chart"),
+        ("outlier_column", "list_columns_outlier"),
         ("outlier_threshold", "threshold_outlier"),
         ("outlier_zscore", "chk_outlier_zscore"),
         ("outlier_iqr", "chk_outlier_iqr"),
         ("outlier_sd", "chk_outlier_sd"),
-        ("normal_test_shapiro", "chk_normal_test_shapiro"),
-        ("normal_test_anderson", "chk_normal_test_anderson"),
-        ("normal_test_kolmogorov", "chk_normal_test_kolmogorov"),
     ]
 
     def _collect_step2_state(self):
@@ -3635,18 +3635,6 @@ class MainWindow(QMainWindow):
         ("druggability_ro5", "chk_Vo5"),
         ("druggability_ro5_min", "ed_min_Vo5"),
         ("druggability_ro5_max", "ed_max_Vo5"),
-        ("assumption_normality", "chk_normality"),
-        ("assumption_homogeneity", "chk_homogeneity"),
-        ("posthoc_tukey", "chk_tukey"),
-        ("posthoc_bonferroni", "chk_bonferroni"),
-        ("posthoc_dunn", "chk_dunn"),
-        ("posthoc_conover", "chk_conover"),
-        ("var_value_column", "list_columns_var"),
-        ("var_x_column", "list_columns_var1"),
-        ("var_y_column", "list_columns_var2"),
-        ("var_z_column", "list_columns_var3"),
-        ("class_column_comparison", "list_class_column_comp"),
-        ("groups_selected", "list_groups"),
     ]
 
     def _collect_step3_state(self):
@@ -3660,6 +3648,54 @@ class MainWindow(QMainWindow):
 
     def _save_step3_state(self):
         self._save_job_state({"step3": self._collect_step3_state()})
+
+    # ------------------------------------------------------------------
+    # STATISTICS - Independent statistical tests (own dataframe, self.stats_df)
+    # ------------------------------------------------------------------
+    STATISTICS_FIELD_SPEC = [
+        ("selected_dataframe", "df_name_view_stats"),
+        ("stat_column", "list_columns_stat"),
+        ("dist_chart_type", "list_dist_chart"),
+        ("normal_test_shapiro", "chk_normal_test_shapiro"),
+        ("normal_test_anderson", "chk_normal_test_anderson"),
+        ("normal_test_kolmogorov", "chk_normal_test_kolmogorov"),
+        ("stats_threshold", "threshold_stats"),
+        ("assumption_normality", "chk_normality"),
+        ("assumption_homogeneity", "chk_homogeneity"),
+        ("posthoc_tukey", "chk_tukey"),
+        ("posthoc_bonferroni", "chk_bonferroni"),
+        ("posthoc_dunn", "chk_dunn"),
+        ("posthoc_conover", "chk_conover"),
+        ("var_value_column", "list_columns_var"),
+        ("var_x_column", "list_columns_var1"),
+        ("var_y_column", "list_columns_var2"),
+        ("var_z_column", "list_columns_var3"),
+        ("class_column_stats", "list_class_column_stats"),
+        ("groups_selected", "list_groups"),
+        ("confidence_pct", "ed_stats_confidence_pct"),
+        ("confidence_z", "ed_stats_confidence_z"),
+        ("power", "ed_stats_power"),
+        ("beta", "ed_stats_beta"),
+        ("proportion_p1", "ed_stats_p1"),
+        ("proportion_p2", "ed_stats_p2"),
+        ("margin_error", "ed_stats_margin_error"),
+    ]
+
+    def _collect_statistics_state(self):
+        return self._collect_state_from_spec(self.STATISTICS_FIELD_SPEC)
+
+    def _apply_statistics_state(self, state):
+        if not isinstance(state, dict) or not state:
+            return False
+        self._apply_state_from_spec(self.STATISTICS_FIELD_SPEC, state)
+        # Recalcula os valores derivados (α, e o par Z/% ou Poder/β pode ter vindo
+        # de um job salvo antes desta funcionalidade existir) a partir do que foi restaurado.
+        if hasattr(self, "_sync_stats_confidence_from_pct"):
+            self._sync_stats_confidence_from_pct()
+        return True
+
+    def _save_statistics_state(self):
+        self._save_job_state({"statistics": self._collect_statistics_state()})
 
     # ------------------------------------------------------------------
     # STEP 4 - Features Engineering
@@ -4013,6 +4049,7 @@ class MainWindow(QMainWindow):
         loaded_any = self._apply_step6_sklearn_state(payload.get("step6_sklearn", {})) or loaded_any
         loaded_any = self._apply_step7_state(payload.get("step7_ad", {})) or loaded_any
         loaded_any = self._apply_step8_state(payload.get("step8_consensus", {})) or loaded_any
+        loaded_any = self._apply_statistics_state(payload.get("statistics", {})) or loaded_any
         new_path = self._job_state_path(job_dir)
         if loaded_any and new_path and not os.path.isfile(new_path):
             self._save_job_state({})
@@ -5088,17 +5125,17 @@ class MainWindow(QMainWindow):
     def run_descritive_stat(self):
         target_chembl_id = self.ed_target_chembl_id.text().strip()
         target_organism = self.ed_organism_name.text().strip()
-        job_dir = self.job_dir  
-        if getattr(self, "df_selecionado", None) is None:
+        job_dir = self.job_dir
+        if getattr(self, "stats_df", None) is None:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "No DataFrame loaded.")
             return
 
         col = self.list_columns_stat.currentText()
-        if not col or col not in self.df_selecionado.columns:
+        if not col or col not in self.stats_df.columns:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid column for descriptive statistics.")
             return
 
-        df = self.df_selecionado.copy()
+        df = self.stats_df.copy()
         df[col] = pd.to_numeric(df[col], errors='coerce')
 
         estat = df[col].describe()
@@ -5199,7 +5236,7 @@ class MainWindow(QMainWindow):
 
     def plot_boxplot(self, data, legend=False, label_mark=False):
         col = self.list_columns_stat.currentText()
-        threshold_str = self.threshold_outlier.text().strip()
+        threshold_str = self.threshold_stats.text().strip()
         try:
             threshold = float(threshold_str)
         except Exception:
@@ -5369,11 +5406,11 @@ class MainWindow(QMainWindow):
         legend = self.chk_legend.isChecked() if hasattr(self, 'chk_legend') else False
         label_mark = self.chk_label_mark.isChecked() if hasattr(self, 'chk_label_mark') else False
 
-        if self.df_selecionado is None or col not in self.df_selecionado.columns:
+        if self.stats_df is None or col not in self.stats_df.columns:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid DataFrame and column.")
             return
 
-        data = pd.to_numeric(self.df_selecionado[col], errors='coerce')
+        data = pd.to_numeric(self.stats_df[col], errors='coerce')
 
         if chart_type == "Histogram":
             fig = self.plot_histogram(data, bins, trend_line, samples, legend)
@@ -5515,11 +5552,11 @@ class MainWindow(QMainWindow):
     def run_interpretation(self):
         # Seleciona a coluna de interesse
         col = self.list_columns_stat.currentText()
-        if self.df_selecionado is None or col not in self.df_selecionado.columns:
+        if self.stats_df is None or col not in self.stats_df.columns:
             QMessageBox.warning(self, i18n.t("msg_title_warning", self._idioma), "Select a valid DataFrame and column.")
             return
 
-        df = self.df_selecionado
+        df = self.stats_df
         data = pd.to_numeric(df[col], errors='coerce').dropna()
         mean = data.mean()
         Q1 = data.quantile(0.25)
@@ -5530,7 +5567,7 @@ class MainWindow(QMainWindow):
 
         output = []
 
-        threshold_str = self.threshold_outlier.text().strip()
+        threshold_str = self.threshold_stats.text().strip()
         try:
             threshold = float(threshold_str)
         except Exception:
@@ -5668,8 +5705,8 @@ class MainWindow(QMainWindow):
 
         
         output.append("=============== Normality Tests ===============")
-        if self.chk_normal_test_shapiro.isChecked():            
-            if self.df_selecionado is None or col not in self.df_selecionado.columns:
+        if self.chk_normal_test_shapiro.isChecked():
+            if self.stats_df is None or col not in self.stats_df.columns:
                 QMessageBox.warning(self, i18n.t("msg_title_warning", self._idioma), "Select a valid DataFrame and column.")
                 return            
             shapiro_stat, shapiro_p = stats.shapiro(data)
@@ -5682,9 +5719,9 @@ class MainWindow(QMainWindow):
             output.append("")
             
         if self.chk_normal_test_anderson.isChecked():            
-            if self.df_selecionado is None or col not in self.df_selecionado.columns:
+            if self.stats_df is None or col not in self.stats_df.columns:
                 QMessageBox.warning(self, i18n.t("msg_title_warning", self._idioma), "Select a valid DataFrame and column.")
-                return            
+                return
             anderson_result = stats.anderson(data)
             output.append(f"Anderson-Darling Test Statistic: {anderson_result.statistic:.4e}")
             for i, (critical_value, significance_level) in enumerate(zip(anderson_result.critical_values, anderson_result.significance_level)):
@@ -5695,12 +5732,12 @@ class MainWindow(QMainWindow):
                 output.append("The data is not normally distributed (reject H0).")
             output.append("")
             
-        if self.chk_normal_test_kolmogorov.isChecked():            
-            if self.df_selecionado is None or col not in self.df_selecionado.columns:
+        if self.chk_normal_test_kolmogorov.isChecked():
+            if self.stats_df is None or col not in self.stats_df.columns:
                 QMessageBox.warning(self, i18n.t("msg_title_warning", self._idioma), "Select a valid DataFrame and column.")
                 return
 
-            data = pd.to_numeric(self.df_selecionado[col], errors='coerce').dropna()
+            data = pd.to_numeric(self.stats_df[col], errors='coerce').dropna()
             ks_stat, ks_p = stats.kstest(data, 'norm', args=(data.mean(), data.std()))
 
             output.append(f"Kolmogorov-Smirnov Test Statistic: {ks_stat:.4e}")
@@ -5723,7 +5760,7 @@ class MainWindow(QMainWindow):
                 handle.write("\n".join(output))
         except OSError:
             pass
-        self._save_step2_state()
+        self._save_statistics_state()
         self.show_output(output, report_name)
 
     def run_outlier(self):
@@ -5731,7 +5768,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "No DataFrame loaded.")
             return
 
-        col = self.list_columns_stat.currentText()
+        col = self.list_columns_outlier.currentText()
         if not col or col not in self.df_selecionado.columns:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid column for outlier removal.")
             return
@@ -5898,7 +5935,7 @@ class MainWindow(QMainWindow):
         # Pré-seleciona a coluna de bioatividade (IC50, MIC, EC50, ED50, MIC50, MIC90,
         # pIC50... mesmo vocabulário usado para popular Assay Metric na STEP 1), se
         # encontrada, em "Select column:" nos grupos Data Transformation e
-        # Statistics/Distribution and Outliers.
+        # Outlier Elimination.
         bio_col = self._find_bioactivity_column(self.df_selecionado.columns)
         try:
             self.list_columns_trans.clear()
@@ -5909,12 +5946,12 @@ class MainWindow(QMainWindow):
             self.list_columns_trans.clear()
             QMessageBox.critical(self, i18n.t("msg_title_error_list_columns_csv", self._idioma), str(e))
         try:
-            self.list_columns_stat.clear()
-            self.list_columns_stat.addItems(self.df_selecionado.columns.astype(str))
+            self.list_columns_outlier.clear()
+            self.list_columns_outlier.addItems(self.df_selecionado.columns.astype(str))
             if bio_col:
-                self._set_combo_text(self.list_columns_stat, bio_col)
+                self._set_combo_text(self.list_columns_outlier, bio_col)
         except Exception as e:
-            self.list_columns_stat.clear()
+            self.list_columns_outlier.clear()
             QMessageBox.critical(self, i18n.t("msg_title_error_list_columns_csv", self._idioma), str(e))
 
     def run_list_columns(self):
@@ -6685,7 +6722,9 @@ class MainWindow(QMainWindow):
         Runs the same widget refresh as clicking "Select DataFrame" - must be called
         any time self.df_selecionado changes (e.g. a processing button generates a new
         dataframe), so STEP3's dropdowns never go stale relative to the "Select
-        DataFrame" description at the top of the tab.
+        DataFrame" description at the top of the tab. "Compare Classes"/"Correlate
+        variables" moved to the STATISTICS tab (own dataframe, self.stats_df) - see
+        _refresh_statistics_dataframe_widgets.
         """
         if getattr(self, "df_selecionado", None) is None:
             self.list_columns_cat.clear()
@@ -6695,14 +6734,6 @@ class MainWindow(QMainWindow):
             self.list_columns_cat.addItems(self.df_selecionado.columns.astype(str))
             self.list_class_column.clear()
             self.list_class_column.addItems(self.df_selecionado.columns.astype(str))
-            self.list_columns_var.clear()
-            self.list_columns_var.addItems(self.df_selecionado.columns.astype(str))
-            self.list_columns_var1.clear()
-            self.list_columns_var1.addItems(self.df_selecionado.columns.astype(str))
-            self.list_columns_var2.clear()
-            self.list_columns_var2.addItems(self.df_selecionado.columns.astype(str))
-            self.list_columns_var3.clear()
-            self.list_columns_var3.addItems(self.df_selecionado.columns.astype(str))
 
             # Deixa "Class" já selecionada, se existir:
             idx = self.list_class_column.findText("Class") if hasattr(self, "list_class_column") else -1
@@ -6711,12 +6742,10 @@ class MainWindow(QMainWindow):
 
             # Pré-seleciona a coluna de bioatividade (IC50, MIC, EC50, ED50, MIC50, MIC90,
             # pIC50... mesmo vocabulário usado para popular Assay Metric na STEP 1), se
-            # encontrada, em "Select value column" (Generating Categories) e "Select Variable"
-            # (Compare Classes).
+            # encontrada, em "Select value column" (Generating Categories).
             bio_col = self._find_bioactivity_column(self.df_selecionado.columns)
             if bio_col:
                 self._set_combo_text(self.list_columns_cat, bio_col)
-                self._set_combo_text(self.list_columns_var, bio_col)
 
             if hasattr(self, "cb_molecule_chembl_id_cat") and "molecule_chembl_id" in self.df_selecionado.columns:
                 self.cb_molecule_chembl_id_cat.clear()
@@ -6726,38 +6755,307 @@ class MainWindow(QMainWindow):
             self.list_columns_cat.clear()
             QMessageBox.critical(self, i18n.t("msg_title_error_list_columns_csv", self._idioma), str(e))
 
-        # Popular list_class_column_comp com todas as colunas do DataFrame
-        df = self.df_selecionado.copy()
-        if hasattr(self, "list_class_column_comp"):
+    def select_dataframe_stats(self):
+        """"Select DataFrame" handler for the STATISTICS tab - independent of the pipeline's
+        shared self.df_selecionado (own attribute: self.stats_df), so statistical tests can
+        run on any file at any time without depending on where the main pipeline is."""
+        try:
+            job_dir = getattr(self, "job_dir", None)
+            if job_dir:
+                initial_dir = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA")
+            else:
+                initial_dir = os.path.join(self.dp_dir, "JOBS")
+            os.makedirs(initial_dir, exist_ok=True)
+
+            file_path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Select DataFrame",
+                initial_dir,
+                "Data Files (*.csv *.xlsx);;CSV Files (*.csv);;Excel Files (*.xlsx)"
+            )
+            if not file_path:
+                return
+
+            df = self._read_selected_table_file(file_path)
+            if df.empty:
+                QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "The selected DataFrame is empty.")
+                return
+
+            self.stats_df = df.copy()
+            self.df_name_view_stats.setText(os.path.basename(file_path))
+            self.show_dataframe(df)
+        except Exception as e:
+            QMessageBox.critical(self, i18n.t("msg_title_error", self._idioma), f"An error occurred while loading the DataFrame:\n{e}")
+
+        self._refresh_statistics_dataframe_widgets()
+
+    def _refresh_statistics_dataframe_widgets(self):
+        """Repopulate every STATISTICS combo/list that depends on self.stats_df.
+
+        Runs the same widget refresh as clicking "Select DataFrame" on the STATISTICS tab -
+        must be called any time self.stats_df changes, so its dropdowns never go stale
+        relative to the "Select DataFrame" description at the top of the tab.
+        """
+        if getattr(self, "stats_df", None) is None:
+            self.list_columns_stat.clear()
+            if hasattr(self, "lbl_stats_population_size"):
+                self.lbl_stats_population_size.setText("0")
+            return
+        if hasattr(self, "lbl_stats_population_size"):
+            self.lbl_stats_population_size.setText(str(len(self.stats_df)))
+        try:
+            self.list_columns_stat.clear()
+            self.list_columns_stat.addItems(self.stats_df.columns.astype(str))
+            self.list_columns_var.clear()
+            self.list_columns_var.addItems(self.stats_df.columns.astype(str))
+            self.list_columns_var1.clear()
+            self.list_columns_var1.addItems(self.stats_df.columns.astype(str))
+            self.list_columns_var2.clear()
+            self.list_columns_var2.addItems(self.stats_df.columns.astype(str))
+            self.list_columns_var3.clear()
+            self.list_columns_var3.addItems(self.stats_df.columns.astype(str))
+
+            # Pré-seleciona a coluna de bioatividade (mesma heurística usada nas demais
+            # abas) em "Select column" (Descriptive Statistics) e "Select Variable"
+            # (Compare Classes).
+            bio_col = self._find_bioactivity_column(self.stats_df.columns)
+            if bio_col:
+                self._set_combo_text(self.list_columns_stat, bio_col)
+                self._set_combo_text(self.list_columns_var, bio_col)
+
+        except Exception as e:
+            self.list_columns_stat.clear()
+            QMessageBox.critical(self, i18n.t("msg_title_error_list_columns_csv", self._idioma), str(e))
+
+        # Popular list_class_column_stats com todas as colunas do DataFrame
+        df = self.stats_df.copy()
+        if hasattr(self, "list_class_column_stats"):
             try:
-                self.list_class_column_comp.currentIndexChanged.disconnect()
+                self.list_class_column_stats.currentIndexChanged.disconnect()
             except Exception:
                 pass
-            self.list_class_column_comp.clear()
-            self.list_class_column_comp.addItems(df.columns.astype(str).tolist())
+            self.list_class_column_stats.clear()
+            self.list_class_column_stats.addItems(df.columns.astype(str).tolist())
             # Pré-seleciona "Class" se existir
-            idx_class = self.list_class_column_comp.findText("Class")
+            idx_class = self.list_class_column_stats.findText("Class")
             if idx_class >= 0:
-                self.list_class_column_comp.setCurrentIndex(idx_class)
+                self.list_class_column_stats.setCurrentIndex(idx_class)
             # Conecta o slot de atualização dos grupos
-            self.list_class_column_comp.currentIndexChanged.connect(self._update_list_groups_from_comp)
+            self.list_class_column_stats.currentIndexChanged.connect(self._update_list_groups_from_comp)
 
         # Preenche list_groups com os grupos da coluna atualmente selecionada
         self._update_list_groups_from_comp()
 
     def _update_list_groups_from_comp(self):
-        """Updates list_groups with unique values from the column selected in list_class_column_comp."""
-        df = getattr(self, "df_selecionado", None)
+        """Updates list_groups with unique values from the column selected in list_class_column_stats."""
+        df = getattr(self, "stats_df", None)
         if df is None:
             return
-        if not hasattr(self, "list_class_column_comp"):
+        if not hasattr(self, "list_class_column_stats"):
             return
-        col = self.list_class_column_comp.currentText().strip()
+        col = self.list_class_column_stats.currentText().strip()
         if not col or col not in df.columns:
             return
         self.list_groups.clear()
         classes = pd.unique(df[col].astype(str))
         self.list_groups.addItems(list(map(str, classes)))
+
+    # ------------------------------------------------------------------
+    # STATISTICS - "Cálculo Amostral e Poder Estatístico": conversões dinâmicas
+    # entre Nível de Confiança (%/Z) e entre Poder Estatístico/Erro Tipo II (β).
+    # Um guard evita loop de sinais entre os dois campos de cada par.
+    # ------------------------------------------------------------------
+    def _sync_stats_confidence_from_pct(self):
+        if getattr(self, "_stats_power_sync_guard", False):
+            return
+        self._stats_power_sync_guard = True
+        try:
+            pct = float(self.ed_stats_confidence_pct.text().strip().replace(",", "."))
+            alpha = 1 - pct / 100.0
+            z = stats.norm.ppf(1 - alpha / 2)
+            self.ed_stats_confidence_z.setText(f"{z:.4f}")
+            if hasattr(self, "lbl_stats_alpha_value"):
+                self.lbl_stats_alpha_value.setText(f"{alpha:.4f}")
+        except (ValueError, AttributeError, ZeroDivisionError):
+            pass
+        finally:
+            self._stats_power_sync_guard = False
+
+    def _sync_stats_confidence_from_z(self):
+        if getattr(self, "_stats_power_sync_guard", False):
+            return
+        self._stats_power_sync_guard = True
+        try:
+            z = float(self.ed_stats_confidence_z.text().strip().replace(",", "."))
+            alpha = 2 * (1 - stats.norm.cdf(z))
+            pct = (1 - alpha) * 100
+            self.ed_stats_confidence_pct.setText(f"{pct:.2f}")
+            if hasattr(self, "lbl_stats_alpha_value"):
+                self.lbl_stats_alpha_value.setText(f"{alpha:.4f}")
+        except (ValueError, AttributeError):
+            pass
+        finally:
+            self._stats_power_sync_guard = False
+
+    def _sync_stats_power_from_power(self):
+        if getattr(self, "_stats_power_sync_guard", False):
+            return
+        self._stats_power_sync_guard = True
+        try:
+            power = float(self.ed_stats_power.text().strip().replace(",", "."))
+            self.ed_stats_beta.setText(f"{1 - power:.4f}")
+        except (ValueError, AttributeError):
+            pass
+        finally:
+            self._stats_power_sync_guard = False
+
+    def _sync_stats_power_from_beta(self):
+        if getattr(self, "_stats_power_sync_guard", False):
+            return
+        self._stats_power_sync_guard = True
+        try:
+            beta = float(self.ed_stats_beta.text().strip().replace(",", "."))
+            self.ed_stats_power.setText(f"{1 - beta:.4f}")
+        except (ValueError, AttributeError):
+            pass
+        finally:
+            self._stats_power_sync_guard = False
+
+    def run_sample_size_calc(self):
+        """Botão "Calcular Tamanho Amostral" da aba STATISTICS.
+
+        - Se "Proporção do Grupo 2 (p2)" estiver vazia: calcula o tamanho de amostra
+          representativo de UMA proporção populacional (fórmula de Cochran), a partir de
+          Z (Nível de Confiança), p1, Margem de Erro e, se disponível, Tamanho da
+          População (aplica a correção para população finita).
+        - Se p2 estiver preenchida: calcula o tamanho de amostra POR GRUPO necessário
+          para comparar 2 proporções com o Poder/α informados (Cohen's h via statsmodels).
+        """
+        try:
+            z = float(self.ed_stats_confidence_z.text().strip().replace(",", "."))
+            p1 = float(self.ed_stats_p1.text().strip().replace(",", "."))
+        except (ValueError, AttributeError):
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Preencha Nível de Confiança (Z) e Proporção do Grupo 1 (p1) com valores numéricos válidos.")
+            return
+
+        if not (0 < p1 < 1):
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Proporção do Grupo 1 (p1) deve estar entre 0 e 1.")
+            return
+
+        p2_text = self.ed_stats_p2.text().strip().replace(",", ".") if hasattr(self, "ed_stats_p2") else ""
+        lines = []
+
+        if p2_text:
+            try:
+                p2 = float(p2_text)
+                alpha = float(self.lbl_stats_alpha_value.text().strip().replace(",", "."))
+                power = float(self.ed_stats_power.text().strip().replace(",", "."))
+            except (ValueError, AttributeError):
+                QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Valores inválidos em Proporção do Grupo 2 (p2), Poder Estatístico ou Erro Tipo I.")
+                return
+            if not (0 < p2 < 1):
+                QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Proporção do Grupo 2 (p2) deve estar entre 0 e 1.")
+                return
+
+            try:
+                from statsmodels.stats.proportion import proportion_effectsize
+                from statsmodels.stats.power import NormalIndPower
+                effect = abs(proportion_effectsize(p1, p2))
+                if effect == 0:
+                    QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "p1 e p2 são iguais - não há diferença a detectar.")
+                    return
+                n_per_group = int(np.ceil(NormalIndPower().solve_power(
+                    effect_size=effect, alpha=alpha, power=power, ratio=1.0, alternative="two-sided"
+                )))
+            except Exception as e:
+                QMessageBox.critical(self, i18n.t("msg_title_error", self._idioma), f"Erro no cálculo de tamanho amostral (comparação entre 2 grupos): {e}\n(statsmodels instalado?)")
+                return
+
+            lines.append("Sample size - Two-proportion comparison")
+            lines.append(f"p1 = {p1}, p2 = {p2}")
+            lines.append(f"Effect size (Cohen's h) = {effect:.4f}")
+            lines.append(f"Alpha (Type I) = {alpha:.4f}, Power = {power:.4f} (Beta/Type II = {1 - power:.4f})")
+            lines.append(f"Required sample size per group: {n_per_group}")
+            lines.append(f"Required total sample size (2 groups): {n_per_group * 2}")
+        else:
+            try:
+                e = float(self.ed_stats_margin_error.text().strip().replace(",", ".")) / 100.0
+            except (ValueError, AttributeError):
+                QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Preencha a Margem de Erro com um valor numérico válido.")
+                return
+            if e <= 0:
+                QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Margem de Erro deve ser maior que zero.")
+                return
+
+            n0 = (z ** 2) * p1 * (1 - p1) / (e ** 2)
+
+            N = len(self.stats_df) if getattr(self, "stats_df", None) is not None else None
+            n_final = n0 / (1 + (n0 - 1) / N) if N else n0
+            n_final = int(np.ceil(n_final))
+
+            lines.append("Sample size - Single proportion (Cochran's formula)")
+            lines.append(f"Z = {z}, p = {p1}, margin of error = {e * 100:.2f}%")
+            if N:
+                lines.append(f"Population size (N) = {N} (finite population correction applied)")
+            else:
+                lines.append("Population size not available - infinite/unknown population assumed. Select a DataFrame to enable the finite-population correction.")
+            lines.append(f"n0 (uncorrected) = {n0:.2f}")
+            lines.append(f"Required representative sample size: {n_final}")
+
+        self.show_output(lines, "Sample Size Calculation")
+        self._save_statistics_state()
+
+    def run_power_calc(self):
+        """Botão "Calcular Poder Estatístico" da aba STATISTICS.
+
+        Calcula o poder alcançado ao comparar as proporções dos Grupos 1 e 2 (p1/p2)
+        usando o tamanho de amostra do dataframe carregado (Tamanho da População / 2 por
+        grupo, assumindo grupos de tamanho igual) e o α (Erro Tipo I) informado.
+        """
+        p2_text = self.ed_stats_p2.text().strip().replace(",", ".") if hasattr(self, "ed_stats_p2") else ""
+        if not p2_text:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Preencha a Proporção do Grupo 2 (p2) para calcular o poder estatístico de um teste de comparação entre 2 grupos.")
+            return
+
+        try:
+            p1 = float(self.ed_stats_p1.text().strip().replace(",", "."))
+            p2 = float(p2_text)
+            alpha = float(self.lbl_stats_alpha_value.text().strip().replace(",", "."))
+        except (ValueError, AttributeError):
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Valores inválidos em Proporção do Grupo 1 (p1), Proporção do Grupo 2 (p2) ou Erro Tipo I.")
+            return
+
+        if not (0 < p1 < 1) or not (0 < p2 < 1):
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Proporção do Grupo 1 (p1) e Proporção do Grupo 2 (p2) devem estar entre 0 e 1.")
+            return
+
+        if getattr(self, "stats_df", None) is None or len(self.stats_df) < 4:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Selecione, em 'Select DataFrame', um DataFrame com pelo menos 4 linhas (2 por grupo).")
+            return
+
+        n_per_group = len(self.stats_df) // 2
+
+        try:
+            from statsmodels.stats.proportion import proportion_effectsize
+            from statsmodels.stats.power import NormalIndPower
+            effect = abs(proportion_effectsize(p1, p2))
+            power = NormalIndPower().power(effect_size=effect, nobs1=n_per_group, alpha=alpha, ratio=1.0, alternative="two-sided")
+        except Exception as e:
+            QMessageBox.critical(self, i18n.t("msg_title_error", self._idioma), f"Erro no cálculo de poder estatístico: {e}\n(statsmodels instalado?)")
+            return
+
+        lines = []
+        lines.append("Statistical Power - Two-proportion comparison")
+        lines.append(f"p1 = {p1}, p2 = {p2}")
+        lines.append(f"Effect size (Cohen's h) = {effect:.4f}")
+        lines.append(f"Alpha (Type I) = {alpha:.4f}")
+        lines.append(f"Assumed sample size per group (N/2 from loaded DataFrame): {n_per_group}")
+        lines.append(f"Achieved statistical power: {power:.4f} ({power * 100:.2f}%)")
+        if power < 0.8:
+            lines.append("Note: achieved power is below the conventional 0.8 (80%) threshold.")
+
+        self.show_output(lines, "Statistical Power Calculation")
+        self._save_statistics_state()
 
     def run_set_class(self):
         # 1) Pré-checagens
@@ -7273,21 +7571,21 @@ class MainWindow(QMainWindow):
 
     def run_verify_assumptions(self):
         # ------- checagens básicas -------
-        if getattr(self, "df_selecionado", None) is None or self.df_selecionado.empty:
+        if getattr(self, "stats_df", None) is None or self.stats_df.empty:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "No DataFrame loaded.")
             return
 
         value_col = self.list_columns_var.currentText().strip() if hasattr(self, "list_columns_var") else ""
-        class_col = self.list_class_column.currentText().strip() if hasattr(self, "list_class_column") else ""
+        class_col = self.list_class_column_stats.currentText().strip() if hasattr(self, "list_class_column_stats") else ""
 
-        if not value_col or value_col not in self.df_selecionado.columns:
+        if not value_col or value_col not in self.stats_df.columns:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid numeric column in 'Select Variables'.")
             return
-        if not class_col or class_col not in self.df_selecionado.columns:
+        if not class_col or class_col not in self.stats_df.columns:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid class column in 'Select class column'.")
             return
 
-        df = self.df_selecionado.copy()
+        df = self.stats_df.copy()
         df[value_col] = pd.to_numeric(df[value_col], errors="coerce")
         df[class_col] = df[class_col].astype(str)
 
@@ -7409,21 +7707,21 @@ class MainWindow(QMainWindow):
         """
         import pandas as pd  # garante o import local
 
-        if getattr(self, "df_selecionado", None) is None or self.df_selecionado.empty:
+        if getattr(self, "stats_df", None) is None or self.stats_df.empty:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "No DataFrame loaded.")
             return None
 
         value_col = self.list_columns_var.currentText().strip() if hasattr(self, "list_columns_var") else ""
-        class_col = self.list_class_column.currentText().strip() if hasattr(self, "list_class_column") else ""
+        class_col = self.list_class_column_stats.currentText().strip() if hasattr(self, "list_class_column_stats") else ""
 
-        if not value_col or value_col not in self.df_selecionado.columns:
+        if not value_col or value_col not in self.stats_df.columns:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid numeric column in 'Select Variables'.")
             return None
-        if not class_col or class_col not in self.df_selecionado.columns:
+        if not class_col or class_col not in self.stats_df.columns:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid class column in 'Select class column'.")
             return None
 
-        df = self.df_selecionado.copy()
+        df = self.stats_df.copy()
         df[value_col] = pd.to_numeric(df[value_col], errors="coerce")
         df[class_col] = df[class_col].astype(str)
 
@@ -8217,31 +8515,31 @@ class MainWindow(QMainWindow):
         combinations among X, Y, Z, shows all 3 results in a single report window (savable via
         Save .txt), and renders one 3D scatter colored by class (no curve overlays in 3D).
         """
-        if getattr(self, "df_selecionado", None) is None or self.df_selecionado.empty:
+        if getattr(self, "stats_df", None) is None or self.stats_df.empty:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "No DataFrame loaded.")
             return
 
         x_col = self.list_columns_var1.currentText().strip() if hasattr(self, "list_columns_var1") else ""
         y_col = self.list_columns_var2.currentText().strip() if hasattr(self, "list_columns_var2") else ""
-        class_col = self.list_class_column.currentText().strip() if hasattr(self, "list_class_column") else ""
+        class_col = self.list_class_column_stats.currentText().strip() if hasattr(self, "list_class_column_stats") else ""
         is_3d = bool(getattr(self, "chk_3D_plot", None) and self.chk_3D_plot.isChecked())
         z_col = self.list_columns_var3.currentText().strip() if (is_3d and hasattr(self, "list_columns_var3")) else ""
 
-        if not x_col or x_col not in self.df_selecionado.columns:
+        if not x_col or x_col not in self.stats_df.columns:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid X variable in 'Select Variables 1'.")
             return
-        if not y_col or y_col not in self.df_selecionado.columns:
+        if not y_col or y_col not in self.stats_df.columns:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid Y variable in 'Select Variables 2'.")
             return
-        if not class_col or class_col not in self.df_selecionado.columns:
+        if not class_col or class_col not in self.stats_df.columns:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid class column in 'Select class column'.")
             return
-        if is_3d and (not z_col or z_col not in self.df_selecionado.columns):
+        if is_3d and (not z_col or z_col not in self.stats_df.columns):
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "For 3D plot, select a valid Z variable in 'Select Variables 3'.")
             return
 
         numeric_cols = [x_col, y_col] + ([z_col] if is_3d else [])
-        df = self.df_selecionado[numeric_cols + [class_col]].copy()
+        df = self.stats_df[numeric_cols + [class_col]].copy()
         for c in numeric_cols:
             df[c] = pd.to_numeric(df[c], errors="coerce")
         df[class_col] = df[class_col].astype(str)
@@ -14837,81 +15135,41 @@ class MainWindow(QMainWindow):
             g8_main_layout.addWidget(gL12_widget)
             g8_main_layout.addStretch()
 
-            g9 = QGroupBox(); self._tr("s2_grp_statistics_outliers", g9.setTitle)
+            # Grupo "Outlier Elimination" — antigamente misturava estatística descritiva/distribuição
+            # e testes de normalidade no mesmo QGroupBox; esses dois recursos foram movidos para a
+            # aba STATISTICS (dataframe próprio), então este grupo ficou só com detecção/eliminação
+            # de outliers e ganhou sua própria combobox de coluna (list_columns_outlier), já que a
+            # antiga (list_columns_stat) foi junto para a nova aba.
+            g9 = QGroupBox(); self._tr("s2_grp_outlier_elimination", g9.setTitle)
             g9.setStyleSheet("QGroupBox { background-color: #F5F5F5; border: 1px solid #ccc; border-radius: 6px; }")
             # Layout principal vertical para o QGroupBox
             g9_main_layout = QVBoxLayout(g9)
 
-            # Primeiro grid:
-            gL13_widget = QWidget()
-            gL13 = QGridLayout(gL13_widget)
-            label_select_column_stat = self._trL("lbl_select_column")
-            label_select_column_stat.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
-            self.list_columns_stat = QComboBox()
-            self.list_columns_stat.addItems([])
-            btn_descritive_stat = QPushButton()
-            self._tr("s2_btn_view_descriptive_stats", btn_descritive_stat.setText)
-            btn_descritive_stat.setProperty("role", "secondary")
-            btn_descritive_stat.setFixedWidth(150)
-            btn_descritive_stat.clicked.connect(self.run_descritive_stat)
-            label_select_dist_chart = self._trL("s2_lbl_select_chart")
-            label_select_dist_chart.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
-            self.list_dist_chart = QComboBox()
-            self.list_dist_chart.addItems(["Histogram", "Boxplot", "Q-Q Plot", "Violin plot"])
-            btn_chart = QPushButton()
-            self._tr("s2_btn_view_dist_chart", btn_chart.setText)
-            btn_chart.setProperty("role", "secondary")
-            btn_chart.setFixedWidth(150)
-            btn_chart.clicked.connect(self.run_chart)
-            gL13.addWidget(label_select_column_stat,0,0); gL13.addWidget(self.list_columns_stat,0,1); gL13.addWidget(btn_descritive_stat,0,2)
-            gL13.addWidget(label_select_dist_chart,1,0); gL13.addWidget(self.list_dist_chart,1,1); gL13.addWidget(btn_chart,1,2)
-            gL13.setColumnStretch(0, 1); gL13.setColumnStretch(1, 2); gL13.setColumnStretch(2, 2)
-            
-            # Segundo grid:
-            gL14_widget = QWidget()
-            gL14 = QGridLayout(gL14_widget)
-            self.chk_trend = QCheckBox(); self._tr("chk_trend_line", self.chk_trend.setText)
-            self.ed_trend_amostras = QLineEdit(); self.ed_trend_amostras.setText("1000"); self.ed_trend_amostras.setFixedSize(60, 25)
-            self.chk_legend = QCheckBox(); self._tr("chk_legend", self.chk_legend.setText)
-            self.chk_label_mark = QCheckBox(); self._tr("s2_lbl_label_mark", self.chk_label_mark.setText)
-            self.ed_bins= QLineEdit(); self.ed_bins.setText("50"); self.ed_bins.setFixedSize(60, 25)
-            gL14.addWidget(self.chk_trend,0,0); gL14.addWidget(self.chk_legend,0,1); gL14.addWidget(self.chk_label_mark, 0, 2); gL14.addWidget(self._trL("lbl_samples"),0,3,alignment=Qt.AlignVCenter | Qt.AlignRight); gL14.addWidget(self.ed_trend_amostras,0,4)
-            gL14.addWidget(self._trL("lbl_bins"),0,5,alignment=Qt.AlignVCenter | Qt.AlignRight); gL14.addWidget(self.ed_bins,0,6)
-            gL14.setColumnStretch(0, 1); gL14.setColumnStretch(1, 1); gL14.setColumnStretch(2, 1); gL14.setColumnStretch(3, 1); gL14.setColumnStretch(4, 1); gL14.setColumnStretch(5, 1); gL14.setColumnStretch(6, 1)
-
             gL15_widget = QWidget()
             gL15 = QGridLayout(gL15_widget)
-            label_normal_test = self._trL("s2_lbl_normality_test")
-            label_normal_test.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
-            self.chk_normal_test_shapiro = QCheckBox("Shapiro")
-            self.chk_normal_test_anderson = QCheckBox("Anderson")
-            self.chk_normal_test_kolmogorov = QCheckBox("Kolmogorov")
+            label_select_column_outlier = self._trL("lbl_select_column")
+            label_select_column_outlier.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
+            self.list_columns_outlier = QComboBox()
+            self.list_columns_outlier.addItems([])
             label_outlier = self._trL("s2_lbl_outlier_detection")
             label_outlier.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
             self.chk_outlier_zscore = QCheckBox("Z-Score")
             self.chk_outlier_iqr = QCheckBox("IQR")
             self.chk_outlier_sd = QCheckBox("SD")
             self.threshold_outlier = QLineEdit(); self.threshold_outlier.setFixedSize(80, 25); self.threshold_outlier.setAlignment(Qt.AlignCenter); self.threshold_outlier.setText("1.5")
-            # self.threshold_outlier.setPlaceholderText("Threshold");
-            self.btn_interpretation = QPushButton()
-            self._tr("s2_btn_view_interpretation", self.btn_interpretation.setText)
-            self.btn_interpretation.setProperty("role", "secondary")
-            self.btn_interpretation.setFixedWidth(150)
-            self.btn_interpretation.clicked.connect(self.run_interpretation)
             self.btn_run_outlier = QPushButton()
             self._tr("s2_btn_outlier_elimination", self.btn_run_outlier.setText)
             self.btn_run_outlier.setProperty("role", "danger")
             self.btn_run_outlier.setFixedWidth(150)
             self.btn_run_outlier.clicked.connect(self.run_outlier)
 
-            gL15.addWidget(label_normal_test, 0, 0); gL15.addWidget(label_outlier, 0, 2); gL15.addWidget(self._trL("lbl_threshold"),0,3,alignment=Qt.AlignVCenter| Qt.AlignLeft); gL15.addWidget(self.threshold_outlier,0,3,alignment=Qt.AlignVCenter | Qt.AlignRight)
-            gL15.addWidget(self.chk_normal_test_shapiro, 1, 0); gL15.addWidget(self.btn_interpretation, 1, 1, 3, 1, alignment=Qt.AlignCenter); gL15.addWidget(self.chk_outlier_zscore, 1, 2)
-            gL15.addWidget(self.chk_normal_test_anderson, 2, 0); gL15.addWidget(self.chk_outlier_iqr, 2, 2); gL15.addWidget(self.btn_run_outlier, 2, 3)
-            gL15.addWidget(self.chk_normal_test_kolmogorov, 3, 0); gL15.addWidget(self.chk_outlier_sd, 3, 2)
+            gL15.addWidget(label_select_column_outlier, 0, 0); gL15.addWidget(self.list_columns_outlier, 0, 1)
+            gL15.addWidget(label_outlier, 0, 2); gL15.addWidget(self._trL("lbl_threshold"),0,3,alignment=Qt.AlignVCenter| Qt.AlignLeft); gL15.addWidget(self.threshold_outlier,0,3,alignment=Qt.AlignVCenter | Qt.AlignRight)
+            gL15.addWidget(self.chk_outlier_zscore, 1, 2)
+            gL15.addWidget(self.chk_outlier_iqr, 2, 2); gL15.addWidget(self.btn_run_outlier, 2, 3, alignment=Qt.AlignCenter)
+            gL15.addWidget(self.chk_outlier_sd, 3, 2)
             gL15.setColumnStretch(0, 1); gL15.setColumnStretch(1, 1); gL15.setColumnStretch(2, 1); gL15.setColumnStretch(3, 1)
 
-            g9_main_layout.addWidget(gL13_widget)
-            g9_main_layout.addWidget(gL14_widget)
             g9_main_layout.addWidget(gL15_widget)
             g9_main_layout.addStretch()
 
@@ -15283,269 +15541,6 @@ class MainWindow(QMainWindow):
 
             l4.addLayout(g10_11_layout)
 
-            # ---------------------------------------------------------------------------------------------
-            # ============================== GRUPO DE COMPARAÇÃO ENTRE CLASSES ============================
-            # ---------------------------------------------------------------------------------------------
-            
-            g12_13_layout = QHBoxLayout()
-            # Cria o grupo 12:
-            g12 = QGroupBox(); self._tr("s3_grp_compare_classes", g12.setTitle)
-            g12.setStyleSheet("QGroupBox { background-color: #F5F5F5; border: 1px solid #ccc; border-radius: 6px; }")
-            # Layout principal vertical para o QGroupBox12
-            g12_main_layout = QVBoxLayout(g12)
-            g12_main_layout.addSpacing(10)
-            
-            # Grid18:
-            gL18_widget = QWidget()
-            gL18 = QGridLayout(gL18_widget)
-            # Cria os widgets do grid18:
-            label_col_groups_comp = self._trL("s3_lbl_select_class_column"); label_col_groups_comp.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
-            self.list_class_column_comp = QComboBox(); self.list_class_column_comp.addItems([]); self.list_class_column_comp.setFixedWidth(200)
-            label_select_var = self._trL("s3_lbl_select_variable"); label_select_var.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
-            self.list_columns_var = QComboBox(); self.list_columns_var.addItems([]); self.list_columns_var.setFixedWidth(200)
-            self.btn_verify_assumptions = btn_verify_assumptions = QPushButton()
-            self._tr("s3_btn_verify_assumptions", btn_verify_assumptions.setText)
-            btn_verify_assumptions.setFixedWidth(100)
-            btn_verify_assumptions.clicked.connect(self.run_verify_assumptions)
-            self._set_test_button_active(btn_verify_assumptions, False)
-            self.chk_normality = QCheckBox(); self._tr("s3_chk_normality_test", self.chk_normality.setText); self.chk_normality.setChecked(True)
-            self.chk_homogeneity = QCheckBox(); self._tr("s3_chk_homogeneity_test", self.chk_homogeneity.setText); self.chk_homogeneity.setChecked(True)
-            gL18.addWidget(label_col_groups_comp, 0, 0, alignment=Qt.AlignRight)
-            gL18.addWidget(self.list_class_column_comp, 0, 1, alignment=Qt.AlignLeft)
-            gL18.addWidget(label_select_var, 1, 0, alignment=Qt.AlignRight)
-            gL18.addWidget(self.list_columns_var, 1, 1, alignment=Qt.AlignLeft)
-            gL18.addWidget(btn_verify_assumptions, 2, 0, 2, 1, alignment=Qt.AlignRight)
-            gL18.addWidget(self.chk_normality, 2, 1)
-            gL18.addWidget(self.chk_homogeneity, 3, 1)
-            gL18.setColumnStretch(0, 1); gL18.setColumnStretch(1, 1)
-            
-            # Cria layout horizontal para seleção de grupos:
-            select_groups_layout = QHBoxLayout()
-            label_select_groups = self._trL("s3_lbl_select_groups"); label_select_groups.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
-            self.list_groups = QListWidget(); 
-            self.list_groups.addItems([]); 
-            self.list_groups.setSelectionMode(QAbstractItemView.MultiSelection); self.list_groups.setFixedSize(300, 100)
-            select_groups_layout.addWidget(label_select_groups, alignment=Qt.AlignRight | Qt.AlignCenter)
-            select_groups_layout.addWidget(self.list_groups, alignment=Qt.AlignLeft)
-            select_groups_layout.addWidget(gL18_widget)
-            
-            # Cria as labels para os tipos de teste:
-            labels_parametric_layout = QHBoxLayout()
-            label_parametric_test = self._trL("s3_lbl_parametric_tests"); label_parametric_test.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
-            label_non_parametric_test = self._trL("s3_lbl_non_parametric_tests"); label_non_parametric_test.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
-            labels_parametric_layout.addWidget(label_parametric_test, alignment=Qt.AlignCenter)
-            labels_parametric_layout.addWidget(label_non_parametric_test, alignment=Qt.AlignCenter)
-
-            # Cria o layout horizontal dos testes de 3 grupos ou mais:
-            btn_3groups_layout = QHBoxLayout()
-            
-            # Grid 19: TESTE ANOVA ONE-WAY
-            gL19_widget = QWidget()
-            gL19 = QGridLayout(gL19_widget)
-            # Cria os widgets do grid19:
-            self.btn_anova_one_way = btn_anova_one_way = QPushButton("ANOVA \nOne-Way")
-            btn_anova_one_way.setFixedWidth(150)
-            btn_anova_one_way.clicked.connect(self.run_anova_test)
-            self._set_test_button_active(btn_anova_one_way, False)
-            label_post_hoc = self._trL("s3_lbl_post_hoc"); label_post_hoc.setStyleSheet("color: #C9D1D9; font-size: 10pt")
-            self.chk_tukey = QCheckBox("Tukey"); self.chk_tukey.setChecked(True)
-            self.chk_bonferroni = QCheckBox("Bonferroni"); self.chk_bonferroni.setChecked(True)
-            gL19.addWidget(btn_anova_one_way, 1, 0, alignment=Qt.AlignLeft)
-            gL19.addWidget(label_post_hoc, 0, 1, alignment=Qt.AlignLeft)
-            gL19.addWidget(self.chk_tukey, 1, 1)
-            gL19.addWidget(self.chk_bonferroni, 2, 1)
-            gL19.setColumnStretch(0, 1); gL19.setColumnStretch(1, 1)
-            # Grid 20: TESTE KRUSKAL-WALLIS
-            gL20_widget = QWidget()
-            gL20 = QGridLayout(gL20_widget)
-            # Cria os widgets do grid20:
-            self.btn_kruskal_wallis = btn_kruskal_wallis = QPushButton("Kruskal-Wallis \nTest")
-            btn_kruskal_wallis.setFixedWidth(150)
-            btn_kruskal_wallis.clicked.connect(self.run_kruskal_wallis_test)
-            self._set_test_button_active(btn_kruskal_wallis, False)
-            label_post_hoc = self._trL("s3_lbl_post_hoc"); label_post_hoc.setStyleSheet("color: #C9D1D9; font-size: 10pt")
-            self.chk_dunn = QCheckBox("Dunn"); self.chk_dunn.setChecked(True)
-            self.chk_conover = QCheckBox("Conover-Iman"); self.chk_conover.setChecked(True)
-            gL20.addWidget(btn_kruskal_wallis, 1, 0, alignment=Qt.AlignLeft)
-            gL20.addWidget(label_post_hoc, 0, 1, alignment=Qt.AlignLeft)
-            gL20.addWidget(self.chk_dunn, 1, 1)
-            gL20.addWidget(self.chk_conover, 2, 1)
-            gL20.setColumnStretch(0, 1); gL20.setColumnStretch(1, 1)
-            # Adiciona os grids ao layout horizontal:
-            btn_3groups_layout.addWidget(gL19_widget)
-            btn_3groups_layout.addWidget(gL20_widget)
-
-            # Cria os botões de testes para 2 grupos:
-            btn_2groups_layout = QHBoxLayout()
-            self.btn_mann_whitney = btn_mann_whitney = QPushButton("Mann-Whitney \nU Test")
-            btn_mann_whitney.setFixedWidth(150)
-            btn_mann_whitney.clicked.connect(self.run_mann_whitney_test)
-            self._set_test_button_active(btn_mann_whitney, False)
-            self.btn_t_student = btn_t_student = QPushButton("t-Student \nTest")
-            btn_t_student.setFixedWidth(150)
-            btn_t_student.clicked.connect(self.run_tstudent_test)
-            self._set_test_button_active(btn_t_student, False)
-            btn_2groups_layout.addWidget(btn_t_student, alignment=Qt.AlignCenter)
-            btn_2groups_layout.addWidget(btn_mann_whitney, alignment=Qt.AlignCenter)
-
-            # Adiciona os layouts ao layout principal do QGroupBox12
-            g12_main_layout.addLayout(select_groups_layout)
-            g12_main_layout.addSpacing(10)
-            g12_main_layout.addLayout(labels_parametric_layout)
-            g12_main_layout.addLayout(btn_2groups_layout)
-            g12_main_layout.addSpacing(10)
-            g12_main_layout.addLayout(btn_3groups_layout)
-            g12_main_layout.addStretch()
-
-            self.list_groups.itemSelectionChanged.connect(self._on_compare_groups_selection_changed)
-
-            # ---------------------------------------------------------------------------------------------
-            # ============================ GRUPO DE COMPARAÇÃO ENTRE VARIÁVEIS ============================
-            # ---------------------------------------------------------------------------------------------
-
-            # Cria o grupo 13:
-            g13 = QGroupBox(); self._tr("s3_grp_correlate_variables", g13.setTitle)
-            g13.setStyleSheet("QGroupBox { background-color: #F5F5F5; border: 1px solid #ccc; border-radius: 6px; }")
-            g13.setFixedWidth(500)
-            # Layout principal vertical para o QGroupBox
-            g13_main_layout = QVBoxLayout(g13)
-            g13_main_layout.addSpacing(10)
-
-            # Cria os widgets:
-            label_select_var1 = self._trL("s3_lbl_select_variable1"); label_select_var1.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
-            self.list_columns_var1 = QComboBox(); self.list_columns_var1.addItems([]); self.list_columns_var1.setFixedWidth(150)
-            label_select_var2 = self._trL("s3_lbl_select_variable2"); label_select_var2.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
-            self.list_columns_var2 = QComboBox(); self.list_columns_var2.addItems([]); self.list_columns_var2.setFixedWidth(150)
-            label_select_var3 = self._trL("s3_lbl_select_variable3"); label_select_var3.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
-            self.list_columns_var3 = QComboBox(); self.list_columns_var3.addItems([]); self.list_columns_var3.setFixedWidth(150)
-
-            # Cria o layout horizontal para seleção das variáveis:
-            select_label_var_layout = QHBoxLayout()
-            select_label_var_layout.addWidget(label_select_var1, alignment=Qt.AlignCenter)
-            select_label_var_layout.addWidget(label_select_var2, alignment=Qt.AlignCenter)
-            select_label_var_layout.addWidget(label_select_var3, alignment=Qt.AlignCenter)
-
-            select_var_layout = QHBoxLayout()
-            select_var_layout.addWidget(self.list_columns_var1, alignment=Qt.AlignLeft)
-            select_var_layout.addWidget(self.list_columns_var2, alignment=Qt.AlignLeft)
-            select_var_layout.addWidget(self.list_columns_var3, alignment=Qt.AlignLeft)
-
-            g13_main_layout.addLayout(select_label_var_layout)
-            g13_main_layout.addLayout(select_var_layout)
-            g13_main_layout.addSpacing(10)
-            
-            # Tipos de linha de tendência: seleção múltipla, "Linear" vem primeiro e pré-selecionada.
-            # Só habilitada quando "Trend Line" é marcado (mesmo padrão visual de cinza/desabilitado
-            # usado nos botões de teste do grupo "Compare Classes" — ver _set_test_button_active).
-            # Aplicadas nos gráficos gerados pelos testes de correlação Pearson/Spearman/Kendall.
-            self.list_trend_curve_types = QListWidget()
-            self.list_trend_curve_types.setSelectionMode(QAbstractItemView.MultiSelection)
-            self.list_trend_curve_types.addItems([
-                "Linear", "Moving Average", "Exponential", "Logarithmic", "Polynomial", "LOESS/LOWESS", "Splines", "GAMs",
-            ])
-            self.list_trend_curve_types.item(0).setSelected(True)
-            self.list_trend_curve_types.setFixedWidth(160)
-            # Altura ajustada ao conteúdo (uma linha por item, sem sobra nem scroll):
-            row_h = self.list_trend_curve_types.sizeHintForRow(0)
-            frame = 2 * self.list_trend_curve_types.frameWidth()
-            self.list_trend_curve_types.setFixedHeight(row_h * self.list_trend_curve_types.count() + frame + 4)
-            self.list_trend_curve_types.setStyleSheet("""
-                QListWidget:disabled {
-                    background: #1B2730;
-                    color: #4F6577;
-                    border-color: #344654;
-                }
-            """)
-
-            self.chk_linear_trend_line = QCheckBox(); self._tr("chk_trend_line", self.chk_linear_trend_line.setText); self.chk_linear_trend_line.setChecked(True)
-            self.chk_2D_plot = QCheckBox(); self._tr("s3_chk_2d_plot", self.chk_2D_plot.setText); self.chk_2D_plot.setChecked(True)
-            self.chk_3D_plot = QCheckBox(); self._tr("s3_chk_3d_plot", self.chk_3D_plot.setText); self.chk_3D_plot.setChecked(False)
-            # Ao marcar, adiciona ao gráfico a equação da linha de tendência ativa (Linear, ou
-            # Exponential/Logarithmic/Polynomial quando selecionadas acima) e o R² correspondente.
-            self.chk_plot_equation = QCheckBox(); self._tr("s3_chk_plot_equation", self.chk_plot_equation.setText); self.chk_plot_equation.setChecked(False)
-            label_num_samples = self._trL("s3_lbl_num_samples"); label_num_samples.setStyleSheet("color: #C9D1D9; font-size: 10pt")
-            self.ed_trend_num_samples = QLineEdit(); self.ed_trend_num_samples.setText("1000"); self.ed_trend_num_samples.setFixedSize(75, 25)
-            label_conf_int = self._trL("s3_lbl_confidence_interval"); label_conf_int.setStyleSheet("color: #C9D1D9; font-size: 10pt")
-            self.ed_conf_int = QLineEdit("Confidence Interval (%)"); self.ed_conf_int.setText("95") ; self.ed_conf_int.setFixedSize(75, 25)
-
-            # Grid 3 colunas:
-            #   col0: Trend Line (r0) | lista de tipos de curva (r1-r4, rowspan=4)
-            #   col1: 2D Plot (r0) | 3D Plot (r1) | Plot Equation (r2)
-            #   col2: Num Samples label/caixa (r0/r1) | Confidence Interval label/caixa (r2/r3)
-            curve_fit_trend_layout = QGridLayout()
-            curve_fit_trend_layout.addWidget(self.chk_linear_trend_line, 0, 0, alignment=Qt.AlignLeft)
-            curve_fit_trend_layout.addWidget(self.list_trend_curve_types, 1, 0, 4, 1)
-            curve_fit_trend_layout.addWidget(self.chk_2D_plot, 0, 1, alignment=Qt.AlignLeft)
-            curve_fit_trend_layout.addWidget(self.chk_3D_plot, 1, 1, alignment=Qt.AlignLeft)
-            curve_fit_trend_layout.addWidget(self.chk_plot_equation, 2, 1, alignment=Qt.AlignLeft)
-            curve_fit_trend_layout.addWidget(label_num_samples, 0, 2)
-            curve_fit_trend_layout.addWidget(self.ed_trend_num_samples, 1, 2, alignment=Qt.AlignLeft)
-            curve_fit_trend_layout.addWidget(label_conf_int, 2, 2)
-            curve_fit_trend_layout.addWidget(self.ed_conf_int, 3, 2, alignment=Qt.AlignLeft)
-
-            # A lista de tipos de curva e "Plot Equation" só ficam habilitadas quando "Trend Line"
-            # está marcado (permanecem visíveis, só desabilitadas — as curvas adicionais e a
-            # equação só fazem sentido junto da linha de tendência):
-            def on_trend_line_toggled(checked):
-                self.list_trend_curve_types.setEnabled(bool(checked))
-                self.chk_plot_equation.setEnabled(bool(checked))
-            self.chk_linear_trend_line.toggled.connect(on_trend_line_toggled)
-            on_trend_line_toggled(self.chk_linear_trend_line.isChecked())
-
-            # --- Conexões para alternância exclusiva entre 2D e 3D ---
-            # Select Variable 1/2 são usadas nos dois modos; Select Variable 3 só faz sentido
-            # (e só fica habilitada) quando 3D Plot está marcado. Com 3D Plot marcado e a
-            # Variável 3 selecionada, os testes de correlação (Pearson/Spearman/Kendall) passam
-            # a avaliar os 3 pares (X-Y, X-Z, Y-Z) e exibem um gráfico de dispersão 3D.
-            def on_2d_changed(state):
-                if state == Qt.Checked:
-                    self.chk_3D_plot.setChecked(False)
-                elif not self.chk_3D_plot.isChecked():
-                    self.chk_2D_plot.setChecked(True)
-                self.list_columns_var3.setEnabled(self.chk_3D_plot.isChecked())
-
-            def on_3d_changed(state):
-                if state == Qt.Checked:
-                    self.chk_2D_plot.setChecked(False)
-                elif not self.chk_2D_plot.isChecked():
-                    self.chk_3D_plot.setChecked(True)
-                self.list_columns_var3.setEnabled(self.chk_3D_plot.isChecked())
-
-            self.chk_2D_plot.stateChanged.connect(on_2d_changed)
-            self.chk_3D_plot.stateChanged.connect(on_3d_changed)
-            self.list_columns_var3.setEnabled(self.chk_3D_plot.isChecked())
-
-            g13_main_layout.addLayout(curve_fit_trend_layout)
-            
-            g13_main_layout.addSpacing(10)
-            label_correlation = self._trL("s3_lbl_correlation_tests")
-            label_correlation.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
-            label_correlation.setAlignment(Qt.AlignCenter)
-            g13_main_layout.addWidget(label_correlation)
-
-            btn_correlation_layout = QHBoxLayout()
-            btn_pearson = QPushButton("Pearson")
-            btn_pearson.setStyleSheet("QPushButton{background:#DFFFE0;font-size:12px;font-weight:bold;border:1px solid #222;border-radius:4px}")
-            btn_pearson.setFixedSize(100, 30)
-            btn_pearson.clicked.connect(self.run_pearson_test)
-            btn_spearman = QPushButton("Spearman")
-            btn_spearman.setStyleSheet("QPushButton{background:#FFE5D0;font-size:12px;font-weight:bold;border:1px solid #222;border-radius:4px}")
-            btn_spearman.setFixedSize(100, 30)
-            btn_spearman.clicked.connect(self.run_spearman_test)
-            btn_kendall = QPushButton("Kendall")
-            btn_kendall.setStyleSheet("QPushButton{background:#FFE5D0;font-size:12px;font-weight:bold;border:1px solid #222;border-radius:4px}")
-            btn_kendall.setFixedSize(100, 30)
-            btn_kendall.clicked.connect(self.run_kendall_test)
-            btn_correlation_layout.addWidget(btn_pearson)
-            btn_correlation_layout.addWidget(btn_spearman)
-            btn_correlation_layout.addWidget(btn_kendall)
-            g13_main_layout.addLayout(btn_correlation_layout)
-
-            g13_main_layout.addStretch()
-            
-            g12_13_layout.addWidget(g12)
-            g12_13_layout.addWidget(g13)
-            l4.addLayout(g12_13_layout)
 
             # Botão para o próximo:
             layout_btn_back_next4 = QHBoxLayout()
@@ -17585,13 +17580,542 @@ class MainWindow(QMainWindow):
             """)
             back_btn9.clicked.connect(lambda: self.tabs.setCurrentIndex(8))
 
+            next_btn9 = QPushButton()
+            self._tr("btn_next", next_btn9.setText)
+            next_btn9.setProperty("role", "nav")
+            next_btn9.setFixedWidth(200)
+            next_btn9.setStyleSheet("""
+                QPushButton {
+                    background: transparent;
+                    border: none;
+                    color: #cccccc;
+                    font-size: 12pt;
+                    font-weight: bold;
+                }
+                QPushButton:hover, QPushButton:pressed {
+                    color: #000000;
+                    background: transparent;
+                    border: none;
+                }
+            """)
+            next_btn9.clicked.connect(lambda: self.tabs.setCurrentIndex(10))
+
             layout_btn_back_next9.addWidget(back_btn9, alignment=Qt.AlignLeft)
+            layout_btn_back_next9.addWidget(next_btn9, alignment=Qt.AlignRight)
             l9.addLayout(layout_btn_back_next9)
         except Exception as e:
             import traceback; traceback.print_exc()
             QMessageBox.warning(
                 self, i18n.t("msg_edit_build_error_title", self._idioma),
                 i18n.t("msg_edit_build_error", self._idioma, e=e)
+            )
+
+        # ==============================================================================================================================================
+        # ========================================== STATISTICS – TESTES ESTATÍSTICOS INDEPENDENTES =====================================================
+        # ==============================================================================================================================================
+        try:
+            # Layout principal da aba de estatística:
+            t10 = QWidget(); l10 = QVBoxLayout(t10)
+            self.tabs.addTab(t10, "STATISTICS")
+            self._tr("tab_statistics", lambda txt: self.tabs.setTabText(10, txt))
+            l10.addWidget(self._mk_title("title_statistics"))
+            l10.addSpacing(10)
+
+            # Criar botão de escolha do dataframe (independente do pipeline principal):
+            btn_layout10 = QHBoxLayout()
+            btn_select_df_stats = QPushButton(); self._tr("btn_select_dataframe", btn_select_df_stats.setText)
+            btn_select_df_stats.setProperty("role", "select")
+            btn_select_df_stats.setFixedWidth(200)
+            btn_select_df_stats.setStyleSheet("""
+                QPushButton {
+                    background: #B7E4C7;
+                    color: #C9D1D9
+                    font-size: 12pt;
+                    font-weight: bold;
+                    border: 1px solid #222;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background: #74C69D;
+                    color: #000000;
+                }
+                QPushButton:pressed {
+                    background: #40916C;
+                    color: #000000;
+                }
+            """)
+            btn_select_df_stats.clicked.connect(self.select_dataframe_stats)
+
+            # Criar caixa de texto onde será exibido o nome do dataframe selecionado:
+            df_name_view_stats = QLineEdit()
+            df_name_view_stats.setReadOnly(True)
+            df_name_view_stats.setStyleSheet("background-color: #6E8CA8; color: #6E8CA8; border: 1px solid #ccc; border-radius: 4px; padding: 5px;")
+            self.df_name_view_stats = df_name_view_stats
+
+            btn_layout10.addWidget(btn_select_df_stats)
+            btn_layout10.addWidget(df_name_view_stats)
+            l10.addLayout(btn_layout10)
+
+            # ---------------------------------------------------------------------------------------------
+            # ==================== GRUPO "DESCRIPTIVE STATISTICS / DISTRIBUTION" ============================
+            # ---------------------------------------------------------------------------------------------
+            g_stats_desc = QGroupBox(); self._tr("stats_grp_descriptive_distribution", g_stats_desc.setTitle)
+            g_stats_desc.setStyleSheet("QGroupBox { background-color: #F5F5F5; border: 1px solid #ccc; border-radius: 6px; }")
+            g_stats_desc_main_layout = QVBoxLayout(g_stats_desc)
+
+            # Grid13: Select column + View Descriptive Stats / Select chart + View Chart
+            gL13_widget = QWidget()
+            gL13 = QGridLayout(gL13_widget)
+            label_select_column_stat = self._trL("lbl_select_column")
+            label_select_column_stat.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
+            self.list_columns_stat = QComboBox()
+            self.list_columns_stat.addItems([])
+            btn_descritive_stat = QPushButton()
+            self._tr("s2_btn_view_descriptive_stats", btn_descritive_stat.setText)
+            btn_descritive_stat.setProperty("role", "secondary")
+            btn_descritive_stat.setFixedWidth(150)
+            btn_descritive_stat.clicked.connect(self.run_descritive_stat)
+            label_select_dist_chart = self._trL("s2_lbl_select_chart")
+            label_select_dist_chart.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
+            self.list_dist_chart = QComboBox()
+            self.list_dist_chart.addItems(["Histogram", "Boxplot", "Q-Q Plot", "Violin plot"])
+            btn_chart = QPushButton()
+            self._tr("s2_btn_view_dist_chart", btn_chart.setText)
+            btn_chart.setProperty("role", "secondary")
+            btn_chart.setFixedWidth(150)
+            btn_chart.clicked.connect(self.run_chart)
+            gL13.addWidget(label_select_column_stat,0,0); gL13.addWidget(self.list_columns_stat,0,1); gL13.addWidget(btn_descritive_stat,0,2)
+            gL13.addWidget(label_select_dist_chart,1,0); gL13.addWidget(self.list_dist_chart,1,1); gL13.addWidget(btn_chart,1,2)
+            gL13.setColumnStretch(0, 1); gL13.setColumnStretch(1, 2); gL13.setColumnStretch(2, 2)
+
+            # Grid14: opções do gráfico (Trend/Legend/Label mark/Num Samples/Bins)
+            gL14_widget = QWidget()
+            gL14 = QGridLayout(gL14_widget)
+            self.chk_trend = QCheckBox(); self._tr("chk_trend_line", self.chk_trend.setText)
+            self.ed_trend_amostras = QLineEdit(); self.ed_trend_amostras.setText("1000"); self.ed_trend_amostras.setFixedSize(60, 25)
+            self.chk_legend = QCheckBox(); self._tr("chk_legend", self.chk_legend.setText)
+            self.chk_label_mark = QCheckBox(); self._tr("s2_lbl_label_mark", self.chk_label_mark.setText)
+            self.ed_bins= QLineEdit(); self.ed_bins.setText("50"); self.ed_bins.setFixedSize(60, 25)
+            gL14.addWidget(self.chk_trend,0,0); gL14.addWidget(self.chk_legend,0,1); gL14.addWidget(self.chk_label_mark, 0, 2); gL14.addWidget(self._trL("lbl_samples"),0,3,alignment=Qt.AlignVCenter | Qt.AlignRight); gL14.addWidget(self.ed_trend_amostras,0,4)
+            gL14.addWidget(self._trL("lbl_bins"),0,5,alignment=Qt.AlignVCenter | Qt.AlignRight); gL14.addWidget(self.ed_bins,0,6)
+            gL14.setColumnStretch(0, 1); gL14.setColumnStretch(1, 1); gL14.setColumnStretch(2, 1); gL14.setColumnStretch(3, 1); gL14.setColumnStretch(4, 1); gL14.setColumnStretch(5, 1); gL14.setColumnStretch(6, 1)
+
+            # Grid15: testes de normalidade + Threshold próprio (usado por plot_boxplot/run_interpretation)
+            gL15_stats_widget = QWidget()
+            gL15_stats = QGridLayout(gL15_stats_widget)
+            label_normal_test = self._trL("s2_lbl_normality_test")
+            label_normal_test.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
+            self.chk_normal_test_shapiro = QCheckBox("Shapiro")
+            self.chk_normal_test_anderson = QCheckBox("Anderson")
+            self.chk_normal_test_kolmogorov = QCheckBox("Kolmogorov")
+            self.threshold_stats = QLineEdit(); self.threshold_stats.setFixedSize(80, 25); self.threshold_stats.setAlignment(Qt.AlignCenter); self.threshold_stats.setText("1.5")
+            self.btn_interpretation = QPushButton()
+            self._tr("s2_btn_view_interpretation", self.btn_interpretation.setText)
+            self.btn_interpretation.setProperty("role", "secondary")
+            self.btn_interpretation.setFixedWidth(150)
+            self.btn_interpretation.clicked.connect(self.run_interpretation)
+            gL15_stats.addWidget(label_normal_test, 0, 0)
+            gL15_stats.addWidget(self._trL("lbl_threshold"), 0, 1, alignment=Qt.AlignVCenter | Qt.AlignLeft); gL15_stats.addWidget(self.threshold_stats, 0, 1, alignment=Qt.AlignVCenter | Qt.AlignRight)
+            gL15_stats.addWidget(self.chk_normal_test_shapiro, 1, 0)
+            gL15_stats.addWidget(self.btn_interpretation, 1, 1, 3, 1, alignment=Qt.AlignCenter)
+            gL15_stats.addWidget(self.chk_normal_test_anderson, 2, 0)
+            gL15_stats.addWidget(self.chk_normal_test_kolmogorov, 3, 0)
+            gL15_stats.setColumnStretch(0, 1); gL15_stats.setColumnStretch(1, 1)
+
+            g_stats_desc_main_layout.addWidget(gL13_widget)
+            g_stats_desc_main_layout.addWidget(gL14_widget)
+            g_stats_desc_main_layout.addWidget(gL15_stats_widget)
+            g_stats_desc_main_layout.addStretch()
+
+            # ---------------------------------------------------------------------------------------------
+            # ================== GRUPO "CÁLCULO AMOSTRAL E PODER ESTATÍSTICO" ================================
+            # ---------------------------------------------------------------------------------------------
+            # Dois cálculos possíveis, a depender do que o usuário preenche:
+            #  - só p1 preenchido -> tamanho de amostra representativa de UMA proporção populacional
+            #    (fórmula de Cochran, com correção para população finita quando N está disponível);
+            #  - p1 E p2 preenchidos -> comparação entre 2 grupos: tamanho de amostra por grupo
+            #    necessário (via Cohen's h / statsmodels) OU poder estatístico alcançado com o N
+            #    disponível no dataframe carregado (N/2 por grupo, grupos de tamanho igual).
+            g_stats_power = QGroupBox(); self._tr("stats_grp_sample_power", g_stats_power.setTitle)
+            g_stats_power.setStyleSheet("QGroupBox { background-color: #F5F5F5; border: 1px solid #ccc; border-radius: 6px; }")
+            g_stats_power_main_layout = QVBoxLayout(g_stats_power)
+
+            gL_power_widget = QWidget()
+            gL_power = QGridLayout(gL_power_widget)
+
+            # Nível de Confiança: caixas % <-> Z (conversão dinâmica) + Erro Tipo I (α) automático
+            label_stats_confidence = self._trL("stats_lbl_confidence"); label_stats_confidence.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
+            self.ed_stats_confidence_pct = QLineEdit("95"); self.ed_stats_confidence_pct.setFixedSize(70, 25); self.ed_stats_confidence_pct.setAlignment(Qt.AlignCenter)
+            label_stats_confidence_z = self._trL("stats_lbl_confidence_z")
+            self.ed_stats_confidence_z = QLineEdit("1.96"); self.ed_stats_confidence_z.setFixedSize(70, 25); self.ed_stats_confidence_z.setAlignment(Qt.AlignCenter)
+            label_stats_alpha = self._trL("stats_lbl_alpha")
+            self.lbl_stats_alpha_value = QLineEdit("0.05"); self.lbl_stats_alpha_value.setReadOnly(True); self.lbl_stats_alpha_value.setFixedSize(70, 25); self.lbl_stats_alpha_value.setAlignment(Qt.AlignCenter)
+
+            # Poder Estatístico <-> Erro Tipo II (β) (conversão dinâmica: Poder = 1 - β)
+            label_stats_power = self._trL("stats_lbl_power"); label_stats_power.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
+            self.ed_stats_power = QLineEdit("0.8"); self.ed_stats_power.setFixedSize(70, 25); self.ed_stats_power.setAlignment(Qt.AlignCenter)
+            label_stats_beta = self._trL("stats_lbl_beta")
+            self.ed_stats_beta = QLineEdit("0.2"); self.ed_stats_beta.setFixedSize(70, 25); self.ed_stats_beta.setAlignment(Qt.AlignCenter)
+
+            # Proporções dos grupos (p2 opcional - só preenchida ao comparar 2 grupos)
+            label_stats_p1 = self._trL("stats_lbl_p1"); label_stats_p1.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
+            self.ed_stats_p1 = QLineEdit("0.5"); self.ed_stats_p1.setFixedSize(70, 25); self.ed_stats_p1.setAlignment(Qt.AlignCenter)
+            label_stats_p2 = self._trL("stats_lbl_p2")
+            self.ed_stats_p2 = QLineEdit(""); self.ed_stats_p2.setFixedSize(70, 25); self.ed_stats_p2.setAlignment(Qt.AlignCenter)
+
+            # Margem de Erro (só usada no cálculo de uma única proporção) e Tamanho da População (automático)
+            label_stats_margin_error = self._trL("stats_lbl_margin_error"); label_stats_margin_error.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
+            self.ed_stats_margin_error = QLineEdit("5"); self.ed_stats_margin_error.setFixedSize(70, 25); self.ed_stats_margin_error.setAlignment(Qt.AlignCenter)
+            label_stats_population_size = self._trL("stats_lbl_population_size"); label_stats_population_size.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
+            self.lbl_stats_population_size = QLineEdit("0"); self.lbl_stats_population_size.setReadOnly(True); self.lbl_stats_population_size.setFixedSize(70, 25); self.lbl_stats_population_size.setAlignment(Qt.AlignCenter)
+
+            gL_power.addWidget(label_stats_confidence, 0, 0, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_confidence_pct, 0, 1)
+            gL_power.addWidget(label_stats_confidence_z, 0, 2, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_confidence_z, 0, 3)
+            gL_power.addWidget(label_stats_alpha, 0, 4, alignment=Qt.AlignRight); gL_power.addWidget(self.lbl_stats_alpha_value, 0, 5)
+
+            gL_power.addWidget(label_stats_power, 1, 0, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_power, 1, 1)
+            gL_power.addWidget(label_stats_beta, 1, 2, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_beta, 1, 3)
+
+            gL_power.addWidget(label_stats_p1, 2, 0, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_p1, 2, 1)
+            gL_power.addWidget(label_stats_p2, 2, 2, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_p2, 2, 3)
+
+            gL_power.addWidget(label_stats_margin_error, 3, 0, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_margin_error, 3, 1)
+            gL_power.addWidget(label_stats_population_size, 3, 2, alignment=Qt.AlignRight); gL_power.addWidget(self.lbl_stats_population_size, 3, 3)
+
+            gL_power.setColumnStretch(0, 1); gL_power.setColumnStretch(1, 1); gL_power.setColumnStretch(2, 1)
+            gL_power.setColumnStretch(3, 1); gL_power.setColumnStretch(4, 1); gL_power.setColumnStretch(5, 1)
+
+            # Conversões dinâmicas (só disparam ao terminar a edição, evitando loop a cada tecla)
+            self.ed_stats_confidence_pct.editingFinished.connect(self._sync_stats_confidence_from_pct)
+            self.ed_stats_confidence_z.editingFinished.connect(self._sync_stats_confidence_from_z)
+            self.ed_stats_power.editingFinished.connect(self._sync_stats_power_from_power)
+            self.ed_stats_beta.editingFinished.connect(self._sync_stats_power_from_beta)
+            self._sync_stats_confidence_from_pct()
+            self._sync_stats_power_from_power()
+
+            hint_stats_p2 = self._trL("stats_lbl_p2_hint")
+            hint_stats_p2.setStyleSheet("color: #6E8CA8; font-size: 9pt; font-style: italic;")
+
+            btn_stats_layout = QHBoxLayout()
+            self.btn_stats_sample_size = QPushButton()
+            self._tr("stats_btn_sample_size", self.btn_stats_sample_size.setText)
+            self.btn_stats_sample_size.setProperty("role", "secondary")
+            self.btn_stats_sample_size.setFixedWidth(150)
+            self.btn_stats_sample_size.clicked.connect(self.run_sample_size_calc)
+            self.btn_stats_power = QPushButton()
+            self._tr("stats_btn_power", self.btn_stats_power.setText)
+            self.btn_stats_power.setProperty("role", "secondary")
+            self.btn_stats_power.setFixedWidth(150)
+            self.btn_stats_power.clicked.connect(self.run_power_calc)
+            btn_stats_layout.addWidget(self.btn_stats_sample_size, alignment=Qt.AlignCenter)
+            btn_stats_layout.addWidget(self.btn_stats_power, alignment=Qt.AlignCenter)
+
+            g_stats_power_main_layout.addWidget(gL_power_widget)
+            g_stats_power_main_layout.addWidget(hint_stats_p2)
+            g_stats_power_main_layout.addSpacing(10)
+            g_stats_power_main_layout.addLayout(btn_stats_layout)
+            g_stats_power_main_layout.addStretch()
+
+            g_stats_top_layout = QHBoxLayout()
+            g_stats_top_layout.addWidget(g_stats_desc)
+            g_stats_top_layout.addWidget(g_stats_power)
+            l10.addLayout(g_stats_top_layout)
+
+            # ---------------------------------------------------------------------------------------------
+            # ============================== GRUPO DE COMPARAÇÃO ENTRE CLASSES ============================
+            # ---------------------------------------------------------------------------------------------
+
+            g12_13_layout = QHBoxLayout()
+            # Cria o grupo 12:
+            g12 = QGroupBox(); self._tr("s3_grp_compare_classes", g12.setTitle)
+            g12.setStyleSheet("QGroupBox { background-color: #F5F5F5; border: 1px solid #ccc; border-radius: 6px; }")
+            # Layout principal vertical para o QGroupBox12
+            g12_main_layout = QVBoxLayout(g12)
+            g12_main_layout.addSpacing(10)
+
+            # Grid18:
+            gL18_widget = QWidget()
+            gL18 = QGridLayout(gL18_widget)
+            # Cria os widgets do grid18:
+            label_col_groups_comp = self._trL("s3_lbl_select_class_column"); label_col_groups_comp.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
+            self.list_class_column_stats = QComboBox(); self.list_class_column_stats.addItems([]); self.list_class_column_stats.setFixedWidth(200)
+            label_select_var = self._trL("s3_lbl_select_variable"); label_select_var.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
+            self.list_columns_var = QComboBox(); self.list_columns_var.addItems([]); self.list_columns_var.setFixedWidth(200)
+            self.btn_verify_assumptions = btn_verify_assumptions = QPushButton()
+            self._tr("s3_btn_verify_assumptions", btn_verify_assumptions.setText)
+            btn_verify_assumptions.setFixedWidth(100)
+            btn_verify_assumptions.clicked.connect(self.run_verify_assumptions)
+            self._set_test_button_active(btn_verify_assumptions, False)
+            self.chk_normality = QCheckBox(); self._tr("s3_chk_normality_test", self.chk_normality.setText); self.chk_normality.setChecked(True)
+            self.chk_homogeneity = QCheckBox(); self._tr("s3_chk_homogeneity_test", self.chk_homogeneity.setText); self.chk_homogeneity.setChecked(True)
+            gL18.addWidget(label_col_groups_comp, 0, 0, alignment=Qt.AlignRight)
+            gL18.addWidget(self.list_class_column_stats, 0, 1, alignment=Qt.AlignLeft)
+            gL18.addWidget(label_select_var, 1, 0, alignment=Qt.AlignRight)
+            gL18.addWidget(self.list_columns_var, 1, 1, alignment=Qt.AlignLeft)
+            gL18.addWidget(btn_verify_assumptions, 2, 0, 2, 1, alignment=Qt.AlignRight)
+            gL18.addWidget(self.chk_normality, 2, 1)
+            gL18.addWidget(self.chk_homogeneity, 3, 1)
+            gL18.setColumnStretch(0, 1); gL18.setColumnStretch(1, 1)
+
+            # Cria layout horizontal para seleção de grupos:
+            select_groups_layout = QHBoxLayout()
+            label_select_groups = self._trL("s3_lbl_select_groups"); label_select_groups.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
+            self.list_groups = QListWidget();
+            self.list_groups.addItems([]);
+            self.list_groups.setSelectionMode(QAbstractItemView.MultiSelection); self.list_groups.setFixedSize(300, 100)
+            select_groups_layout.addWidget(label_select_groups, alignment=Qt.AlignRight | Qt.AlignCenter)
+            select_groups_layout.addWidget(self.list_groups, alignment=Qt.AlignLeft)
+            select_groups_layout.addWidget(gL18_widget)
+
+            # Cria as labels para os tipos de teste:
+            labels_parametric_layout = QHBoxLayout()
+            label_parametric_test = self._trL("s3_lbl_parametric_tests"); label_parametric_test.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
+            label_non_parametric_test = self._trL("s3_lbl_non_parametric_tests"); label_non_parametric_test.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
+            labels_parametric_layout.addWidget(label_parametric_test, alignment=Qt.AlignCenter)
+            labels_parametric_layout.addWidget(label_non_parametric_test, alignment=Qt.AlignCenter)
+
+            # Cria o layout horizontal dos testes de 3 grupos ou mais:
+            btn_3groups_layout = QHBoxLayout()
+
+            # Grid 19: TESTE ANOVA ONE-WAY
+            gL19_widget = QWidget()
+            gL19 = QGridLayout(gL19_widget)
+            # Cria os widgets do grid19:
+            self.btn_anova_one_way = btn_anova_one_way = QPushButton("ANOVA \nOne-Way")
+            btn_anova_one_way.setFixedWidth(150)
+            btn_anova_one_way.clicked.connect(self.run_anova_test)
+            self._set_test_button_active(btn_anova_one_way, False)
+            label_post_hoc = self._trL("s3_lbl_post_hoc"); label_post_hoc.setStyleSheet("color: #C9D1D9; font-size: 10pt")
+            self.chk_tukey = QCheckBox("Tukey"); self.chk_tukey.setChecked(True)
+            self.chk_bonferroni = QCheckBox("Bonferroni"); self.chk_bonferroni.setChecked(True)
+            gL19.addWidget(btn_anova_one_way, 1, 0, alignment=Qt.AlignLeft)
+            gL19.addWidget(label_post_hoc, 0, 1, alignment=Qt.AlignLeft)
+            gL19.addWidget(self.chk_tukey, 1, 1)
+            gL19.addWidget(self.chk_bonferroni, 2, 1)
+            gL19.setColumnStretch(0, 1); gL19.setColumnStretch(1, 1)
+            # Grid 20: TESTE KRUSKAL-WALLIS
+            gL20_widget = QWidget()
+            gL20 = QGridLayout(gL20_widget)
+            # Cria os widgets do grid20:
+            self.btn_kruskal_wallis = btn_kruskal_wallis = QPushButton("Kruskal-Wallis \nTest")
+            btn_kruskal_wallis.setFixedWidth(150)
+            btn_kruskal_wallis.clicked.connect(self.run_kruskal_wallis_test)
+            self._set_test_button_active(btn_kruskal_wallis, False)
+            label_post_hoc = self._trL("s3_lbl_post_hoc"); label_post_hoc.setStyleSheet("color: #C9D1D9; font-size: 10pt")
+            self.chk_dunn = QCheckBox("Dunn"); self.chk_dunn.setChecked(True)
+            self.chk_conover = QCheckBox("Conover-Iman"); self.chk_conover.setChecked(True)
+            gL20.addWidget(btn_kruskal_wallis, 1, 0, alignment=Qt.AlignLeft)
+            gL20.addWidget(label_post_hoc, 0, 1, alignment=Qt.AlignLeft)
+            gL20.addWidget(self.chk_dunn, 1, 1)
+            gL20.addWidget(self.chk_conover, 2, 1)
+            gL20.setColumnStretch(0, 1); gL20.setColumnStretch(1, 1)
+            # Adiciona os grids ao layout horizontal:
+            btn_3groups_layout.addWidget(gL19_widget)
+            btn_3groups_layout.addWidget(gL20_widget)
+
+            # Cria os botões de testes para 2 grupos:
+            btn_2groups_layout = QHBoxLayout()
+            self.btn_mann_whitney = btn_mann_whitney = QPushButton("Mann-Whitney \nU Test")
+            btn_mann_whitney.setFixedWidth(150)
+            btn_mann_whitney.clicked.connect(self.run_mann_whitney_test)
+            self._set_test_button_active(btn_mann_whitney, False)
+            self.btn_t_student = btn_t_student = QPushButton("t-Student \nTest")
+            btn_t_student.setFixedWidth(150)
+            btn_t_student.clicked.connect(self.run_tstudent_test)
+            self._set_test_button_active(btn_t_student, False)
+            btn_2groups_layout.addWidget(btn_t_student, alignment=Qt.AlignCenter)
+            btn_2groups_layout.addWidget(btn_mann_whitney, alignment=Qt.AlignCenter)
+
+            # Adiciona os layouts ao layout principal do QGroupBox12
+            g12_main_layout.addLayout(select_groups_layout)
+            g12_main_layout.addSpacing(10)
+            g12_main_layout.addLayout(labels_parametric_layout)
+            g12_main_layout.addLayout(btn_2groups_layout)
+            g12_main_layout.addSpacing(10)
+            g12_main_layout.addLayout(btn_3groups_layout)
+            g12_main_layout.addStretch()
+
+            self.list_groups.itemSelectionChanged.connect(self._on_compare_groups_selection_changed)
+
+            # ---------------------------------------------------------------------------------------------
+            # ============================ GRUPO DE COMPARAÇÃO ENTRE VARIÁVEIS ============================
+            # ---------------------------------------------------------------------------------------------
+
+            # Cria o grupo 13:
+            g13 = QGroupBox(); self._tr("s3_grp_correlate_variables", g13.setTitle)
+            g13.setStyleSheet("QGroupBox { background-color: #F5F5F5; border: 1px solid #ccc; border-radius: 6px; }")
+            g13.setFixedWidth(500)
+            # Layout principal vertical para o QGroupBox
+            g13_main_layout = QVBoxLayout(g13)
+            g13_main_layout.addSpacing(10)
+
+            # Cria os widgets:
+            label_select_var1 = self._trL("s3_lbl_select_variable1"); label_select_var1.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
+            self.list_columns_var1 = QComboBox(); self.list_columns_var1.addItems([]); self.list_columns_var1.setFixedWidth(150)
+            label_select_var2 = self._trL("s3_lbl_select_variable2"); label_select_var2.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
+            self.list_columns_var2 = QComboBox(); self.list_columns_var2.addItems([]); self.list_columns_var2.setFixedWidth(150)
+            label_select_var3 = self._trL("s3_lbl_select_variable3"); label_select_var3.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
+            self.list_columns_var3 = QComboBox(); self.list_columns_var3.addItems([]); self.list_columns_var3.setFixedWidth(150)
+
+            # Cria o layout horizontal para seleção das variáveis:
+            select_label_var_layout = QHBoxLayout()
+            select_label_var_layout.addWidget(label_select_var1, alignment=Qt.AlignCenter)
+            select_label_var_layout.addWidget(label_select_var2, alignment=Qt.AlignCenter)
+            select_label_var_layout.addWidget(label_select_var3, alignment=Qt.AlignCenter)
+
+            select_var_layout = QHBoxLayout()
+            select_var_layout.addWidget(self.list_columns_var1, alignment=Qt.AlignLeft)
+            select_var_layout.addWidget(self.list_columns_var2, alignment=Qt.AlignLeft)
+            select_var_layout.addWidget(self.list_columns_var3, alignment=Qt.AlignLeft)
+
+            g13_main_layout.addLayout(select_label_var_layout)
+            g13_main_layout.addLayout(select_var_layout)
+            g13_main_layout.addSpacing(10)
+
+            # Tipos de linha de tendência: seleção múltipla, "Linear" vem primeiro e pré-selecionada.
+            # Só habilitada quando "Trend Line" é marcado (mesmo padrão visual de cinza/desabilitado
+            # usado nos botões de teste do grupo "Compare Classes" — ver _set_test_button_active).
+            # Aplicadas nos gráficos gerados pelos testes de correlação Pearson/Spearman/Kendall.
+            self.list_trend_curve_types = QListWidget()
+            self.list_trend_curve_types.setSelectionMode(QAbstractItemView.MultiSelection)
+            self.list_trend_curve_types.addItems([
+                "Linear", "Moving Average", "Exponential", "Logarithmic", "Polynomial", "LOESS/LOWESS", "Splines", "GAMs",
+            ])
+            self.list_trend_curve_types.item(0).setSelected(True)
+            self.list_trend_curve_types.setFixedWidth(160)
+            # Altura ajustada ao conteúdo (uma linha por item, sem sobra nem scroll):
+            row_h = self.list_trend_curve_types.sizeHintForRow(0)
+            frame = 2 * self.list_trend_curve_types.frameWidth()
+            self.list_trend_curve_types.setFixedHeight(row_h * self.list_trend_curve_types.count() + frame + 4)
+            self.list_trend_curve_types.setStyleSheet("""
+                QListWidget:disabled {
+                    background: #1B2730;
+                    color: #4F6577;
+                    border-color: #344654;
+                }
+            """)
+
+            self.chk_linear_trend_line = QCheckBox(); self._tr("chk_trend_line", self.chk_linear_trend_line.setText); self.chk_linear_trend_line.setChecked(True)
+            self.chk_2D_plot = QCheckBox(); self._tr("s3_chk_2d_plot", self.chk_2D_plot.setText); self.chk_2D_plot.setChecked(True)
+            self.chk_3D_plot = QCheckBox(); self._tr("s3_chk_3d_plot", self.chk_3D_plot.setText); self.chk_3D_plot.setChecked(False)
+            # Ao marcar, adiciona ao gráfico a equação da linha de tendência ativa (Linear, ou
+            # Exponential/Logarithmic/Polynomial quando selecionadas acima) e o R² correspondente.
+            self.chk_plot_equation = QCheckBox(); self._tr("s3_chk_plot_equation", self.chk_plot_equation.setText); self.chk_plot_equation.setChecked(False)
+            label_num_samples = self._trL("s3_lbl_num_samples"); label_num_samples.setStyleSheet("color: #C9D1D9; font-size: 10pt")
+            self.ed_trend_num_samples = QLineEdit(); self.ed_trend_num_samples.setText("1000"); self.ed_trend_num_samples.setFixedSize(75, 25)
+            label_conf_int = self._trL("s3_lbl_confidence_interval"); label_conf_int.setStyleSheet("color: #C9D1D9; font-size: 10pt")
+            self.ed_conf_int = QLineEdit("Confidence Interval (%)"); self.ed_conf_int.setText("95") ; self.ed_conf_int.setFixedSize(75, 25)
+
+            # Grid 3 colunas:
+            #   col0: Trend Line (r0) | lista de tipos de curva (r1-r4, rowspan=4)
+            #   col1: 2D Plot (r0) | 3D Plot (r1) | Plot Equation (r2)
+            #   col2: Num Samples label/caixa (r0/r1) | Confidence Interval label/caixa (r2/r3)
+            curve_fit_trend_layout = QGridLayout()
+            curve_fit_trend_layout.addWidget(self.chk_linear_trend_line, 0, 0, alignment=Qt.AlignLeft)
+            curve_fit_trend_layout.addWidget(self.list_trend_curve_types, 1, 0, 4, 1)
+            curve_fit_trend_layout.addWidget(self.chk_2D_plot, 0, 1, alignment=Qt.AlignLeft)
+            curve_fit_trend_layout.addWidget(self.chk_3D_plot, 1, 1, alignment=Qt.AlignLeft)
+            curve_fit_trend_layout.addWidget(self.chk_plot_equation, 2, 1, alignment=Qt.AlignLeft)
+            curve_fit_trend_layout.addWidget(label_num_samples, 0, 2)
+            curve_fit_trend_layout.addWidget(self.ed_trend_num_samples, 1, 2, alignment=Qt.AlignLeft)
+            curve_fit_trend_layout.addWidget(label_conf_int, 2, 2)
+            curve_fit_trend_layout.addWidget(self.ed_conf_int, 3, 2, alignment=Qt.AlignLeft)
+
+            # A lista de tipos de curva e "Plot Equation" só ficam habilitadas quando "Trend Line"
+            # está marcado (permanecem visíveis, só desabilitadas — as curvas adicionais e a
+            # equação só fazem sentido junto da linha de tendência):
+            def on_trend_line_toggled(checked):
+                self.list_trend_curve_types.setEnabled(bool(checked))
+                self.chk_plot_equation.setEnabled(bool(checked))
+            self.chk_linear_trend_line.toggled.connect(on_trend_line_toggled)
+            on_trend_line_toggled(self.chk_linear_trend_line.isChecked())
+
+            # --- Conexões para alternância exclusiva entre 2D e 3D ---
+            # Select Variable 1/2 são usadas nos dois modos; Select Variable 3 só faz sentido
+            # (e só fica habilitada) quando 3D Plot está marcado. Com 3D Plot marcado e a
+            # Variável 3 selecionada, os testes de correlação (Pearson/Spearman/Kendall) passam
+            # a avaliar os 3 pares (X-Y, X-Z, Y-Z) e exibem um gráfico de dispersão 3D.
+            def on_2d_changed(state):
+                if state == Qt.Checked:
+                    self.chk_3D_plot.setChecked(False)
+                elif not self.chk_3D_plot.isChecked():
+                    self.chk_2D_plot.setChecked(True)
+                self.list_columns_var3.setEnabled(self.chk_3D_plot.isChecked())
+
+            def on_3d_changed(state):
+                if state == Qt.Checked:
+                    self.chk_2D_plot.setChecked(False)
+                elif not self.chk_2D_plot.isChecked():
+                    self.chk_3D_plot.setChecked(True)
+                self.list_columns_var3.setEnabled(self.chk_3D_plot.isChecked())
+
+            self.chk_2D_plot.stateChanged.connect(on_2d_changed)
+            self.chk_3D_plot.stateChanged.connect(on_3d_changed)
+            self.list_columns_var3.setEnabled(self.chk_3D_plot.isChecked())
+
+            g13_main_layout.addLayout(curve_fit_trend_layout)
+
+            g13_main_layout.addSpacing(10)
+            label_correlation = self._trL("s3_lbl_correlation_tests")
+            label_correlation.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
+            label_correlation.setAlignment(Qt.AlignCenter)
+            g13_main_layout.addWidget(label_correlation)
+
+            btn_correlation_layout = QHBoxLayout()
+            btn_pearson = QPushButton("Pearson")
+            btn_pearson.setStyleSheet("QPushButton{background:#DFFFE0;font-size:12px;font-weight:bold;border:1px solid #222;border-radius:4px}")
+            btn_pearson.setFixedSize(100, 30)
+            btn_pearson.clicked.connect(self.run_pearson_test)
+            btn_spearman = QPushButton("Spearman")
+            btn_spearman.setStyleSheet("QPushButton{background:#FFE5D0;font-size:12px;font-weight:bold;border:1px solid #222;border-radius:4px}")
+            btn_spearman.setFixedSize(100, 30)
+            btn_spearman.clicked.connect(self.run_spearman_test)
+            btn_kendall = QPushButton("Kendall")
+            btn_kendall.setStyleSheet("QPushButton{background:#FFE5D0;font-size:12px;font-weight:bold;border:1px solid #222;border-radius:4px}")
+            btn_kendall.setFixedSize(100, 30)
+            btn_kendall.clicked.connect(self.run_kendall_test)
+            btn_correlation_layout.addWidget(btn_pearson)
+            btn_correlation_layout.addWidget(btn_spearman)
+            btn_correlation_layout.addWidget(btn_kendall)
+            g13_main_layout.addLayout(btn_correlation_layout)
+
+            g13_main_layout.addStretch()
+
+            g12_13_layout.addWidget(g12)
+            g12_13_layout.addWidget(g13)
+            l10.addLayout(g12_13_layout)
+
+            # Botão para voltar (última aba, sem "Next"):
+            layout_btn_back_next10 = QHBoxLayout()
+
+            back_btn10 = QPushButton()
+            self._tr("btn_back", back_btn10.setText)
+            back_btn10.setProperty("role", "nav")
+            back_btn10.setFixedWidth(200)
+            back_btn10.setStyleSheet("""
+                QPushButton {
+                    background: transparent;
+                    border: none;
+                    color: #cccccc;
+                    font-size: 12pt;
+                    font-weight: bold;
+                }
+                QPushButton:hover, QPushButton:pressed {
+                    color: #000000;
+                    background: transparent;
+                    border: none;
+                }
+            """)
+            back_btn10.clicked.connect(lambda: self.tabs.setCurrentIndex(9))
+
+            layout_btn_back_next10.addWidget(back_btn10, alignment=Qt.AlignLeft)
+            l10.addStretch()
+            l10.addLayout(layout_btn_back_next10)
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            QMessageBox.warning(
+                self, i18n.t("msg_statistics_build_error_title", self._idioma),
+                i18n.t("msg_statistics_build_error", self._idioma, e=e)
             )
 
         # Redimensiona a janela para caber o conteúdo da HOME por inteiro, sem scroll,

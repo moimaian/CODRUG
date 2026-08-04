@@ -54,7 +54,8 @@ _TEXTOS = {
     "tab_step5": {"en": "STEP 5", "pt": "ETAPA 5"},
     "tab_step6": {"en": "STEP 6", "pt": "ETAPA 6"},
     "tab_step7": {"en": "STEP 7", "pt": "ETAPA 7"},
-    "tab_edit": {"en": "EDIT", "pt": "EDITAR"},
+    "tab_edit": {"en": "EDIT", "pt": "EDIT"},
+    "tab_statistics": {"en": "STATS", "pt": "STATS"},
 
     # ---------------------------------------------------------------- HOME tab
     "home_tagline1": {
@@ -139,6 +140,7 @@ _TEXTOS = {
     },
     "title_step7": {"en": "Consensus Analysis", "pt": "Análise de Consenso"},
     "title_edit": {"en": "Manipulate Dataframes", "pt": "Manipular Dataframes"},
+    "title_statistics": {"en": "Statistical Tests", "pt": "Testes Estatísticos"},
 
     # ---------------------------------------------------------------- CONFIG tab
     "cfg_choose_task": {"en": "1. Choose the Task Type:", "pt": "1. Escolha o Tipo de Tarefa:"},
@@ -297,7 +299,7 @@ _TEXTOS = {
         "en": "Eliminating invalid, infinite \nor values that exceed the \nallowed range in float64",
         "pt": "Eliminar valores inválidos, infinitos \nou que excedam o intervalo \npermitido em float64",
     },
-    "s2_grp_statistics_outliers": {"en": "Statistics/Distribution and Outliers", "pt": "Estatística/Distribuição e Outliers"},
+    "s2_grp_outlier_elimination": {"en": "Outlier Elimination", "pt": "Eliminação de Outliers"},
     "s2_btn_view_descriptive_stats": {"en": "View descritive \nStatistics", "pt": "Ver Estatística \nDescritiva"},
     "s2_lbl_select_chart": {"en": "Select chart:", "pt": "Selecione o gráfico:"},
     "s2_btn_view_dist_chart": {"en": "View distribution \nchart", "pt": "Ver gráfico de \ndistribuição"},
@@ -348,6 +350,38 @@ _TEXTOS = {
     "s3_lbl_select_range": {"en": "Select Range:", "pt": "Selecione o Intervalo:"},
     "s3_btn_set_druggability": {"en": "Set Druggability\n Descriptors", "pt": "Definir Descritores\n de Farmacocinética"},
     "s3_btn_filter_druggability": {"en": "Filter by\n Druggability Rule", "pt": "Filtrar pela\n Regra de Farmacocinética"},
+
+    # ---------------------------------------------------------------- STATISTICS tab
+    "stats_grp_descriptive_distribution": {
+        "en": "Descriptive Statistics / Distribution",
+        "pt": "Estatística Descritiva / Distribuição",
+    },
+    "menu_statistics": {"en": "Statistics", "pt": "Estatística"},
+    "msg_statistics_build_error_title": {"en": "STATISTICS build error", "pt": "Erro ao construir a aba ESTATÍSTICA"},
+    "msg_statistics_build_error": {
+        "en": "There was an error building the STATISTICS TAB:\n{e}",
+        "pt": "Ocorreu um erro ao construir a aba ESTATÍSTICA:\n{e}",
+    },
+    "stats_grp_sample_power": {
+        "en": "Sample Size and Statistical Power",
+        "pt": "Cálculo Amostral e Poder Estatístico",
+    },
+    "stats_lbl_confidence": {"en": "Confidence Level (%):", "pt": "Nível de Confiança (%):"},
+    "stats_lbl_confidence_z": {"en": "Confidence Level (Z):", "pt": "Nível de Confiança (Z):"},
+    "stats_lbl_alpha": {"en": "Type I Error (α):", "pt": "Erro Tipo I (α):"},
+    "stats_lbl_power": {"en": "Statistical Power:", "pt": "Poder Estatístico:"},
+    "stats_lbl_beta": {"en": "Type II Error (β):", "pt": "Erro Tipo II (β):"},
+    "stats_lbl_p1": {"en": "Group 1 proportion (p1):", "pt": "Proporção do Grupo 1 (p1):"},
+    "stats_lbl_p2": {"en": "Group 2 proportion (p2):", "pt": "Proporção do Grupo 2 (p2):"},
+    "stats_lbl_p2_hint": {
+        "en": "(p2 optional - fill it in to compare 2 groups instead of estimating a single proportion)",
+        "pt": "(p2 opcional - preencha para comparar 2 grupos, em vez de estimar uma única proporção)",
+    },
+    "stats_lbl_margin_error": {"en": "Margin of Error (%):", "pt": "Margem de Erro (%):"},
+    "stats_lbl_population_size": {"en": "Population Size (N):", "pt": "Tamanho da População (N):"},
+    "stats_btn_sample_size": {"en": "Calculate\nSample Size", "pt": "Calcular\nTamanho Amostral"},
+    "stats_btn_power": {"en": "Calculate\nStatistical Power", "pt": "Calcular\nPoder Estatístico"},
+
     "s3_grp_compare_classes": {"en": "Compare Classes", "pt": "Comparar Classes"},
     "s3_lbl_select_variable": {"en": "Select Variable:", "pt": "Selecione a Variável:"},
     "s3_btn_verify_assumptions": {"en": "Verify \nAssumptions", "pt": "Verificar \nPressupostos"},
@@ -361,7 +395,7 @@ _TEXTOS = {
     "s3_lbl_select_variable1": {"en": "Select Variable 1:", "pt": "Selecione a Variável 1:"},
     "s3_lbl_select_variable2": {"en": "Select Variable 2:", "pt": "Selecione a Variável 2:"},
     "s3_lbl_select_variable3": {"en": "Select Variable 3:", "pt": "Selecione a Variável 3:"},
-    "s3_lbl_num_samples": {"en": "Num Samples:", "pt": "Número de Amostras:"},
+    "s3_lbl_num_samples": {"en": "Samples Number:", "pt": "Número de Amostras:"},
     "s3_lbl_confidence_interval": {"en": "Confidence Interval:", "pt": "Intervalo de Confiança:"},
     "s3_chk_2d_plot": {"en": "2D Plot", "pt": "Gráfico 2D"},
     "s3_chk_3d_plot": {"en": "3D Plot", "pt": "Gráfico 3D"},
