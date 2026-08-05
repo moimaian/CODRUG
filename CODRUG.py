@@ -2399,33 +2399,29 @@ class MainWindow(QMainWindow):
         self._tr("menu_step2", step2_action.setText)
         step2_action.triggered.connect(lambda: self.tabs.setCurrentIndex(3))  # Step 2
         dp_menu.addAction(step2_action)
-        step3_action = QAction(self)
-        self._tr("menu_step3", step3_action.setText)
-        step3_action.triggered.connect(lambda: self.tabs.setCurrentIndex(4))  # Step 3
-        dp_menu.addAction(step3_action)
         step4_action = QAction(self)
         self._tr("menu_step4", step4_action.setText)
-        step4_action.triggered.connect(lambda: self.tabs.setCurrentIndex(5))  # Step 4
+        step4_action.triggered.connect(lambda: self.tabs.setCurrentIndex(4))  # Step 3 (was Step 4)
         dp_menu.addAction(step4_action)
         step5_action = QAction(self)
         self._tr("menu_step5", step5_action.setText)
-        step5_action.triggered.connect(lambda: self.tabs.setCurrentIndex(6))  # Step 5 (Scikit-learn)
+        step5_action.triggered.connect(lambda: self.tabs.setCurrentIndex(5))  # Step 4 (was Step 5, Scikit-learn)
         dp_menu.addAction(step5_action)
         step6_action = QAction(self)
         self._tr("menu_step6", step6_action.setText)
-        step6_action.triggered.connect(lambda: self.tabs.setCurrentIndex(7))  # Step 6 (Applicability Domain)
+        step6_action.triggered.connect(lambda: self.tabs.setCurrentIndex(6))  # Step 5 (was Step 6, Applicability Domain)
         dp_menu.addAction(step6_action)
         step7_action = QAction(self)
         self._tr("menu_step7", step7_action.setText)
-        step7_action.triggered.connect(lambda: self.tabs.setCurrentIndex(8))  # Step 7 (Consensus)
+        step7_action.triggered.connect(lambda: self.tabs.setCurrentIndex(7))  # Step 6 (was Step 7, Consensus)
         dp_menu.addAction(step7_action)
         edit_action = QAction(self)
         self._tr("menu_edit", edit_action.setText)
-        edit_action.triggered.connect(lambda: self.tabs.setCurrentIndex(9))  # Edit
+        edit_action.triggered.connect(lambda: self.tabs.setCurrentIndex(8))  # Edit
         dp_menu.addAction(edit_action)
         statistics_action = QAction(self)
         self._tr("menu_statistics", statistics_action.setText)
-        statistics_action.triggered.connect(lambda: self.tabs.setCurrentIndex(10))  # Statistics
+        statistics_action.triggered.connect(lambda: self.tabs.setCurrentIndex(9))  # Statistics
         dp_menu.addAction(statistics_action)
 
         dp_menu.addSeparator()
@@ -3551,17 +3547,17 @@ class MainWindow(QMainWindow):
                 setattr(self, attr, state[key])
 
     # ------------------------------------------------------------------
-    # Tab independence for STEP2/STEP3/STEP4 "Select DataFrame"
+    # Tab independence for STEP2/STEP3 "Select DataFrame"
     # ------------------------------------------------------------------
     # Each of these tabs has its own "Select DataFrame" button + text box
     # describing which dataframe its own functionalities are currently using
-    # (df_name_view/df_name_view4/df_name_view5). self.df_selecionado is a
-    # single shared attribute used by every tab, so without this cache,
-    # switching tabs would silently make a later tab's dataframe "leak" into
-    # an earlier tab. On every tab change we snapshot the outgoing STEP2/3/4
-    # tab's current dataframe + label, and restore whatever was last cached
-    # for the incoming STEP2/3/4 tab (if any) - leaving other tabs untouched.
-    STEP_DF_TABS = {3: "df_name_view", 4: "df_name_view4", 5: "df_name_view5"}
+    # (df_name_view/df_name_view5). self.df_selecionado is a single shared
+    # attribute used by every tab, so without this cache, switching tabs
+    # would silently make a later tab's dataframe "leak" into an earlier
+    # tab. On every tab change we snapshot the outgoing STEP2/3 tab's
+    # current dataframe + label, and restore whatever was last cached for
+    # the incoming STEP2/3 tab (if any) - leaving other tabs untouched.
+    STEP_DF_TABS = {3: "df_name_view", 4: "df_name_view5"}
 
     def _on_main_tab_changed(self, new_index):
         prev_index = getattr(self, "_current_df_tab_index", None)
@@ -3596,25 +3592,7 @@ class MainWindow(QMainWindow):
         ("outlier_column", "list_columns_outlier"),
         ("outlier_threshold", "threshold_outlier"),
         ("outlier_method", "cb_outlier_method"),
-    ]
-
-    def _collect_step2_state(self):
-        return self._collect_state_from_spec(self.STEP2_FIELD_SPEC)
-
-    def _apply_step2_state(self, state):
-        if not isinstance(state, dict) or not state:
-            return False
-        self._apply_state_from_spec(self.STEP2_FIELD_SPEC, state)
-        return True
-
-    def _save_step2_state(self):
-        self._save_job_state({"step2": self._collect_step2_state()})
-
-    # ------------------------------------------------------------------
-    # STEP 3 - Preprocessing and Statistical Analysis
-    # ------------------------------------------------------------------
-    STEP3_FIELD_SPEC = [
-        ("selected_dataframe", "df_name_view4"),
+        # "Generating Categories"/"Generating Druggability Descriptors" (movidos de STEP3):
         ("class_value_column", "list_columns_cat"),
         ("class_scale_inverse", "chk_cat_inverse_scale"),
         ("class_scale_direct", "chk_cat_direct_scale"),
@@ -3650,17 +3628,17 @@ class MainWindow(QMainWindow):
         ("druggability_ro5_max", "ed_max_Vo5"),
     ]
 
-    def _collect_step3_state(self):
-        return self._collect_state_from_spec(self.STEP3_FIELD_SPEC)
+    def _collect_step2_state(self):
+        return self._collect_state_from_spec(self.STEP2_FIELD_SPEC)
 
-    def _apply_step3_state(self, state):
+    def _apply_step2_state(self, state):
         if not isinstance(state, dict) or not state:
             return False
-        self._apply_state_from_spec(self.STEP3_FIELD_SPEC, state)
+        self._apply_state_from_spec(self.STEP2_FIELD_SPEC, state)
         return True
 
-    def _save_step3_state(self):
-        self._save_job_state({"step3": self._collect_step3_state()})
+    def _save_step2_state(self):
+        self._save_job_state({"step2": self._collect_step2_state()})
 
     # ------------------------------------------------------------------
     # STATISTICS - Independent statistical tests (own dataframe, self.stats_df)
@@ -4056,7 +4034,6 @@ class MainWindow(QMainWindow):
         payload = self._load_job_state(job_dir)
         loaded_any = self._apply_dataset_preparation_state(payload.get("step1", {}))
         loaded_any = self._apply_step2_state(payload.get("step2", {})) or loaded_any
-        loaded_any = self._apply_step3_state(payload.get("step3", {})) or loaded_any
         loaded_any = self._apply_step4_state(payload.get("step4", {})) or loaded_any
         loaded_any = self._apply_step6_sklearn_state(payload.get("step6_sklearn", {})) or loaded_any
         loaded_any = self._apply_step7_state(payload.get("step7_ad", {})) or loaded_any
@@ -5966,6 +5943,37 @@ class MainWindow(QMainWindow):
             self.list_columns_outlier.clear()
             QMessageBox.critical(self, i18n.t("msg_title_error_list_columns_csv", self._idioma), str(e))
 
+        # "Generating Categories"/"Generating Druggability Descriptors" (movidos de STEP3 para
+        # STEP2) - list_columns_cat/list_class_column/cb_molecule_chembl_id_cat também dependem
+        # de self.df_selecionado.
+        if getattr(self, "df_selecionado", None) is None:
+            self.list_columns_cat.clear()
+            return
+        try:
+            self.list_columns_cat.clear()
+            self.list_columns_cat.addItems(self.df_selecionado.columns.astype(str))
+            self.list_class_column.clear()
+            self.list_class_column.addItems(self.df_selecionado.columns.astype(str))
+
+            # Deixa "Class" já selecionada, se existir:
+            idx = self.list_class_column.findText("Class") if hasattr(self, "list_class_column") else -1
+            if idx >= 0:
+                self.list_class_column.setCurrentIndex(idx)
+
+            # Pré-seleciona a coluna de bioatividade (IC50, MIC, EC50, ED50, MIC50, MIC90,
+            # pIC50... mesmo vocabulário usado para popular Assay Metric na STEP 1), se
+            # encontrada, em "Select value column" (Generating Categories).
+            if bio_col:
+                self._set_combo_text(self.list_columns_cat, bio_col)
+
+            if hasattr(self, "cb_molecule_chembl_id_cat") and "molecule_chembl_id" in self.df_selecionado.columns:
+                self.cb_molecule_chembl_id_cat.clear()
+                self.cb_molecule_chembl_id_cat.addItems(self.df_selecionado["molecule_chembl_id"].astype(str).fillna("").tolist())
+
+        except Exception as e:
+            self.list_columns_cat.clear()
+            QMessageBox.critical(self, i18n.t("msg_title_error_list_columns_csv", self._idioma), str(e))
+
     def run_list_columns(self):
         new_columns = self.list_columns.selectedItems()
         if not new_columns:
@@ -6707,66 +6715,6 @@ class MainWindow(QMainWindow):
         self._refresh_step2_dataframe_widgets()
         self._save_step2_state()
 
-# STEP 3: PREPROCESSING AND STATISTICAL ANALYSIS
-    def select_dataframe4(self):
-        initial_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select a data file",
-            initial_dir,
-            "Data Files (*.csv *.xlsx);;CSV Files (*.csv);;Excel Files (*.xlsx)"
-        )
-
-        if file_path:
-            try:
-                df = self._read_selected_table_file(file_path)
-                self.df_selecionado = df
-                self.show_dataframe(df)
-
-            except Exception as e:
-                QMessageBox.critical(self, i18n.t("msg_title_error_opening_file", self._idioma), str(e))
-            self.df_name_view4.setText(os.path.basename(file_path))
-        self._refresh_step3_dataframe_widgets()
-
-    def _refresh_step3_dataframe_widgets(self):
-        """Repopulate every STEP3 combo/list that depends on self.df_selecionado.
-
-        Runs the same widget refresh as clicking "Select DataFrame" - must be called
-        any time self.df_selecionado changes (e.g. a processing button generates a new
-        dataframe), so STEP3's dropdowns never go stale relative to the "Select
-        DataFrame" description at the top of the tab. "Compare Classes"/"Correlate
-        variables" moved to the STATISTICS tab (own dataframe, self.stats_df) - see
-        _refresh_statistics_dataframe_widgets.
-        """
-        if getattr(self, "df_selecionado", None) is None:
-            self.list_columns_cat.clear()
-            return
-        try:
-            self.list_columns_cat.clear()
-            self.list_columns_cat.addItems(self.df_selecionado.columns.astype(str))
-            self.list_class_column.clear()
-            self.list_class_column.addItems(self.df_selecionado.columns.astype(str))
-
-            # Deixa "Class" já selecionada, se existir:
-            idx = self.list_class_column.findText("Class") if hasattr(self, "list_class_column") else -1
-            if idx >= 0:
-                self.list_class_column.setCurrentIndex(idx)
-
-            # Pré-seleciona a coluna de bioatividade (IC50, MIC, EC50, ED50, MIC50, MIC90,
-            # pIC50... mesmo vocabulário usado para popular Assay Metric na STEP 1), se
-            # encontrada, em "Select value column" (Generating Categories).
-            bio_col = self._find_bioactivity_column(self.df_selecionado.columns)
-            if bio_col:
-                self._set_combo_text(self.list_columns_cat, bio_col)
-
-            if hasattr(self, "cb_molecule_chembl_id_cat") and "molecule_chembl_id" in self.df_selecionado.columns:
-                self.cb_molecule_chembl_id_cat.clear()
-                self.cb_molecule_chembl_id_cat.addItems(self.df_selecionado["molecule_chembl_id"].astype(str).fillna("").tolist())
-
-        except Exception as e:
-            self.list_columns_cat.clear()
-            QMessageBox.critical(self, i18n.t("msg_title_error_list_columns_csv", self._idioma), str(e))
-
     def select_dataframe_stats(self):
         """"Select DataFrame" handler for the STATISTICS tab - independent of the pipeline's
         shared self.df_selecionado (own attribute: self.stats_df), so statistical tests can
@@ -7164,16 +7112,16 @@ class MainWindow(QMainWindow):
             target_organism = self.ed_organism_name.text().strip()
             output_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
             os.makedirs(output_dir, exist_ok=True)
-            out_path = os.path.join(output_dir, f"df3_Classes_{target_chembl_id}_{target_organism}.csv")
+            out_path = os.path.join(output_dir, f"df2_Classes_{target_chembl_id}_{target_organism}.csv")
             df.to_csv(out_path, index=False)
         except Exception as e:
-            QMessageBox.critical(self, f"Error saving df3_Classes_{target_chembl_id}_{target_organism}.csv", str(e))
+            QMessageBox.critical(self, f"Error saving df2_Classes_{target_chembl_id}_{target_organism}.csv", str(e))
 
         self.df_selecionado = df
         self.show_dataframe(df)
-        self.df_name_view4.setText(os.path.basename(out_path))
-        self._refresh_step3_dataframe_widgets()
-        self._save_step3_state()
+        self.df_name_view.setText(os.path.basename(out_path))
+        self._refresh_step2_dataframe_widgets()
+        self._save_step2_state()
 
     def run_view_class(self):
         # 1) Pré-checagens
@@ -7372,7 +7320,7 @@ class MainWindow(QMainWindow):
         target_organism  = self.ed_organism_name.text().strip()     if hasattr(self, "ed_organism_name")   else ""
 
         output_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
-        out_path = os.path.join(output_dir, f"df3_Druggability_{target_chembl_id}_{target_organism}.csv")
+        out_path = os.path.join(output_dir, f"df2_Druggability_{target_chembl_id}_{target_organism}.csv")
 
         # Worker thread
         class LipinskiWorker(QThread):
@@ -7498,9 +7446,9 @@ class MainWindow(QMainWindow):
             # Update reference and show
             self.df_selecionado = df_out
             self.show_dataframe(df_out)
-            self.df_name_view4.setText(os.path.basename(out_path))
-            self._refresh_step3_dataframe_widgets()
-            self._save_step3_state()
+            self.df_name_view.setText(os.path.basename(out_path))
+            self._refresh_step2_dataframe_widgets()
+            self._save_step2_state()
 
             QMessageBox.information(self, i18n.t("msg_title_done", self._idioma),
                                     f"Lipinski parameters computed.\nFile saved at:\n{out_path}")
@@ -7582,11 +7530,11 @@ class MainWindow(QMainWindow):
         target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
         target_organism  = self.ed_organism_name.text().strip() if hasattr(self, "ed_organism_name") else ""
         output_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
-        out_path = os.path.join(output_dir, f"df3_Druggability_filter_{target_chembl_id}_{target_organism}.csv")
+        out_path = os.path.join(output_dir, f"df2_Druggability_filter_{target_chembl_id}_{target_organism}.csv")
         df_filtered.to_csv(out_path, index=False)
-        self.df_name_view4.setText(os.path.basename(out_path))
-        self._refresh_step3_dataframe_widgets()
-        self._save_step3_state()
+        self.df_name_view.setText(os.path.basename(out_path))
+        self._refresh_step2_dataframe_widgets()
+        self._save_step2_state()
 
     def _on_compare_groups_selection_changed(self):
         """STEP 3 'Compare Classes': the 5 test buttons start disabled/gray and only light up
@@ -14116,7 +14064,7 @@ class MainWindow(QMainWindow):
             pipe_grid = QGridLayout(pipe_grp)
             pipe_grid.setHorizontalSpacing(20)
             pipe_grid.setVerticalSpacing(4)
-            for i in range(8):
+            for i in range(7):
                 name_lbl = QLabel()
                 name_lbl.setStyleSheet("color:#C9D1D9;font-size:9pt;")
                 self._tr(f"home_step{i}_name", lambda txt, w=name_lbl: w.setText(f"<b>{txt}</b>"))
@@ -15157,113 +15105,6 @@ class MainWindow(QMainWindow):
 
             l3.addLayout(g89_layout)
 
-            # Botão para o próximo:
-            layout_btn_back_next3 = QHBoxLayout()
-
-            # Botão BACK:
-            back_btn3 = QPushButton()
-            self._tr("btn_back", back_btn3.setText)
-
-            back_btn3.setProperty("role", "nav")
-            back_btn3.setFixedWidth(200)
-            back_btn3.setStyleSheet("""
-                QPushButton {
-                    background: transparent;
-                    border: none;
-                    color: #cccccc;
-                    font-size: 12pt;
-                    font-weight: bold;
-                }
-                QPushButton:hover, QPushButton:pressed {
-                    color: #000000;
-                    background: transparent;
-                    border: none;
-                }
-            """)
-            back_btn3.clicked.connect(lambda: self.tabs.setCurrentIndex(2))
-
-            # Botão NEXT:
-            next_btn3 = QPushButton()
-            self._tr("btn_next", next_btn3.setText)
-
-            next_btn3.setProperty("role", "nav")
-            next_btn3.setFixedWidth(200)
-            next_btn3.setStyleSheet("""
-                QPushButton {
-                    background: transparent;
-                    border: none;
-                    color: #cccccc;
-                    font-size: 12pt;
-                    font-weight: bold;
-                }
-                QPushButton:hover, QPushButton:pressed {
-                    color: #000000;
-                    background: transparent;
-                    border: none;
-                }
-            """)
-            next_btn3.clicked.connect(lambda: self.tabs.setCurrentIndex(4))
-
-            layout_btn_back_next3.addWidget(back_btn3, alignment=Qt.AlignLeft)
-            layout_btn_back_next3.addWidget(next_btn3, alignment=Qt.AlignRight)
-            l3.addStretch()
-            l3.addLayout(layout_btn_back_next3)
-        except Exception:
-            QMessageBox.warning(
-                self, i18n.t("msg_step2_build_error_title", self._idioma),
-                i18n.t("msg_step2_build_error", self._idioma)
-            )
-        
-        # ==============================================================================================================================================
-        # ========================================== ETAPA 3 – PRÉ-PROCESSAMENTO =======================================================================
-        # ==============================================================================================================================================
-        try:
-            # Layout principal da aba de análise exploratória:
-            t4 = QWidget(); l4 = QVBoxLayout(t4)
-            self.tabs.addTab(t4, "STEP 3")
-            self._tr("tab_step3", lambda txt: self.tabs.setTabText(4, txt))
-            l4.addWidget(self._mk_title("title_step3"))
-            l4.addSpacing(10)
-
-            # Criar botão de escolha do dataframe:
-            btn_layout4 = QHBoxLayout()
-            btn_select_df4 = QPushButton(); self._tr("btn_select_dataframe", btn_select_df4.setText)
-            btn_select_df4.setProperty("role", "select")
-            btn_select_df4.setFixedWidth(200)
-            btn_select_df4.setStyleSheet("""
-                QPushButton {
-                    background: #B7E4C7;
-                    color: #C9D1D9
-                    font-size: 12pt;
-                    font-weight: bold;
-                    border: 1px solid #222;
-                    border-radius: 4px;
-                }
-                QPushButton:hover {
-                    background: #74C69D;
-                    color: #000000;
-                }
-                QPushButton:pressed {
-                    background: #40916C;
-                    color: #000000;
-                }
-            """)
-            btn_select_df4.clicked.connect(self.select_dataframe4)
-            
-            # Criar caixa de texto onde será exibido o endereço do dataframe selecionado:
-            df_name_view4 = QLineEdit()
-            df_name_view4.setReadOnly(True)
-            # df_name_view4.setFixedHeight(100)
-            df_name_view4.setStyleSheet("background-color: #6E8CA8; color: #6E8CA8; border: 1px solid #ccc; border-radius: 4px; padding: 5px;")
-            self.df_name_view4 = df_name_view4
-
-            # Adicionar o botão e a caixa ao layout de botão:
-            btn_layout4.addWidget(btn_select_df4)
-            btn_layout4.addWidget(df_name_view4)
-
-            # Adicionar o layout de botão ao layout principal:
-            l4.addLayout(btn_layout4)
-
             # Criar Layout para dois grupos:
             g10_11_layout = QHBoxLayout()
 
@@ -15490,7 +15331,7 @@ class MainWindow(QMainWindow):
             interval_layout_lip.addLayout(interval_layout_lip_inner5)
             interval_layout_lip.addLayout(interval_layout_lip_inner6)
             interval_layout_lip.addLayout(interval_layout_lip_inner7)
-            
+
             btn_lip_layout = QHBoxLayout()
             btn_set_lip = QPushButton()
             self._tr("s3_btn_set_druggability", btn_set_lip.setText)
@@ -15502,7 +15343,7 @@ class MainWindow(QMainWindow):
             btn_filter_lip.setProperty("role", "secondary")
             btn_filter_lip.setFixedSize(150, 50)
             btn_filter_lip.clicked.connect(self.run_filter_lip)
-            
+
             gL17.addLayout(checkbox_layout_lip, 0, 0, alignment=Qt.AlignVCenter | Qt.AlignCenter)
             gL17.addLayout(interval_layout_lip, 0, 1, alignment=Qt.AlignVCenter | Qt.AlignCenter)
             gL17.setColumnStretch(0, 1); gL17.setColumnStretch(1, 1)
@@ -15518,19 +15359,18 @@ class MainWindow(QMainWindow):
             g10_11_layout.addWidget(g10, alignment=Qt.AlignTop)
             g10_11_layout.addWidget(g11, alignment=Qt.AlignTop)
 
-            l4.addLayout(g10_11_layout)
-
+            l3.addLayout(g10_11_layout)
 
             # Botão para o próximo:
-            layout_btn_back_next4 = QHBoxLayout()
+            layout_btn_back_next3 = QHBoxLayout()
 
             # Botão BACK:
-            back_btn4 = QPushButton()
-            self._tr("btn_back", back_btn4.setText)
+            back_btn3 = QPushButton()
+            self._tr("btn_back", back_btn3.setText)
 
-            back_btn4.setProperty("role", "nav")
-            back_btn4.setFixedWidth(200)
-            back_btn4.setStyleSheet("""
+            back_btn3.setProperty("role", "nav")
+            back_btn3.setFixedWidth(200)
+            back_btn3.setStyleSheet("""
                 QPushButton {
                     background: transparent;
                     border: none;
@@ -15544,15 +15384,15 @@ class MainWindow(QMainWindow):
                     border: none;
                 }
             """)
-            back_btn4.clicked.connect(lambda: self.tabs.setCurrentIndex(3))
+            back_btn3.clicked.connect(lambda: self.tabs.setCurrentIndex(2))
 
             # Botão NEXT:
-            next_btn4 = QPushButton()
-            self._tr("btn_next", next_btn4.setText)
+            next_btn3 = QPushButton()
+            self._tr("btn_next", next_btn3.setText)
 
-            next_btn4.setProperty("role", "nav")
-            next_btn4.setFixedWidth(200)
-            next_btn4.setStyleSheet("""
+            next_btn3.setProperty("role", "nav")
+            next_btn3.setFixedWidth(200)
+            next_btn3.setStyleSheet("""
                 QPushButton {
                     background: transparent;
                     border: none;
@@ -15566,18 +15406,18 @@ class MainWindow(QMainWindow):
                     border: none;
                 }
             """)
-            next_btn4.clicked.connect(lambda: self.tabs.setCurrentIndex(5))
+            next_btn3.clicked.connect(lambda: self.tabs.setCurrentIndex(4))
 
-            layout_btn_back_next4.addWidget(back_btn4, alignment=Qt.AlignLeft)
-            layout_btn_back_next4.addWidget(next_btn4, alignment=Qt.AlignRight)
-            l4.addStretch()
-            l4.addLayout(layout_btn_back_next4)       
+            layout_btn_back_next3.addWidget(back_btn3, alignment=Qt.AlignLeft)
+            layout_btn_back_next3.addWidget(next_btn3, alignment=Qt.AlignRight)
+            l3.addStretch()
+            l3.addLayout(layout_btn_back_next3)
         except Exception:
             QMessageBox.warning(
-                self, i18n.t("msg_step3_build_error_title", self._idioma),
-                i18n.t("msg_step3_build_error", self._idioma)
+                self, i18n.t("msg_step2_build_error_title", self._idioma),
+                i18n.t("msg_step2_build_error", self._idioma)
             )
-
+        
         # ==============================================================================================================================================
         # ========================================== ETAPA 4 – GERAR DESCRITORES =======================================================================
         # ==============================================================================================================================================
@@ -15585,7 +15425,7 @@ class MainWindow(QMainWindow):
             # Layout principal da aba para gerar descritores:
             t5 = QWidget(); l5 = QVBoxLayout(t5)
             self.tabs.addTab(t5, "STEP 4")
-            self._tr("tab_step4", lambda txt: self.tabs.setTabText(5, txt))
+            self._tr("tab_step4", lambda txt: self.tabs.setTabText(4, txt))
             l5.addWidget(self._mk_title("title_step4"))
             l5.addSpacing(10)
 
@@ -16184,7 +16024,7 @@ class MainWindow(QMainWindow):
                     border: none;
                 }
             """)
-            back_btn5.clicked.connect(lambda: self.tabs.setCurrentIndex(4))
+            back_btn5.clicked.connect(lambda: self.tabs.setCurrentIndex(3))
 
             # Botão NEXT:
             next_btn5 = QPushButton()
@@ -16206,7 +16046,7 @@ class MainWindow(QMainWindow):
                     border: none;
                 }
             """)
-            next_btn5.clicked.connect(lambda: self.tabs.setCurrentIndex(6))
+            next_btn5.clicked.connect(lambda: self.tabs.setCurrentIndex(5))
 
             layout_btn_back_next5.addWidget(back_btn5, alignment=Qt.AlignLeft)
             layout_btn_back_next5.addWidget(next_btn5, alignment=Qt.AlignRight)
@@ -16226,7 +16066,7 @@ class MainWindow(QMainWindow):
             t_skl = QWidget(); outer_skl = QVBoxLayout(t_skl)
             outer_skl.setContentsMargins(0, 0, 0, 0)
             self.tabs.addTab(t_skl, "STEP 5")
-            self._tr("tab_step5", lambda txt: self.tabs.setTabText(6, txt))
+            self._tr("tab_step5", lambda txt: self.tabs.setTabText(5, txt))
 
             scroll_skl = QScrollArea()
             scroll_skl.setWidgetResizable(True)
@@ -16640,7 +16480,7 @@ class MainWindow(QMainWindow):
                     border: none;
                 }
             """)
-            back_btn_skl.clicked.connect(lambda: self.tabs.setCurrentIndex(5))
+            back_btn_skl.clicked.connect(lambda: self.tabs.setCurrentIndex(4))
 
             next_btn_skl = QPushButton()
 
@@ -16650,7 +16490,7 @@ class MainWindow(QMainWindow):
             next_btn_skl.setProperty("role", "nav")
             next_btn_skl.setFixedWidth(200)
             next_btn_skl.setStyleSheet(back_btn_skl.styleSheet())
-            next_btn_skl.clicked.connect(lambda: self.tabs.setCurrentIndex(7))
+            next_btn_skl.clicked.connect(lambda: self.tabs.setCurrentIndex(6))
 
             layout_btn_back_next_skl.addWidget(back_btn_skl, alignment=Qt.AlignLeft)
             layout_btn_back_next_skl.addWidget(next_btn_skl, alignment=Qt.AlignRight)
@@ -16687,7 +16527,7 @@ class MainWindow(QMainWindow):
             # Layout principal da aba para gerar descritores:
             t7 = QWidget(); l7 = QVBoxLayout(t7)
             self.tabs.addTab(t7, "STEP 6")
-            self._tr("tab_step6", lambda txt: self.tabs.setTabText(7, txt))
+            self._tr("tab_step6", lambda txt: self.tabs.setTabText(6, txt))
             l7.addWidget(self._mk_title("title_step6"))
             l7.addSpacing(10)
 
@@ -16849,7 +16689,7 @@ class MainWindow(QMainWindow):
                     border: none;
                 }
             """)
-            back_btn6.clicked.connect(lambda: self.tabs.setCurrentIndex(6))
+            back_btn6.clicked.connect(lambda: self.tabs.setCurrentIndex(5))
 
             # Botão NEXT:
             next_btn6 = QPushButton()
@@ -16871,7 +16711,7 @@ class MainWindow(QMainWindow):
                     border: none;
                 }
             """)
-            next_btn6.clicked.connect(lambda: self.tabs.setCurrentIndex(8))
+            next_btn6.clicked.connect(lambda: self.tabs.setCurrentIndex(7))
 
             layout_btn_back_next6.addWidget(back_btn6, alignment=Qt.AlignLeft)
             layout_btn_back_next6.addWidget(next_btn6, alignment=Qt.AlignRight)
@@ -16890,7 +16730,7 @@ class MainWindow(QMainWindow):
         try:
             t8 = QWidget(); l8 = QVBoxLayout(t8)
             self.tabs.addTab(t8, "STEP 7")
-            self._tr("tab_step7", lambda txt: self.tabs.setTabText(8, txt))
+            self._tr("tab_step7", lambda txt: self.tabs.setTabText(7, txt))
             l8.addWidget(self._mk_title("title_step7"))
             l8.addSpacing(10)
 
@@ -17112,7 +16952,7 @@ class MainWindow(QMainWindow):
                     border: none;
                 }
             """)
-            back_btn8.clicked.connect(lambda: self.tabs.setCurrentIndex(7))
+            back_btn8.clicked.connect(lambda: self.tabs.setCurrentIndex(6))
 
             next_btn8 = QPushButton()
 
@@ -17135,7 +16975,7 @@ class MainWindow(QMainWindow):
                     border: none;
                 }
             """)
-            next_btn8.clicked.connect(lambda: self.tabs.setCurrentIndex(9))
+            next_btn8.clicked.connect(lambda: self.tabs.setCurrentIndex(8))
 
             layout_btn_back_next8.addWidget(back_btn8, alignment=Qt.AlignLeft)
             layout_btn_back_next8.addWidget(next_btn8, alignment=Qt.AlignRight)
@@ -17153,7 +16993,7 @@ class MainWindow(QMainWindow):
         try:
             t9 = QWidget(); l9 = QVBoxLayout(t9)
             self.tabs.addTab(t9, "EDIT")
-            self._tr("tab_edit", lambda txt: self.tabs.setTabText(9, txt))
+            self._tr("tab_edit", lambda txt: self.tabs.setTabText(8, txt))
             l9.addWidget(self._mk_title("title_edit"))
             l9.addSpacing(10)
 
@@ -17516,7 +17356,7 @@ class MainWindow(QMainWindow):
                     border: none;
                 }
             """)
-            back_btn9.clicked.connect(lambda: self.tabs.setCurrentIndex(8))
+            back_btn9.clicked.connect(lambda: self.tabs.setCurrentIndex(7))
 
             next_btn9 = QPushButton()
             self._tr("btn_next", next_btn9.setText)
@@ -17536,7 +17376,7 @@ class MainWindow(QMainWindow):
                     border: none;
                 }
             """)
-            next_btn9.clicked.connect(lambda: self.tabs.setCurrentIndex(10))
+            next_btn9.clicked.connect(lambda: self.tabs.setCurrentIndex(9))
 
             layout_btn_back_next9.addWidget(back_btn9, alignment=Qt.AlignLeft)
             layout_btn_back_next9.addWidget(next_btn9, alignment=Qt.AlignRight)
@@ -17555,7 +17395,7 @@ class MainWindow(QMainWindow):
             # Layout principal da aba de estatística:
             t10 = QWidget(); l10 = QVBoxLayout(t10)
             self.tabs.addTab(t10, "STATISTICS")
-            self._tr("tab_statistics", lambda txt: self.tabs.setTabText(10, txt))
+            self._tr("tab_statistics", lambda txt: self.tabs.setTabText(9, txt))
             l10.addWidget(self._mk_title("title_statistics"))
             l10.addSpacing(10)
 
@@ -18059,7 +17899,7 @@ class MainWindow(QMainWindow):
                     border: none;
                 }
             """)
-            back_btn10.clicked.connect(lambda: self.tabs.setCurrentIndex(9))
+            back_btn10.clicked.connect(lambda: self.tabs.setCurrentIndex(8))
 
             layout_btn_back_next10.addWidget(back_btn10, alignment=Qt.AlignLeft)
             l10.addStretch()
@@ -19509,13 +19349,47 @@ class MainWindow(QMainWindow):
             x = getattr(self, "skl_x", None); y = getattr(self, "skl_y", None)
             if x is None or y is None:
                 return None
-            train_sizes, train_scores, test_scores = learning_curve(
-                clone(model), x, y, cv=5, random_state=self._get_skl_random_state()
-            )
+
+            # Usa a mesma métrica escolhida em "Sort metric" (Model Screening) em vez do
+            # score padrão do sklearn (R² para regressão, Acurácia para classificação) -
+            # mapeada para os scorers nativos do sklearn, que já fazem a validação cruzada
+            # internamente. Métricas sem equivalente direto (ex.: as de clustering) caem
+            # no comportamento anterior (scoring=None -> score padrão do modelo).
+            metric_scoring_map = {
+                "R2 Test": "r2", "R2": "r2",
+                "RMSE": "neg_root_mean_squared_error",
+                "MAE": "neg_mean_absolute_error",
+                "MSE": "neg_mean_squared_error",
+                "Accuracy Test": "accuracy", "Accuracy": "accuracy",
+                "F1": "f1_weighted",
+                "Precision": "precision_weighted",
+                "Recall": "recall_weighted",
+                "AUC": "roc_auc_ovr_weighted",
+            }
+            selected_metric = self.cb_skl_metric.currentText().strip() if hasattr(self, "cb_skl_metric") else ""
+            scoring = metric_scoring_map.get(selected_metric)
+            # Métricas "neg_*" do sklearn vêm com sinal invertido (convenção interna para
+            # manter "maior é melhor" em toda a API) - invertido de volta para exibir na
+            # escala usual (ex.: RMSE positivo).
+            sign = -1.0 if scoring and scoring.startswith("neg_") else 1.0
+            y_label = selected_metric if scoring else "Score"
+
+            try:
+                train_sizes, train_scores, test_scores = learning_curve(
+                    clone(model), x, y, cv=5, scoring=scoring, random_state=self._get_skl_random_state()
+                )
+            except Exception:
+                # Scorer incompatível com o modelo/tarefa atual (ex.: AUC sem predict_proba) -
+                # volta para o score padrão do sklearn em vez de falhar o gráfico.
+                train_sizes, train_scores, test_scores = learning_curve(
+                    clone(model), x, y, cv=5, random_state=self._get_skl_random_state()
+                )
+                sign, y_label = 1.0, "Score"
+
             fig, ax = plt.subplots(figsize=(7, 5))
-            ax.plot(train_sizes, train_scores.mean(axis=1), label="Train", marker="o", color="steelblue")
-            ax.plot(train_sizes, test_scores.mean(axis=1), label="Cross-Validation", marker="o", color="tomato")
-            ax.set_xlabel("Training examples"); ax.set_ylabel("Score")
+            ax.plot(train_sizes, sign * train_scores.mean(axis=1), label="Train", marker="o", color="steelblue")
+            ax.plot(train_sizes, sign * test_scores.mean(axis=1), label="Cross-Validation", marker="o", color="tomato")
+            ax.set_xlabel("Training examples"); ax.set_ylabel(y_label)
             ax.set_title(f"{model_name}: Learning Curve")
             ax.legend()
             return fig

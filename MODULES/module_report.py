@@ -21,7 +21,7 @@ per-job JSON (job_dir/<job_name>.json, written incrementally as STEP 1-7 buttons
 result files each step already writes to disk (CSVs, USI session JSONs, plots). Kept free of
 PyQt so it can be unit-tested and reused without a running GUI.
 
-Each of the six report sections (STEP 1, STEP 2+3, STEP 4, STEP 5, STEP 6, STEP 7) is built
+Each of the six report sections (STEP 1, STEP 2, STEP 4, STEP 5, STEP 6, STEP 7) is built
 only from what the job's JSON actually recorded as executed - a step nobody ran is skipped
 silently rather than shown as "not run", matching the source methodology template's own
 instruction (METODOLOGIA_EXEMPLO.docx).
@@ -368,13 +368,13 @@ def _add_step1_section(document: Any, job_dir: str, state: dict[str, Any]) -> bo
 
 
 # --------------------------------------------------------------------------------------
-# Section 2: STEP 2 + STEP 3 - Preprocessing, Exploratory and Statistical Analysis
+# Section 2: STEP 2 - Preprocessing and Exploratory Analysis (includes Generating
+# Categories/Druggability Descriptors, moved here from the former STEP 3)
 # --------------------------------------------------------------------------------------
 
 def _add_step2_3_section(document: Any, job_dir: str, state: dict[str, Any]) -> bool:
     step2 = state.get("step2") if isinstance(state.get("step2"), dict) else {}
-    step3 = state.get("step3") if isinstance(state.get("step3"), dict) else {}
-    if not step2 and not step3:
+    if not step2:
         return False
 
     stats_dir = os.path.join(job_dir, "RESULTS", "STATISTICS")
@@ -383,7 +383,7 @@ def _add_step2_3_section(document: Any, job_dir: str, state: dict[str, Any]) -> 
     unit_col = step2.get("type_column") or step2.get("unit_column") or ""
     metric_col = step2.get("stat_column") or unit_col
 
-    _bar(document, "STEP 2 and 3 - Preprocessing, Exploratory and Statistical Analysis", COLOR_SECTION_BAR)
+    _bar(document, "STEP 2 - Preprocessing and Exploratory Analysis", COLOR_SECTION_BAR)
     p = _para(document)
 
     def add(text: str, bold: bool = False) -> None:
@@ -456,15 +456,15 @@ def _add_step2_3_section(document: Any, job_dir: str, state: dict[str, Any]) -> 
                     add(f" ({csv_tag}: {out_count:,} compounds retained)", False)
         add(". ", False)
 
-    class_value_col = step3.get("class_value_column") or metric_col or "value"
+    class_value_col = step2.get("class_value_column") or metric_col or "value"
     class_rules = []
-    class1_name, class1_op, class1_ref = step3.get("class1_name"), step3.get("class1_operator"), step3.get("class1_reference")
+    class1_name, class1_op, class1_ref = step2.get("class1_name"), step2.get("class1_operator"), step2.get("class1_reference")
     if class1_name and class1_op and class1_ref:
         class_rules.append((class1_name, f"if {class_value_col} {class1_op} {class1_ref}"))
-    class2_name, class2_min, class2_max = step3.get("class2_name"), step3.get("class2_min"), step3.get("class2_max")
+    class2_name, class2_min, class2_max = step2.get("class2_name"), step2.get("class2_min"), step2.get("class2_max")
     if class2_name and class2_min and class2_max:
         class_rules.append((class2_name, f"if {class_value_col} between {class2_min} and {class2_max}"))
-    class3_name, class3_op, class3_ref = step3.get("class3_name"), step3.get("class3_operator"), step3.get("class3_reference")
+    class3_name, class3_op, class3_ref = step2.get("class3_name"), step2.get("class3_operator"), step2.get("class3_reference")
     if class3_name and class3_op and class3_ref:
         class_rules.append((class3_name, f"if {class_value_col} {class3_op} {class3_ref}"))
     if class_rules:
@@ -487,9 +487,9 @@ def _add_step2_3_section(document: Any, job_dir: str, state: dict[str, Any]) -> 
         ("druggability_ro5", "RO5 Violations", "druggability_ro5_min", "druggability_ro5_max"),
     ]
     active_ranges = [
-        f"{label} ({step3.get(min_k)} to {step3.get(max_k)})"
+        f"{label} ({step2.get(min_k)} to {step2.get(max_k)})"
         for flag_k, label, min_k, max_k in druggability_pairs
-        if step3.get(flag_k)
+        if step2.get(flag_k)
     ]
     if active_ranges:
         add("Druggability descriptors were computed and filtered by ", False)
@@ -886,7 +886,7 @@ def generate_final_report(
 
     report("Building STEP 1 - Dataset Preparation...")
     added_1 = _add_step1_section(document, job_dir, state)
-    report("Building STEP 2/3 - Preprocessing and Statistical Analysis...")
+    report("Building STEP 2 - Preprocessing and Exploratory Analysis...")
     added_23 = _add_step2_3_section(document, job_dir, state)
     report("Building STEP 4 - Features Engineering...")
     added_4 = _add_step4_section(document, job_dir, state)

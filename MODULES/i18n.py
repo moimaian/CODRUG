@@ -49,11 +49,10 @@ _TEXTOS = {
     "tab_config": {"en": "CONFIG", "pt": "CONFIG"},
     "tab_step1": {"en": "STEP 1", "pt": "ETAPA 1"},
     "tab_step2": {"en": "STEP 2", "pt": "ETAPA 2"},
-    "tab_step3": {"en": "STEP 3", "pt": "ETAPA 3"},
-    "tab_step4": {"en": "STEP 4", "pt": "ETAPA 4"},
-    "tab_step5": {"en": "STEP 5", "pt": "ETAPA 5"},
-    "tab_step6": {"en": "STEP 6", "pt": "ETAPA 6"},
-    "tab_step7": {"en": "STEP 7", "pt": "ETAPA 7"},
+    "tab_step4": {"en": "STEP 3", "pt": "ETAPA 3"},
+    "tab_step5": {"en": "STEP 4", "pt": "ETAPA 4"},
+    "tab_step6": {"en": "STEP 5", "pt": "ETAPA 5"},
+    "tab_step7": {"en": "STEP 6", "pt": "ETAPA 6"},
     "tab_edit": {"en": "EDIT", "pt": "EDIT"},
     "tab_statistics": {"en": "STATS", "pt": "STATS"},
 
@@ -82,31 +81,26 @@ _TEXTOS = {
     },
     "home_step2_name": {"en": "Step 2 — Exploratory Analysis", "pt": "Etapa 2 — Análise Exploratória"},
     "home_step2_desc": {
-        "en": "Cleaning, type conversion, visualization and distribution analysis",
-        "pt": "Limpeza, conversão de tipos, visualização e análise de distribuição",
+        "en": "Cleaning, type conversion, visualization, distribution analysis, class categorization and druggability descriptor filtering",
+        "pt": "Limpeza, conversão de tipos, visualização, análise de distribuição, categorização de classes e filtragem de descritores de drogabilidade",
     },
-    "home_step3_name": {"en": "Step 3 — Statistical Analysis", "pt": "Etapa 3 — Análise Estatística"},
+    "home_step3_name": {"en": "Step 3 — Feature Engineering", "pt": "Etapa 3 — Engenharia de Atributos"},
     "home_step3_desc": {
-        "en": "Class definition, assumptions, statistical tests and correlations",
-        "pt": "Definição de classes, pressupostos, testes estatísticos e correlações",
-    },
-    "home_step4_name": {"en": "Step 4 — Feature Engineering", "pt": "Etapa 4 — Engenharia de Atributos"},
-    "home_step4_desc": {
         "en": "Descriptor generation, structural processing and feature preparation",
         "pt": "Geração de descritores, processamento estrutural e preparação de atributos",
     },
-    "home_step5_name": {"en": "Step 5 — Machine Learning", "pt": "Etapa 5 — Aprendizado de Máquina"},
-    "home_step5_desc": {
+    "home_step4_name": {"en": "Step 4 — Machine Learning", "pt": "Etapa 4 — Aprendizado de Máquina"},
+    "home_step4_desc": {
         "en": "Scikit-learn setup, screening, tuning, saving and prediction workflows",
         "pt": "Fluxos de configuração, seleção, ajuste, salvamento e predição com Scikit-learn",
     },
-    "home_step6_name": {"en": "Step 6 — Applicability Domain", "pt": "Etapa 6 — Domínio de Aplicabilidade"},
-    "home_step6_desc": {
+    "home_step5_name": {"en": "Step 5 — Applicability Domain", "pt": "Etapa 5 — Domínio de Aplicabilidade"},
+    "home_step5_desc": {
         "en": "Leverage, Mahalanobis distance and similarity-based domain assessment",
         "pt": "Avaliação de domínio por leverage, distância de Mahalanobis e similaridade",
     },
-    "home_step7_name": {"en": "Step 7 — Consensus Analysis", "pt": "Etapa 7 — Análise de Consenso"},
-    "home_step7_desc": {
+    "home_step6_name": {"en": "Step 6 — Consensus Analysis", "pt": "Etapa 6 — Análise de Consenso"},
+    "home_step6_desc": {
         "en": "Consensus ranking with z-score integration, median-rank validation and Spearman concordance",
         "pt": "Ranqueamento por consenso com integração de z-score, validação por mediana de rank e concordância de Spearman",
     },
@@ -124,10 +118,6 @@ _TEXTOS = {
     "title_step2": {
         "en": "Data Preprocessing",
         "pt": "Pré-processamento dos Dados",
-    },
-    "title_step3": {
-        "en": "Categorization and Druggability",
-        "pt": "Categorização e Drogabilidade",
     },
     "title_step4": {"en": "Features Engineering", "pt": "Engenharia de Atributos"},
     "title_step5": {
@@ -402,11 +392,6 @@ _TEXTOS = {
     "s3_chk_3d_plot": {"en": "3D Plot", "pt": "Gráfico 3D"},
     "s3_chk_plot_equation": {"en": "Plot Equation", "pt": "Exibir Equação"},
     "s3_lbl_correlation_tests": {"en": "Correlation Tests:", "pt": "Testes de Correlação:"},
-    "msg_step3_build_error_title": {"en": "STEP 3 build error", "pt": "Erro ao construir a ETAPA 3"},
-    "msg_step3_build_error": {
-        "en": "There was an error building the STEP 3 TAB",
-        "pt": "Ocorreu um erro ao construir a aba da ETAPA 3",
-    },
     "lbl_to_short": {"en": "To", "pt": "Até"},
 
     # ---------------------------------------------------------------- STEP 4 (Feature Engineering)
@@ -691,20 +676,16 @@ _TEXTOS = {
         "en": "Step 2 - Data Preprocessing",
         "pt": "Etapa 2 - Pré-processamento dos Dados",
     },
-    "menu_step3": {
-        "en": "Step 3 - Categorization and Druggability",
-        "pt": "Etapa 3 - Categorização e Drogabilidade",
-    },
-    "menu_step4": {"en": "Step 4 - Features Engineering", "pt": "Etapa 4 - Engenharia de Atributos"},
+    "menu_step4": {"en": "Step 3 - Features Engineering", "pt": "Etapa 3 - Engenharia de Atributos"},
     "menu_step5": {
-        "en": "Step 5 - Machine Learning Models Screening (Scikit-learn)",
-        "pt": "Etapa 5 - Seleção de Modelos de Aprendizado de Máquina (Scikit-learn)",
+        "en": "Step 4 - Machine Learning Models Screening (Scikit-learn)",
+        "pt": "Etapa 4 - Seleção de Modelos de Aprendizado de Máquina (Scikit-learn)",
     },
     "menu_step6": {
-        "en": "Step 6 - Applicability Domain and Similarity Analysis",
-        "pt": "Etapa 6 - Domínio de Aplicabilidade e Análise de Similaridade",
+        "en": "Step 5 - Applicability Domain and Similarity Analysis",
+        "pt": "Etapa 5 - Domínio de Aplicabilidade e Análise de Similaridade",
     },
-    "menu_step7": {"en": "Step 7 - Consensus Analysis", "pt": "Etapa 7 - Análise de Consenso"},
+    "menu_step7": {"en": "Step 6 - Consensus Analysis", "pt": "Etapa 6 - Análise de Consenso"},
     "menu_edit": {"en": "Edit - DataFrame Manipulate", "pt": "Editar - Manipulação do DataFrame"},
     "menu_exit": {"en": "Exit", "pt": "Sair"},
     "menu_install_requirements": {"en": "Install Requirements", "pt": "Instalar Dependências"},
