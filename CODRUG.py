@@ -397,6 +397,32 @@ def _skl_force_single_thread_kwargs(cls, kwargs):
     return kwargs
 
 
+def _skl_split_grid_values(values_text):
+    """Splits a hyperparameter grid cell's raw text into individual candidate value strings, on
+    commas at parenthesis depth 0 only. A naive text.split(",") would shatter a single
+    tuple-valued candidate (e.g. MLPRegressor/MLPClassifier's hidden_layer_sizes, entered as
+    '(50,),(100,),(100,50)') into bogus fragments like '(100' and '50)' at its own internal
+    comma, each of which then fails ast.literal_eval in _skl_parse_grid_value() below and is
+    kept as a plain (invalid) string - breaking every combination that uses it."""
+    parts = []
+    depth = 0
+    current = []
+    for ch in values_text:
+        if ch == "(":
+            depth += 1
+            current.append(ch)
+        elif ch == ")":
+            depth = max(0, depth - 1)
+            current.append(ch)
+        elif ch == "," and depth == 0:
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(ch)
+    parts.append("".join(current))
+    return parts
+
+
 def _skl_parse_grid_value(text):
     """Converte uma célula de texto (ex: '100', 'None', 'True', '(100, 50)') no valor Python correspondente,
     usado para montar o param_grid do GridSearchCV/RandomizedSearchCV a partir da tabela editável de hiperparâmetros."""
@@ -3307,6 +3333,16 @@ class MainWindow(QMainWindow):
                     self, i18n.t("title_step1", self._idioma),
                     i18n.t("msg_job_load_error", self._idioma, e=e)
                 )
+        else:
+            # New job (not loading a previous one): make sure no field/dataframe left over from
+            # a previously loaded job lingers in the UI - everything should start from zero.
+            try:
+                self._reset_ui_for_new_job()
+            except Exception as e:
+                QMessageBox.warning(
+                    self, i18n.t("title_step1", self._idioma),
+                    i18n.t("msg_job_load_error", self._idioma, e=e)
+                )
 
         if hasattr(self, "_refresh_skl_usi_combo"):
             self._refresh_skl_usi_combo()
@@ -3526,6 +3562,40 @@ class MainWindow(QMainWindow):
             if key not in state:
                 continue
             self._widget_set_value(getattr(self, attr, None), state[key])
+
+    def _clear_state_from_spec(self, spec):
+        """Blanks every widget in spec to its empty/default state, regardless of any stored
+        JSON - unlike _apply_state_from_spec (which only touches keys present in a loaded
+        state dict), this always acts. Used when starting a brand New Project so no value
+        from a previously loaded job lingers in the UI (see _reset_ui_for_new_job).
+
+        QComboBox items are never wiped - only the current selection is reset to index 0 -
+        since some combos hold a fixed, once-populated option list that is never repopulated
+        later (e.g. cb_transformation); clearing their items would permanently break them for
+        the rest of the app session. Dataframe-driven combos/lists are expected to already be
+        emptied beforehand by the relevant _refresh_stepN_dataframe_widgets() call, so resetting
+        their (already-empty) selection here is a no-op."""
+        for _key, attr in spec:
+            widget = getattr(self, attr, None)
+            if widget is None:
+                continue
+            if isinstance(widget, QListWidget):
+                widget.clearSelection()
+            elif isinstance(widget, QComboBox):
+                if widget.isEditable():
+                    # setCurrentIndex(0) below would overwrite this back to the first item's
+                    # text, so an editable combo is blanked instead of index-reset.
+                    widget.setEditText("")
+                elif widget.count() > 0:
+                    widget.setCurrentIndex(0)
+            elif isinstance(widget, QCheckBox):
+                widget.setChecked(False)
+            elif isinstance(widget, QDoubleSpinBox):
+                widget.setValue(widget.minimum())
+            elif isinstance(widget, QSpinBox):
+                widget.setValue(widget.minimum())
+            elif isinstance(widget, (QLineEdit, QLabel)):
+                widget.setText("")
 
     def _collect_plain_attrs(self, attrs):
         """Like _collect_state_from_spec but for plain (non-widget) self attributes that a
@@ -4021,6 +4091,75 @@ class MainWindow(QMainWindow):
         if hasattr(self, "ed_activity_chembl_id"):
             self.ed_activity_chembl_id.setText(str(state.get("activity_chembl_id", "") or ""))
         return True
+
+    def _clear_dataset_preparation_fields(self):
+        """Blanks every STEP1 (Dataset Preparation) field. This tab's state isn't tracked via
+        a generic FIELD_SPEC (see _collect_dataset_preparation_state) - it needs its own
+        dedicated reset when starting a brand New Project (see _reset_ui_for_new_job)."""
+        for attr in ("cb_target_type", "cb_assay_type"):
+            combo = getattr(self, attr, None)
+            if combo is not None and combo.count() > 0:
+                combo.setCurrentIndex(0)
+        for attr in (
+            "ed_organism_name", "ed_target_pref_name", "ed_target_chembl_id",
+            "ed_cell_chembl_id", "ed_cell_name", "ed_cell_source_tissue", "ed_cell_description",
+            "ed_assay_strain", "ed_assay_chembl_id", "ed_assay_description_included",
+            "ed_assay_description_excluded", "ed_molecule_chembl_id", "ed_molecule_pref_name",
+            "ed_canonical_smiles", "ed_activity_chembl_id",
+        ):
+            widget = getattr(self, attr, None)
+            if widget is not None:
+                widget.setText("")
+        for attr in ("list_assay_metric", "list_assay_units"):
+            widget = getattr(self, attr, None)
+            if widget is not None:
+                widget.clear()
+
+    def _reset_ui_for_new_job(self):
+        """Clears every pipeline tab's fields when starting a brand New Project, so nothing
+        from a previously loaded job lingers in the UI (only the "load a previous job" path -
+        _load_job_state_into_ui - should ever populate fields with saved data). Called from the
+        "new job" branch of job_run(); loading a previous job is unaffected."""
+        self._clear_dataset_preparation_fields()
+
+        # Shared dataframes: null them out first and let the existing refresh helpers (which
+        # already know how to handle "no dataframe selected") clear their derived combos/lists
+        # before the remaining independent fields are blanked via FIELD_SPEC below.
+        self.df_selecionado = None
+        self._refresh_step2_dataframe_widgets()
+        self._refresh_step4_dataframe_widgets()
+        self.stats_df = None
+        self._refresh_statistics_dataframe_widgets()
+
+        self.df_int = None
+        self.df_ext = None
+        for attr in ("df_name_view_int_skl", "df_name_view_ext_skl"):
+            widget = getattr(self, attr, None)
+            if widget is not None:
+                widget.setText("")
+        if hasattr(self, "cb_skl_y"):
+            self.cb_skl_y.clear()
+
+        # STEP2 / STATISTICS / STEP4 / STEP7 (AD): independent fields not already handled above.
+        for spec in (self.STEP2_FIELD_SPEC, self.STATISTICS_FIELD_SPEC, self.STEP4_FIELD_SPEC, self.STEP7_FIELD_SPEC):
+            self._clear_state_from_spec(spec)
+
+        # STEP5 (scikit-learn): only a USI pointer is tracked (see _collect_step6_sklearn_state) -
+        # job_run() repopulates this combo from the new job_dir right after calling this method,
+        # so it only needs to be emptied here.
+        if hasattr(self, "ed_skl_USI"):
+            self.ed_skl_USI.blockSignals(True)
+            self.ed_skl_USI.clear()
+            self.ed_skl_USI.blockSignals(False)
+        if hasattr(self, "skl_usi_key"):
+            self.skl_usi_key = None
+
+        # STEP8 (Consensus) and EDIT already have their own correct reset routines (reused by
+        # each tab's own "Clear" button) - reused here instead of duplicating their logic.
+        if hasattr(self, "clear_step7_consensus_group"):
+            self.clear_step7_consensus_group()
+        if hasattr(self, "clear_edit_tab_all_groups"):
+            self.clear_edit_tab_all_groups()
 
     def _load_dataset_preparation_state(self, job_dir=None):
         payload = self._load_job_state(job_dir)
@@ -5127,7 +5266,7 @@ class MainWindow(QMainWindow):
         df = self.stats_df.copy()
         df[col] = pd.to_numeric(df[col], errors='coerce')
 
-        estat = df[col].describe()
+        estat = df[col].describe().rename({"25%": "Q1", "50%": "Q2", "75%": "Q3"})
         estat_rounded = estat.apply(lambda x: f"{x:.2f}")
         estat_scientific = estat.apply(lambda x: f"{x:.2e}")
 
@@ -9103,7 +9242,7 @@ class MainWindow(QMainWindow):
             convert_3d = bool(getattr(self, "chk_3dconvert", None) and self.chk_3dconvert.isChecked())
             target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
             target_organism  = self.ed_organism_name.text().strip()     if hasattr(self, "ed_organism_name")   else ""
-            out_csv = os.path.join(out_internal, f"df4_structures_{target_chembl_id}_{target_organism}.csv")
+            out_csv = os.path.join(out_internal, f"df3_structures_{target_chembl_id}_{target_organism}.csv")
 
             # ---------- Utilitários ----------
             def _safe_name(mol, fallback):
@@ -9855,7 +9994,7 @@ class MainWindow(QMainWindow):
                 df_final = _drop_trailing_empty_column(df_final)
                 os.makedirs(internal_dir, exist_ok=True)
                 bio_col_name = bio_col.replace(" ", "_") if bio_col else "NoBioactivity"
-                out_name = f"df4_descriptors_{bio_col_name}_{target_chembl_id}_{target_organism}.csv"
+                out_name = f"df3_descriptors_{bio_col_name}_{target_chembl_id}_{target_organism}.csv"
                 out_path = os.path.join(internal_dir, out_name)
                 df_final.to_csv(out_path, index=False)
 
@@ -12185,7 +12324,7 @@ class MainWindow(QMainWindow):
             target_organism  = self.ed_organism_name.text().strip()
             out_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
             os.makedirs(out_dir, exist_ok=True)
-            out_path = os.path.join(out_dir, f"df4_scaling_{safe_method_name}_{target_chembl_id}_{target_organism}_{self.date_time}.csv")
+            out_path = os.path.join(out_dir, f"df3_scaling_{safe_method_name}_{target_chembl_id}_{target_organism}_{self.date_time}.csv")
             df_out.to_csv(out_path, index=False)
 
             self.df_selecionado = df_out
@@ -12427,7 +12566,7 @@ class MainWindow(QMainWindow):
                 safe_method = self._sanitize_filename(method) 
                 target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
                 target_organism = self.ed_organism_name.text().strip() if hasattr(self, "ed_organism_name") else ""
-                out_name = f'df4_selection_{safe_method}_{target_chembl_id}_{target_organism}_{self.date_time}.csv'
+                out_name = f'df3_selection_{safe_method}_{target_chembl_id}_{target_organism}_{self.date_time}.csv'
                 out_path = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA", out_name)
                 os.makedirs(os.path.dirname(out_path), exist_ok=True)
                 df_sel.to_csv(out_path, index=False)
@@ -12705,7 +12844,7 @@ class MainWindow(QMainWindow):
                         )
 
                 self.date_time = datetime.now().strftime("%Y-%m-%d_%H-%M")
-                out_name = f'df4_projection_{safe_method}_{target_chembl_id}_{target_organism}_{self.date_time}.csv'
+                out_name = f'df3_projection_{safe_method}_{target_chembl_id}_{target_organism}_{self.date_time}.csv'
                 out_path = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA", out_name)
                 os.makedirs(os.path.dirname(out_path), exist_ok=True)
                 df_proj.to_csv(out_path, index=False)
@@ -13231,6 +13370,183 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, i18n.t("msg_title_ad", self._idioma), f"Error in similarity chart: {e}")
 
+    def select_dataframe_ad_verdict(self):
+        """Botão "Select AD DataFrame" do grupo Verdict Distribution (STEP 5): independente de
+        df_int/df_ext, carrega um CSV/Excel (por padrão o resultado salvo por "Compute AD" em
+        RESULTS/AD) e popula "Select Column:" com suas colunas, pré-selecionando "ad_verdict"
+        quando presente."""
+        initial_dir = os.path.join(self.job_dir, "RESULTS", "AD")
+        if not os.path.isdir(initial_dir):
+            initial_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select AD DataFrame",
+            initial_dir,
+            "Data Files (*.csv *.xlsx);;CSV Files (*.csv);;Excel Files (*.xlsx)"
+        )
+        if not file_path:
+            return
+        try:
+            df = self._read_selected_table_file(file_path)
+        except Exception as e:
+            QMessageBox.critical(self, i18n.t("msg_title_error_opening_csv", self._idioma), str(e))
+            return
+
+        self.df_ad_verdict = df
+        self.show_dataframe(df)
+        self.df_name_view_ad_verdict.setText(os.path.basename(file_path))
+
+        self.cb_ad_verdict_column.blockSignals(True)
+        self.cb_ad_verdict_column.clear()
+        self.cb_ad_verdict_column.addItems(df.columns.astype(str))
+        idx = self.cb_ad_verdict_column.findText("ad_verdict")
+        if idx >= 0:
+            self.cb_ad_verdict_column.setCurrentIndex(idx)
+        self.cb_ad_verdict_column.blockSignals(False)
+
+    def run_view_ad_verdict_frequency(self):
+        """Botão "View Frequency" do grupo Verdict Distribution (STEP 5): gráfico de barras com a
+        contagem de cada classe presente na coluna selecionada, uma cor por classe - mesma paleta
+        do "View Frequency" da STEP 2 (run_view_class_frequency). Salva automaticamente em
+        RESULTS/MIDIA (mesma convenção de nome dos demais gráficos desta aba - Plot Williams/Hist.
+        Mahalanobis/etc.: "{prefixo}_{nome do DataFrame Externo selecionado}_{timestamp}.png") e
+        então exibe o gráfico numa janela com botões "Save Chart"/"Close" - mesmo método usado
+        pelo "View Frequency" da STEP 4/scikit-learn (_show_ad_plot_dialog, análogo a
+        _show_skl_plot_dialog)."""
+        if getattr(self, "df_ad_verdict", None) is None:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "No AD DataFrame loaded.")
+            return
+
+        col = self.cb_ad_verdict_column.currentText().strip() if hasattr(self, "cb_ad_verdict_column") else ""
+        if not col or col not in self.df_ad_verdict.columns:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid column.")
+            return
+
+        df = self.df_ad_verdict
+        s = df[col].dropna().astype(str).str.strip()
+        if s.empty:
+            QMessageBox.information(self, i18n.t("msg_title_attention", self._idioma), f"Column '{col}' has no valid categories.")
+            return
+
+        cats_sorted = sorted(s.unique().tolist(), key=str.lower)
+        freq_ordered = s.value_counts().reindex(cats_sorted, fill_value=0)
+
+        # Mesma paleta EDITÁVEL usada pelo "View Frequency" da STEP 2 (run_view_class_frequency).
+        base_colors = [
+            "#357fb4",  # Azul
+            "#bd793d",  # Laranja
+            "#59af59",  # Verde
+            "#bd5e5e",  # Vermelho
+            "#9467bd",  # Roxo
+            "#8c564b",  # Marrom
+        ]
+        bar_colors = [base_colors[i % len(base_colors)] for i in range(len(freq_ordered))]
+
+        try:
+            fig, ax = plt.subplots(figsize=(8, 5))
+            bars = ax.bar(freq_ordered.index, freq_ordered.values, color=bar_colors)
+            ax.spines[['top', 'right']].set_visible(False)
+            ax.grid(False)
+            ax.set_xlabel(col, fontsize=10, fontweight="bold")
+            ax.set_ylabel("Count", fontsize=10, fontweight="bold")
+
+            max_val = int(freq_ordered.values.max()) if len(freq_ordered) else 0
+            y_offset = 0.02 * max_val if max_val > 0 else 0.1
+            for bar, val, color in zip(bars, freq_ordered.values, bar_colors):
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    val + y_offset,
+                    f"{int(val)}",
+                    va="bottom",
+                    ha="center",
+                    color=color,
+                    weight="bold"
+                )
+            ax.set_xticklabels(ax.get_xticklabels(), rotation=0)
+
+            fig.suptitle(f"Frequency by {col}", fontweight="bold")
+            fig.tight_layout()
+
+            # Nome do DataFrame Externo selecionado nesta aba (mesma base usada por Plot Williams/
+            # Hist. Mahalanobis/PCA/Similarity via _ad_ext_basename, definida em run_ad_assessment
+            # / "Compute AD"; se Compute AD ainda não rodou nesta sessão, cai de volta para o nome
+            # atualmente exibido em "Select External DataFrame").
+            ext_base = getattr(self, "_ad_ext_basename", None)
+            if not ext_base:
+                ext_text = self.df_name_view_ext_AD.text().strip() if hasattr(self, "df_name_view_ext_AD") else ""
+                ext_base = os.path.splitext(ext_text)[0] if ext_text else "external"
+            timestamp = getattr(self, "_ad_timestamp", None) or datetime.now().strftime("%Y-%m-%d_%H-%M")
+            file_stem = f"Plot_verdict_freq_{ext_base}_{timestamp}"
+
+            midia_dir = os.path.join(self.job_dir, "RESULTS", "MIDIA")
+            os.makedirs(midia_dir, exist_ok=True)
+            auto_path = os.path.join(midia_dir, f"{file_stem}.png")
+            try:
+                fig.savefig(auto_path, dpi=300, bbox_inches="tight", facecolor="white")
+            except Exception as e:
+                QMessageBox.warning(self, i18n.t("msg_title_ad", self._idioma), f"Could not auto-save chart to MIDIA:\n{e}")
+
+            self._show_ad_plot_dialog(fig, file_stem)
+        except Exception as e:
+            QMessageBox.critical(self, i18n.t("msg_title_ad", self._idioma), f"Error in verdict frequency chart: {e}")
+
+    def _show_ad_plot_dialog(self, fig, file_stem):
+        """Exibe um gráfico da STEP 5 (AD) numa janela com toolbar de navegação e botões "Save
+        Chart"/"Close" - mesmo método usado pelo "View Frequency" da STEP 4/scikit-learn
+        (_show_skl_plot_dialog), adaptado para salvar em RESULTS/MIDIA (pasta única desta aba, sem
+        subpasta por USI)."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"AD Plot: {file_stem}")
+        layout = QVBoxLayout(dialog)
+
+        canvas = FigureCanvas(fig)
+        toolbar = NavigationToolbar(canvas, dialog)
+        layout.addWidget(toolbar)
+        layout.addWidget(canvas)
+
+        btn_row = QHBoxLayout()
+        btn_save = QPushButton("Save Chart")
+        btn_close = QPushButton("Close")
+        _style_dialog_buttons(btn_save, btn_close)
+        btn_save.setFixedWidth(200)
+        btn_close.setFixedWidth(200)
+        btn_row.addWidget(btn_save)
+        btn_row.addWidget(btn_close)
+        layout.addLayout(btn_row)
+
+        midia_dir = os.path.join(self.job_dir, "RESULTS", "MIDIA")
+
+        def _apply_ext(path, selected_filter, default_ext=".png"):
+            root, ext = os.path.splitext(path)
+            if ext:
+                return path
+            if "SVG" in (selected_filter or ""):
+                return path + ".svg"
+            if "PNG" in (selected_filter or ""):
+                return path + ".png"
+            return path + default_ext
+
+        def save_figure():
+            file_path, selected_filter = QFileDialog.getSaveFileName(
+                dialog, "Save chart",
+                os.path.join(midia_dir, f"{file_stem}.png"),
+                "PNG Files (*.png);;SVG Files (*.svg);;All Files (*)"
+            )
+            if not file_path:
+                return
+            file_path = _apply_ext(file_path, selected_filter, default_ext=".png")
+            ext = os.path.splitext(file_path)[1].lower()
+            if ext == ".svg":
+                fig.savefig(file_path, format="svg", bbox_inches="tight")
+            else:
+                fig.savefig(file_path, dpi=300, bbox_inches="tight", facecolor="white")
+            QMessageBox.information(dialog, "Saved", f"Chart saved to:\n{file_path}")
+
+        btn_save.clicked.connect(save_figure)
+        btn_close.clicked.connect(dialog.close)
+        dialog.resize(1000, 750)
+        dialog.exec_()
+
 
 # STEP 5: MACHINE LEARNING MODELS
     def select_dataframe_int(self):
@@ -13248,7 +13564,6 @@ class MainWindow(QMainWindow):
                 self.show_dataframe(df)          
             except Exception as e:
                 QMessageBox.critical(self, i18n.t("msg_title_error_opening_csv", self._idioma), str(e))
-            self.df_name_view_int.setText(os.path.basename(file_path))
             self.df_name_view_int_AD.setText(os.path.basename(file_path))
             if hasattr(self, "df_name_view_int_skl"):
                 self.df_name_view_int_skl.setText(os.path.basename(file_path))
@@ -13290,7 +13605,6 @@ class MainWindow(QMainWindow):
                 self.show_dataframe(df)
             except Exception as e:
                 QMessageBox.critical(self, i18n.t("msg_title_error_opening_csv", self._idioma), str(e))
-            self.df_name_view_ext.setText(os.path.basename(file_path))
             self.df_name_view_ext_AD.setText(os.path.basename(file_path))
             if hasattr(self, "df_name_view_ext_skl"):
                 self.df_name_view_ext_skl.setText(os.path.basename(file_path))
@@ -16243,6 +16557,14 @@ class MainWindow(QMainWindow):
             self.btn_skl_select_all.clicked.connect(self.list_skl_models.selectAll)
             screen_btns_row.addWidget(self.btn_skl_select_all, alignment=Qt.AlignLeft)
 
+            screen_btns_row.addStretch()
+            self.btn_skl_view_train_test_freq = QPushButton(); self._tr("s6_btn_view_train_test_freq", self.btn_skl_view_train_test_freq.setText)
+            self.btn_skl_view_train_test_freq.setProperty("role", "secondary")
+            self.btn_skl_view_train_test_freq.setFixedWidth(150)
+            self.btn_skl_view_train_test_freq.clicked.connect(self.run_view_skl_train_test_frequency)
+            screen_btns_row.addWidget(self.btn_skl_view_train_test_freq, alignment=Qt.AlignCenter)
+            screen_btns_row.addStretch()
+
             self.btn_skl_run_screening = QPushButton(); self._tr("s6_btn_run_screening", self.btn_skl_run_screening.setText)
             self.btn_skl_run_screening.setProperty("role", "primary")
             self.btn_skl_run_screening.setFixedWidth(160)
@@ -16650,12 +16972,74 @@ class MainWindow(QMainWindow):
             # --- Progress ---
             self.pb_ad = self._mk_progress()
             self.pb_ad.setMaximum(100); self.pb_ad.setValue(0); self._tr("s7_fmt_ad_progress", self.pb_ad.setFormat); self.pb_ad.setFixedWidth(700)
-            
+
+            # --- Group: Verdict Distribution ---
+            gb_ad_verdict = QGroupBox(); self._tr("s7_grp_verdict_distribution", gb_ad_verdict.setTitle)
+            gb_ad_verdict.setStyleSheet("QGroupBox { font-weight: bold; }")
+            lay_ad_verdict = QVBoxLayout(gb_ad_verdict)
+
+            verdict_df_row = QHBoxLayout()
+            self.btn_select_df_ad_verdict = QPushButton(); self._tr("btn_select_ad_df", self.btn_select_df_ad_verdict.setText)
+            self.btn_select_df_ad_verdict.setProperty("role", "select")
+            self.btn_select_df_ad_verdict.setFixedWidth(200)
+            self.btn_select_df_ad_verdict.setStyleSheet("""
+                QPushButton {
+                    background: #B7E4C7;
+                    color: #C9D1D9
+                    font-size: 10pt;
+                    font-weight: bold;
+                    border: 1px solid #222;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background: #74C69D;
+                    color: #000000;
+                }
+                QPushButton:pressed {
+                    background: #40916C;
+                    color: #000000;
+                }
+            """)
+            self.btn_select_df_ad_verdict.clicked.connect(self.select_dataframe_ad_verdict)
+
+            self.df_name_view_ad_verdict = QLineEdit()
+            self.df_name_view_ad_verdict.setReadOnly(True)
+            self.df_name_view_ad_verdict.setFixedWidth(500)
+            self.df_name_view_ad_verdict.setStyleSheet("background-color: #6E8CA8; color: #6E8CA8; border: 1px solid #ccc; border-radius: 4px; padding: 5px;")
+
+            verdict_df_row.addStretch()
+            verdict_df_row.addWidget(self.btn_select_df_ad_verdict, alignment=Qt.AlignRight)
+            verdict_df_row.addWidget(self.df_name_view_ad_verdict, alignment=Qt.AlignLeft)
+            verdict_df_row.addStretch()
+            lay_ad_verdict.addLayout(verdict_df_row)
+
+            verdict_col_row = QHBoxLayout()
+            verdict_col_row.addStretch()
+            verdict_col_row.addWidget(self._trL("lbl_select_column"))
+            self.cb_ad_verdict_column = QComboBox()
+            self.cb_ad_verdict_column.addItems([""])
+            self.cb_ad_verdict_column.setFixedWidth(200)
+            verdict_col_row.addWidget(self.cb_ad_verdict_column)
+            verdict_col_row.addSpacing(20)
+            self.btn_ad_verdict_view_freq = QPushButton(); self._tr("s3_btn_view_frequency", self.btn_ad_verdict_view_freq.setText)
+            self.btn_ad_verdict_view_freq.setProperty("role", "secondary")
+            self.btn_ad_verdict_view_freq.setFixedSize(150, 30)
+            self.btn_ad_verdict_view_freq.clicked.connect(self.run_view_ad_verdict_frequency)
+            verdict_col_row.addWidget(self.btn_ad_verdict_view_freq)
+            verdict_col_row.addStretch()
+            lay_ad_verdict.addLayout(verdict_col_row)
+
+            verdict_row = QHBoxLayout()
+            verdict_row.addStretch()
+            verdict_row.addWidget(gb_ad_verdict)
+            verdict_row.addStretch()
+
             # Monta layout
             l7.addLayout(head_lay1)
             l7.addLayout(head_lay2)
             l7.addLayout(body_AD)
             l7.addWidget(self.pb_ad, alignment=Qt.AlignCenter)
+            l7.addLayout(verdict_row)
             l7.addStretch()
 
             # Conexões
@@ -18436,7 +18820,7 @@ class MainWindow(QMainWindow):
             values_item = self.tbl_skl_hyperparams.item(row, 1)
             if param_item and param_item.text().strip() == parameter_name:
                 values_text = values_item.text().strip() if values_item else ""
-                return [_skl_parse_grid_value(v) for v in values_text.split(",") if v.strip()]
+                return [_skl_parse_grid_value(v) for v in _skl_split_grid_values(values_text) if v.strip()]
         return []
 
     def _update_skl_tune_method_widgets(self):
@@ -18665,7 +19049,7 @@ class MainWindow(QMainWindow):
                 values_text = values_item.text().strip()
                 if not param_name or not values_text:
                     continue
-                param_grid[param_name] = [_skl_parse_grid_value(v) for v in values_text.split(",")]
+                param_grid[param_name] = [_skl_parse_grid_value(v) for v in _skl_split_grid_values(values_text)]
                 raw_grid_rows.append([param_name, values_text])
 
             if not param_grid:
@@ -18955,7 +19339,7 @@ class MainWindow(QMainWindow):
                     values_text = values_item.text().strip()
                     if not param_name or not values_text:
                         continue
-                    param_grid[param_name] = [_skl_parse_grid_value(v) for v in values_text.split(",")]
+                    param_grid[param_name] = [_skl_parse_grid_value(v) for v in _skl_split_grid_values(values_text)]
                 if not param_grid:
                     QMessageBox.warning(self, i18n.t("msg_title_evaluate", self._idioma), "Define a hyperparameter grid in the Tuning group first (used as the inner search space for Nested CV).")
                     return
@@ -19183,6 +19567,53 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, i18n.t("msg_title_predict_error", self._idioma), str(e))
 
     # ---------- CHARTS ----------
+
+    def run_view_skl_train_test_frequency(self):
+        """Botão "View Frequency" do grupo Model Screening (STEP 4): gráfico de barras com o
+        tamanho do conjunto de treino e do conjunto de teste, calculados a partir de "Select Test
+        Size" e do número de linhas do DataFrame Interno selecionado - não depende de Run
+        Screening já ter sido executado (não faz nenhum split de fato). Salva automaticamente em
+        MIDIA da USI atual e exibe o gráfico; o nome proposto ao clicar em "Save Chart" usa a
+        coluna escolhida em "Select Column Y (internal df)" como prefixo."""
+        if getattr(self, "df_int", None) is None:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "No Internal DataFrame loaded.")
+            return
+
+        n_total = len(self.df_int)
+        if n_total == 0:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "The Internal DataFrame has no rows.")
+            return
+
+        test_size = self.dsp_skl_test_size.value() if hasattr(self, "dsp_skl_test_size") else 0.3
+        # Mesma conta usada por train_test_split (sklearn) quando só test_size é informado.
+        n_test = int(np.ceil(test_size * n_total))
+        n_test = max(0, min(n_total, n_test))
+        n_train = n_total - n_test
+
+        y_col = self.cb_skl_y.currentText().strip() if hasattr(self, "cb_skl_y") else ""
+
+        fig, ax = plt.subplots(figsize=(6, 5))
+        counts = [n_train, n_test]
+        bars = ax.bar(["Train", "Test"], counts, color=["#357fb4", "#bd793d"])
+        ax.spines[['top', 'right']].set_visible(False)
+        ax.grid(False)
+        ax.set_ylabel("Count", fontsize=10, fontweight="bold")
+        max_val = max(counts) if counts else 0
+        y_offset = 0.02 * max_val if max_val > 0 else 0.1
+        for bar, val in zip(bars, counts):
+            ax.text(bar.get_x() + bar.get_width() / 2, val + y_offset, f"{val}", va="bottom", ha="center", fontweight="bold")
+        fig.suptitle(f"Train/Test Split (Test Size = {test_size:.2f}, n = {n_total})", fontweight="bold")
+        fig.tight_layout(rect=[0, 0, 1, 0.94])
+
+        self._set_current_sklearn_usi_context()
+        file_stem = f"{y_col}_Train_Test_Plot" if y_col else "Train_Test_Plot"
+        auto_path = os.path.join(self.skl_plot_path, f"{file_stem}.png")
+        try:
+            fig.savefig(auto_path, dpi=300, bbox_inches="tight", facecolor="white")
+        except Exception as e:
+            QMessageBox.warning(self, i18n.t("msg_title_plot", self._idioma), f"Could not auto-save chart to MIDIA:\n{e}")
+
+        self._show_skl_plot_dialog(fig, "train_test_frequency", file_stem)
 
     def run_skl_plot(self):
         try:

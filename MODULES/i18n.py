@@ -445,6 +445,7 @@ _TEXTOS = {
     # ---------------------------------------------------------------- STEP 5 (scikit-learn)
     "btn_select_internal_df": {"en": "Select Internal DataFrame", "pt": "Selecionar DataFrame Interno"},
     "btn_select_external_df": {"en": "Select External DataFrame", "pt": "Selecionar DataFrame Externo"},
+    "btn_select_ad_df": {"en": "Select AD DataFrame", "pt": "Selecionar DataFrame de DA"},
     "s5_lbl_usi": {"en": "USI:", "pt": "USI:"},
     "s5_subtab_predict": {"en": "Predict", "pt": "Predizer"},
     "lbl_descriptors_columns_range": {"en": "Descriptors Columns Range:", "pt": "Intervalo de Colunas de Descritores:"},
@@ -474,6 +475,7 @@ _TEXTOS = {
     "lbl_status": {"en": "Status:", "pt": "Status:"},
     "s6_fmt_screening_progress": {"en": "Screening: %p%", "pt": "Seleção: %p%"},
     "btn_select_all": {"en": "Select All", "pt": "Selecionar Tudo"},
+    "s6_btn_view_train_test_freq": {"en": "View Frequency", "pt": "Ver Frequência"},
     "s6_btn_run_screening": {"en": "Run Screening", "pt": "Executar Seleção"},
     "s6_grp_hyperparameter_tuning": {"en": "Hyperparameter Tuning", "pt": "Ajuste de Hiperparâmetros"},
     "lbl_model": {"en": "Model:", "pt": "Modelo:"},
@@ -506,6 +508,7 @@ _TEXTOS = {
 
     # ---------------------------------------------------------------- STEP 6 (Applicability Domain)
     "s7_grp_set_ad_params": {"en": "Set AD Parameters", "pt": "Definir Parâmetros de DA"},
+    "s7_grp_verdict_distribution": {"en": "Verdict Distribution", "pt": "Distribuição de Veredito"},
     "s7_chk_project_pca": {"en": "Project PCA for plots", "pt": "Projetar PCA para os gráficos"},
     "s7_lbl_k_knn": {"en": "k (kNN):", "pt": "k (kNN):"},
     "s7_lbl_alpha_chi2": {"en": "α for χ² cut (MD):", "pt": "α para corte χ² (MD):"},
