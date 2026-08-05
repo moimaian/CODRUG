@@ -15359,10 +15359,10 @@ class MainWindow(QMainWindow):
             gL16.addWidget(btn_set_class, 3, 1, alignment=Qt.AlignCenter)
             gL16.addWidget(label_view_class, 4, 1, alignment=Qt.AlignCenter)
             gL16.addWidget(label_mol_chembl_id, 5, 0, alignment=Qt.AlignRight); gL16.addWidget(self.cb_molecule_chembl_id_cat, 5, 1)
-            gL16.addWidget(label_class, 6, 0, alignment=Qt.AlignRight); gL16.addWidget(self.ed_class, 6, 1)
-            gL16.addWidget(btn_view_class, 6, 2, alignment=Qt.AlignCenter)
-            gL16.addWidget(label_select_class_column, 7, 0, alignment=Qt.AlignRight); gL16.addWidget(self.list_class_column, 7, 1)
-            gL16.addWidget(btn_view_class_frequency, 7, 2, alignment=Qt.AlignCenter)
+            gL16.addWidget(label_class, 5, 2, alignment=Qt.AlignRight); gL16.addWidget(self.ed_class, 5, 3)
+            gL16.addWidget(btn_view_class, 5, 4, alignment=Qt.AlignCenter)
+            gL16.addWidget(label_select_class_column, 6, 0, alignment=Qt.AlignRight); gL16.addWidget(self.list_class_column, 6, 1)
+            gL16.addWidget(btn_view_class_frequency, 6, 2, alignment=Qt.AlignCenter)
 
             CAT_COL_UNIT = 100
             gL16.setColumnMinimumWidth(0, CAT_COL_UNIT)
@@ -15508,11 +15508,11 @@ class MainWindow(QMainWindow):
             gL17.setColumnStretch(0, 1); gL17.setColumnStretch(1, 1)
 
             g11_main_layout.addWidget(gL17_widget)
-            g11_main_layout.addSpacing(30)
+            g11_main_layout.addSpacing(10)
             btn_lip_layout.addWidget(btn_set_lip)
             btn_lip_layout.addWidget(btn_filter_lip)
             g11_main_layout.addLayout(btn_lip_layout)
-            g11_main_layout.addSpacing(30)
+            g11_main_layout.addSpacing(10)
             g11_main_layout.addStretch()
 
             g10_11_layout.addWidget(g10, alignment=Qt.AlignTop)
