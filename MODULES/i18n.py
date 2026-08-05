@@ -122,12 +122,12 @@ _TEXTOS = {
     "title_project_settings": {"en": "Project Settings:", "pt": "Configurações do Projeto:"},
     "title_step1": {"en": "Dataset Preparation", "pt": "Preparação do Dataset"},
     "title_step2": {
-        "en": "Preprocessing and Exploratory Analysis",
-        "pt": "Pré-processamento e Análise Exploratória",
+        "en": "Data Preprocessing",
+        "pt": "Pré-processamento dos Dados",
     },
     "title_step3": {
-        "en": "Preprocessing and Statistical Analysis",
-        "pt": "Pré-processamento e Análise Estatística",
+        "en": "Categorization and Druggability",
+        "pt": "Categorização e Drogabilidade",
     },
     "title_step4": {"en": "Features Engineering", "pt": "Engenharia de Atributos"},
     "title_step5": {
@@ -293,7 +293,8 @@ _TEXTOS = {
     "s2_lbl_select_molecule_id": {"en": "Select Molecule_ChEMBL_ID:", "pt": "Selecione o Molecule_ChEMBL_ID:"},
     "s2_btn_check_molecule": {"en": "Check Molecule", "pt": "Verificar Molécula"},
     "s2_grp_data_transformation": {"en": "Data transformation", "pt": "Transformação de dados"},
-    "s2_lbl_select_transformations": {"en": "Select Transformation:", "pt": "Selecione a Transformação:"},
+    "s2_lbl_select_transformations": {"en": "Select\nTransformation:", "pt": "Selecione\na Transformação:"},
+    "s2_lbl_select_column_trans": {"en": "Select\ncolumn:", "pt": "Selecione\na coluna:"},
     "s2_btn_run_transformation": {"en": "Run \nTransformation", "pt": "Executar \nTransformação"},
     "s2_btn_eliminate_invalid": {
         "en": "Eliminating invalid, infinite \nor values that exceed the \nallowed range in float64",
@@ -303,7 +304,7 @@ _TEXTOS = {
     "s2_btn_view_descriptive_stats": {"en": "View descritive \nStatistics", "pt": "Ver Estatística \nDescritiva"},
     "s2_lbl_select_chart": {"en": "Select chart:", "pt": "Selecione o gráfico:"},
     "s2_btn_view_dist_chart": {"en": "View distribution \nchart", "pt": "Ver gráfico de \ndistribuição"},
-    "s2_lbl_label_mark": {"en": "Label Mark", "pt": "Marcar Rótulo"},
+    "s2_lbl_label_mark": {"en": "Label Mark", "pt": "Marcadores"},
     "s2_lbl_normality_test": {"en": "Normality \nTest:", "pt": "Teste de \nNormalidade:"},
     "s2_lbl_outlier_detection": {"en": "Outlier \nDetection:", "pt": "Detecção de \nOutliers:"},
     "s2_btn_view_interpretation": {"en": "View \nInterpretation", "pt": "Ver \nInterpretação"},
@@ -340,7 +341,7 @@ _TEXTOS = {
     "s3_btn_view_class": {"en": "View Class", "pt": "Ver Classe"},
     "s3_lbl_select_class_column": {"en": "Select Class column:", "pt": "Selecione a coluna de Classe:"},
     "s3_btn_view_frequency": {"en": "View Frequency", "pt": "Ver Frequência"},
-    "s3_grp_druggability": {"en": "Generating Druggability Descriptors", "pt": "Geração de Descritores de Farmacocinética"},
+    "s3_grp_druggability": {"en": "Generating Druggability Descriptors", "pt": "Geração de Descritores de Drogabilidade"},
     "s3_lbl_select_properties": {"en": "Select Properties:", "pt": "Selecione as Propriedades:"},
     "s3_chk_molecular_weight": {"en": "Molecular Weight", "pt": "Massa Molecular"},
     "s3_chk_hdonor": {"en": "H-Donor", "pt": "Doador de H"},
@@ -348,8 +349,8 @@ _TEXTOS = {
     "s3_chk_rotatable_bonds": {"en": "Rotatable Bonds", "pt": "Ligações Rotacionáveis"},
     "s3_chk_violations": {"en": "Nº Violations", "pt": "Nº de Violações"},
     "s3_lbl_select_range": {"en": "Select Range:", "pt": "Selecione o Intervalo:"},
-    "s3_btn_set_druggability": {"en": "Set Druggability\n Descriptors", "pt": "Definir Descritores\n de Farmacocinética"},
-    "s3_btn_filter_druggability": {"en": "Filter by\n Druggability Rule", "pt": "Filtrar pela\n Regra de Farmacocinética"},
+    "s3_btn_set_druggability": {"en": "Set Druggability\n Descriptors", "pt": "Definir Descritores\n de Drogabilidade"},
+    "s3_btn_filter_druggability": {"en": "Filter by\n Druggability Rule", "pt": "Filtrar pela\n Regra de Drogabilidade"},
 
     # ---------------------------------------------------------------- STATISTICS tab
     "stats_grp_descriptive_distribution": {
@@ -687,12 +688,12 @@ _TEXTOS = {
     "menu_configure_new_run": {"en": "Configure New Run", "pt": "Configurar Nova Execução"},
     "menu_step1": {"en": "Step 1 - Dataset Preparation", "pt": "Etapa 1 - Preparação do Dataset"},
     "menu_step2": {
-        "en": "Step 2 - Preprocessing and Exploratory Analysis",
-        "pt": "Etapa 2 - Pré-processamento e Análise Exploratória",
+        "en": "Step 2 - Data Preprocessing",
+        "pt": "Etapa 2 - Pré-processamento dos Dados",
     },
     "menu_step3": {
-        "en": "Step 3 - Preprocessing and Statistical Analysis",
-        "pt": "Etapa 3 - Pré-processamento e Análise Estatística",
+        "en": "Step 3 - Categorization and Druggability",
+        "pt": "Etapa 3 - Categorização e Drogabilidade",
     },
     "menu_step4": {"en": "Step 4 - Features Engineering", "pt": "Etapa 4 - Engenharia de Atributos"},
     "menu_step5": {
@@ -704,7 +705,7 @@ _TEXTOS = {
         "pt": "Etapa 6 - Domínio de Aplicabilidade e Análise de Similaridade",
     },
     "menu_step7": {"en": "Step 7 - Consensus Analysis", "pt": "Etapa 7 - Análise de Consenso"},
-    "menu_edit": {"en": "Edit", "pt": "Editar"},
+    "menu_edit": {"en": "Edit - DataFrame Manipulate", "pt": "Editar - Manipulação do DataFrame"},
     "menu_exit": {"en": "Exit", "pt": "Sair"},
     "menu_install_requirements": {"en": "Install Requirements", "pt": "Instalar Dependências"},
     "menu_code_and_tutorials": {"en": "Code and Tutorials (Github)", "pt": "Código e Tutoriais (Github)"},

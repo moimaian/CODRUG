@@ -915,6 +915,20 @@ QPushButton:pressed { background: #D98979; color: #FFF; }
 QPushButton:disabled { background: #352323; color: #8D6A66; border-color: #5A4340; }
 """
 
+_SS_BTN_ORANGE = """
+QPushButton {
+    background: #4A3419;
+    color: #F5A623;
+    font-weight: bold;
+    border: 1px solid #F5A623;
+    border-radius: 5px;
+    padding: 6px 16px;
+}
+QPushButton:hover { background: #F0A83C; color: #0D1B2A; }
+QPushButton:pressed { background: #D98F1F; color: #FFF; }
+QPushButton:disabled { background: #362B1D; color: #8D7355; border-color: #5A4A30; }
+"""
+
 _SS_BTN_NAV = """
 QPushButton {
     background: transparent;
@@ -2952,6 +2966,7 @@ class MainWindow(QMainWindow):
             "select": _SS_BTN_SELECT,
             "secondary": _SS_BTN_SECONDARY,
             "danger": _SS_BTN_DANGER,
+            "orange": _SS_BTN_ORANGE,
             "nav": _SS_BTN_NAV,
         }
         if role in role_map:
@@ -3580,9 +3595,7 @@ class MainWindow(QMainWindow):
         ("transform_type", "cb_transformation"),
         ("outlier_column", "list_columns_outlier"),
         ("outlier_threshold", "threshold_outlier"),
-        ("outlier_zscore", "chk_outlier_zscore"),
-        ("outlier_iqr", "chk_outlier_iqr"),
-        ("outlier_sd", "chk_outlier_sd"),
+        ("outlier_method", "cb_outlier_method"),
     ]
 
     def _collect_step2_state(self):
@@ -3689,8 +3702,6 @@ class MainWindow(QMainWindow):
         if not isinstance(state, dict) or not state:
             return False
         self._apply_state_from_spec(self.STATISTICS_FIELD_SPEC, state)
-        # Recalcula os valores derivados (α, e o par Z/% ou Poder/β pode ter vindo
-        # de um job salvo antes desta funcionalidade existir) a partir do que foi restaurado.
         if hasattr(self, "_sync_stats_confidence_from_pct"):
             self._sync_stats_confidence_from_pct()
         return True
@@ -5788,9 +5799,9 @@ class MainWindow(QMainWindow):
         output_dir = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA")
         output = []
 
-        # Z-Score
-        if self.chk_outlier_zscore.isChecked():
-            outlier_method = "Z-Score"
+        outlier_method = self.cb_outlier_method.currentText()
+
+        if outlier_method == "Z-Score":
             df['z_score'] = zscore(data)
             outliers_below = df[df['z_score'] < -threshold]
             outliers_above = df[df['z_score'] > threshold]
@@ -5803,9 +5814,7 @@ class MainWindow(QMainWindow):
             file_path = os.path.join(output_dir, f'df2_TratOutliers_Z_{target_chembl_id}_{target_organism}.csv')
             df_out.to_csv(file_path, index=False)
 
-        # IQR
-        if self.chk_outlier_iqr.isChecked():
-            outlier_method = "IQR"
+        elif outlier_method == "IQR":
             Q1 = data.quantile(0.25)
             Q3 = data.quantile(0.75)
             IQR = Q3 - Q1
@@ -5821,9 +5830,7 @@ class MainWindow(QMainWindow):
             file_path = os.path.join(output_dir, f'df2_TratOutliers_IQR_{target_chembl_id}_{target_organism}.csv')
             df_out.to_csv(file_path, index=False)
 
-        # SD
-        if self.chk_outlier_sd.isChecked():
-            outlier_method = "SD"       
+        elif outlier_method == "SD":
             mean = data.mean()
             std = data.std(ddof=0)
             lower = mean - threshold * std
@@ -5837,7 +5844,11 @@ class MainWindow(QMainWindow):
             df_out = df[(data >= lower) & (data <= upper)].reset_index(drop=True)
             file_path = os.path.join(output_dir, f'df2_TratOutliers_SD_{target_chembl_id}_{target_organism}.csv')
             df_out.to_csv(file_path, index=False)
-        
+
+        else:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid Outlier Detection method.")
+            return
+
         # === atualiza exibição do DataFrame e saída ===
         self.df_selecionado = df_out
         self.show_dataframe(df_out)
@@ -11916,6 +11927,10 @@ class MainWindow(QMainWindow):
     PROJ_ROW_CORR_THRESHOLD = 12  # Selection: "Correlation Threshold"
     PROJ_ROW_ALPHA = 13           # Selection: Lasso (L1)/Ridge (L2)/Elastic Net
 
+    # Linhas sempre visíveis quando a tabela está fechada (0, 1, 2 - até "Variance
+    # threshold"); as demais (método-específicas) só aparecem com a tabela aberta.
+    PROJ_TABLE_COLLAPSED_VISIBLE_ROWS = PROJ_ROW_VAR_THRESHOLD + 1
+
     # Todas as linhas editáveis (persistidas no job state) - exclui apenas a linha
     # somente-leitura PROJ_ROW_TOP3_VARIANCE.
     PROJ_ROWS_PERSISTED = [
@@ -12042,6 +12057,7 @@ class MainWindow(QMainWindow):
         active_rows = set(self.PROJ_METHOD_ROWS.get(method_name, []))
         for row in self.PROJ_METHOD_ROWS_ALL:
             self._set_param_row_enabled(row, row in active_rows)
+        self._auto_expand_proj_table_if_needed(active_rows)
 
     def _update_selection_param_rows(self):
         """Enables (light blue) the rows used by the Recommended Selection method
@@ -12050,6 +12066,57 @@ class MainWindow(QMainWindow):
         active_rows = set(self.SELECTION_METHOD_ROWS.get(method_name, []))
         for row in self.SELECTION_METHOD_ROWS_ALL:
             self._set_param_row_enabled(row, row in active_rows)
+        self._auto_expand_proj_table_if_needed(active_rows)
+
+    def _refresh_proj_table_toggle_label(self):
+        """Redraws the "Parameters:" toggle button's text/arrow to match the table's
+        current open/closed state - called on click, on language switch, and whenever
+        the table is auto-expanded."""
+        if not hasattr(self, "btn_toggle_proj_params"):
+            return
+        arrow = "▾" if getattr(self, "_proj_table_expanded", False) else "▸"
+        txt = i18n.t("s4_lbl_parameters", self._idioma)
+        self.btn_toggle_proj_params.setText(f"{arrow} {txt}")
+
+    def _apply_proj_table_visibility(self):
+        """Shows/hides tbl_proj_params' rows and resizes it to match, according to
+        self._proj_table_expanded. Collapsed: only rows up to PROJ_ROW_VAR_THRESHOLD
+        (Number of Components/Top 3 Cumulative Variance/Variance threshold) stay visible -
+        every method-specific row (Kernel PCA's kernel/gamma, t-SNE's perplexity, Lasso's
+        alpha, etc.) is hidden until the user opens the table or picks a method that needs
+        one of them (see _auto_expand_proj_table_if_needed). Hiding a row only affects
+        rendering - _proj_table_value/_set_param_row_enabled keep reading/writing it
+        normally, so no other STEP 4 logic needs to know about this state."""
+        if not hasattr(self, "tbl_proj_params"):
+            return
+        expanded = getattr(self, "_proj_table_expanded", False)
+        total_rows = self.tbl_proj_params.rowCount()
+        visible_rows = total_rows if expanded else min(self.PROJ_TABLE_COLLAPSED_VISIBLE_ROWS, total_rows)
+        for row in range(total_rows):
+            self.tbl_proj_params.setRowHidden(row, row >= visible_rows)
+        self.tbl_proj_params.setFixedHeight(
+            self.tbl_proj_params.horizontalHeader().sizeHint().height()
+            + visible_rows * 30
+            + 45
+        )
+
+    def _toggle_proj_params_table(self):
+        """Click handler for the "Parameters:" header button - opens/closes the table."""
+        self._proj_table_expanded = not getattr(self, "_proj_table_expanded", False)
+        self._apply_proj_table_visibility()
+        self._refresh_proj_table_toggle_label()
+
+    def _auto_expand_proj_table_if_needed(self, active_rows):
+        """If the method just selected in Recommended Projection/Selection needs a
+        parameter row that's currently hidden (table collapsed), auto-expand the table -
+        otherwise the user would have no way to see/edit a parameter that just became
+        required (e.g. picking "Kernel PCA" while collapsed hides "kernel"/"gamma")."""
+        if getattr(self, "_proj_table_expanded", False):
+            return
+        if any(row >= self.PROJ_TABLE_COLLAPSED_VISIBLE_ROWS for row in active_rows):
+            self._proj_table_expanded = True
+            self._apply_proj_table_visibility()
+            self._refresh_proj_table_toggle_label()
 
     def _compute_pca_elbow_components(self):
         """Elbow-point estimate for STEP 4's "Number of Components" preset: fits a
@@ -14406,24 +14473,7 @@ class MainWindow(QMainWindow):
             
             # Botão para uma nova corrida:      
             job_btn = QPushButton(); self._tr("cfg_btn_new_project", job_btn.setText); job_btn.setFixedSize(150,30);
-            job_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #F5F5F5;   /* Cinza claro */
-                color: #C9D1D9              /* Cinza escuro */
-                font-size: 10pt;
-                font-weight: bold;
-                border: 1px solid #C9D1D9 /* Borda cinza escuro */
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #FFE5D0;   /* Laranja claro ao passar o mouse */
-                color: #000000;  /* Preto */
-            }
-            QPushButton:pressed {
-                background-color: #E6BFA8;   /* Laranja escuro ao clicar */
-                color: #000000;  /* Preto */
-            }
-            """); 
+            job_btn.setProperty("role", "secondary")
             job_btn.clicked.connect(self.new_job)
             # Label de data:
             date_label = QLabel(); self._tr("cfg_label_date", date_label.setText); date_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -14442,24 +14492,7 @@ class MainWindow(QMainWindow):
 
             # Caixas de seleção de uma corrida anterior:
             job_return_btn = QPushButton(); self._tr("cfg_btn_previous_project", job_return_btn.setText); job_return_btn.setFixedSize(120,30);
-            job_return_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #F5F5F5;   /* Cinza claro */
-                color: #C9D1D9              /* Cinza escuro */
-                font-size: 10pt;
-                font-weight: bold;
-                border: 1px solid #C9D1D9 /* Borda cinza escuro */
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #FFE5D0;   /* Laranja claro ao passar o mouse */
-                color: #000000;  /* Preto */
-            }
-            QPushButton:pressed {
-                background-color: #E6BFA8;   /* Laranja escuro ao clicar */
-                color: #000000;  /* Preto */
-            }
-            """); 
+            job_return_btn.setProperty("role", "secondary")
             job_return_btn.clicked.connect(self.previous_job)
             previous_job_label = QLabel(); self._tr("cfg_label_previous_run", previous_job_label.setText); previous_job_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             self.previous_job_name = QComboBox();self.previous_job_name.setFixedHeight(30); self.previous_job_name.setEnabled(False);self.previous_job_name.setEditable(True); self._tr("cfg_placeholder_previous_run", self.previous_job_name.setPlaceholderText)
@@ -14475,25 +14508,7 @@ class MainWindow(QMainWindow):
             run_job_btn = QPushButton()
             self._tr("cfg_btn_set_run_folder", run_job_btn.setText)
             run_job_btn.setFixedSize(200,25)
-            run_job_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #F5F5F5;   /* Cinza claro */
-                color: #C9D1D9              /* Cinza escuro */
-                font-size: 12pt;
-                font-weight: bold;
-                border: 1px solid #222;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #74C69D;   /* Verde pastel médio ao passar o mouse */
-                color: #000000;  /* Preto */
-            }
-            QPushButton:pressed {
-                background-color: #40916C;   /* Verde pastel escuro ao clicar */
-                color: #000000;  /* Preto */
-            }
-            """)
-            
+            run_job_btn.setProperty("role", "primary")
             run_job_btn.clicked.connect(self.job_run)
             l1.addWidget(run_job_btn, alignment=Qt.AlignCenter)
 
@@ -14574,45 +14589,11 @@ class MainWindow(QMainWindow):
             l2_data_btn = QHBoxLayout()
             int_data_btn = QPushButton(); self._tr("s1_btn_search_local", int_data_btn.setText)
             int_data_btn.setFixedWidth(200)
-            int_data_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #F5F5F5;   /* Cinza claro */
-                color: #C9D1D9              /* Cinza escuro */
-                font-size: 12pt;
-                font-weight: bold;
-                border: 1px solid #C9D1D9 /* Borda cinza escuro */
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #DFFFE0;   /* Verde claro ao passar o mouse */
-                color: #000000;  /* Preto */
-            }
-            QPushButton:pressed {
-                background-color: #A3C1A1;   /* Verde escuro ao clicar */
-                color: #000000;  /* Preto */
-            }
-            """)
-            
+            int_data_btn.setProperty("role", "secondary")
+
             ext_data_btn = QPushButton(); self._tr("s1_btn_use_chembl", ext_data_btn.setText)
             ext_data_btn.setFixedWidth(200)
-            ext_data_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #F5F5F5;   /* Cinza claro */
-                color: #C9D1D9              /* Cinza escuro */
-                font-size: 12pt;
-                font-weight: bold;
-                border: 1px solid #C9D1D9 /* Borda cinza escuro */
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #FFE5D0;   /* Laranja claro ao passar o mouse */
-                color: #000000;  /* Preto */
-            }
-            QPushButton:pressed {
-                background-color: #E6BFA8;   /* Laranja escuro ao clicar */
-                color: #000000;  /* Preto */
-            }
-            """)
+            ext_data_btn.setProperty("role", "primary")
             l2.addLayout(l2_data_btn)
             l2_data_btn.addWidget(int_data_btn)
             l2_data_btn.addWidget(ext_data_btn)
@@ -14701,18 +14682,14 @@ class MainWindow(QMainWindow):
             target_btn = QHBoxLayout()        
             btn_by_target = QPushButton(); self._tr("s1_btn_explore_target", btn_by_target.setText)
             btn_by_target.setFixedWidth(150)
-            btn_by_target.setStyleSheet(
-                "QPushButton{background:#CCCCCC;font-size:12px;font-weight:bold;border:1px solid #222;border-radius:4px}"
-            )        
+            btn_by_target.setProperty("role", "secondary")
             btn_by_target.clicked.connect(self.run_by_target)
-            
-            
+
+
             # Botão para gerar o dataset por atividade:
             btn_by_activity = QPushButton(); self._tr("s1_btn_generate_by_activity", btn_by_activity.setText)
             btn_by_activity.setFixedWidth(200)
-            btn_by_activity.setStyleSheet(
-                "QPushButton{background:#CCCCCC;font-size:12px;font-weight:bold;border:1px solid #222;border-radius:4px}"
-            )
+            btn_by_activity.setProperty("role", "primary")
             btn_by_activity.clicked.connect(self.run_by_activity)
 
             # Quando marcado, "Generate Dataset by activity" baixa os dados fazendo web
@@ -14746,9 +14723,7 @@ class MainWindow(QMainWindow):
             cell_btn = QHBoxLayout()        
             btn_by_cell = QPushButton(); self._tr("s1_btn_explore_cell", btn_by_cell.setText)
             btn_by_cell.setFixedWidth(150)
-            btn_by_cell.setStyleSheet(
-                "QPushButton{background:#CCCCCC;font-size:12px;font-weight:bold;border:1px solid #222;border-radius:4px}"
-            )
+            btn_by_cell.setProperty("role", "secondary")
             btn_by_cell.clicked.connect(self.run_by_cell)
             cell_btn.addWidget(btn_by_cell)
             g1_main_layout.addLayout(cell_btn)            
@@ -14780,19 +14755,15 @@ class MainWindow(QMainWindow):
             # Botão para buscar o dataset pelas informações do ensaio (BY ASSAY):
             btn_description_assay = QPushButton(); self._tr("s1_btn_assay_description_count", btn_description_assay.setText)
             btn_description_assay.setFixedWidth(200)
-            btn_description_assay.setStyleSheet(
-                "QPushButton{background:#CCCCCC;font-size:12px;font-weight:bold;border:1px solid #222;border-radius:4px}"
-            )
+            btn_description_assay.setProperty("role", "secondary")
             btn_description_assay.clicked.connect(self.run_assay_description)
 
-            
+
             # Botão para buscar o dataset pelas informações do ensaio (BY ASSAY):
             btn_explore_assay = QPushButton(); self._tr("s1_btn_explore_assay", btn_explore_assay.setText)
             btn_explore_assay.setFixedWidth(150)
-            btn_explore_assay.setStyleSheet(
-                "QPushButton{background:#CCCCCC;font-size:12px;font-weight:bold;border:1px solid #222;border-radius:4px}"
-            )
-            btn_explore_assay.clicked.connect(self.run_assay_explore)       
+            btn_explore_assay.setProperty("role", "secondary")
+            btn_explore_assay.clicked.connect(self.run_assay_explore)
 
             assay_btn = QHBoxLayout()
             assay_btn.addWidget(btn_explore_assay)
@@ -14819,9 +14790,7 @@ class MainWindow(QMainWindow):
             self.ed_activity_chembl_id = QLineEdit(); self.ed_activity_chembl_id.setPlaceholderText("CHEMBL4665544")
             btn_by_molecule = QPushButton(); self._tr("s1_btn_explore_molecule", btn_by_molecule.setText)
             btn_by_molecule.setFixedWidth(150)
-            btn_by_molecule.setStyleSheet(
-                "QPushButton{background:#CCCCCC;font-size:12px;font-weight:bold;border:1px solid #222;border-radius:4px}"
-            )
+            btn_by_molecule.setProperty("role", "secondary")
             btn_by_molecule.clicked.connect(self.run_by_molecule)
             gL4.addWidget(self._trL("s1_lbl_molecule_chembl_id"),0,0); gL4.addWidget(self._trL("s1_lbl_molecule_name"),0,1); gL4.addWidget(self._trL("s1_lbl_canonical_smiles"),0,2); gL4.addWidget(self._trL("s1_lbl_activity_chembl_id"),0,3); gL4.addWidget(btn_by_molecule, 0, 4, 2, 1)
             gL4.addWidget(self.ed_molecule_chembl_id,1,0); gL4.addWidget(self.ed_molecule_pref_name,1,1); gL4.addWidget(self.ed_canonical_smiles,1,2); gL4.addWidget(self.ed_activity_chembl_id,1,3)
@@ -14829,25 +14798,8 @@ class MainWindow(QMainWindow):
             g1_main_layout.addWidget(gL4_widget)
             btn_generate_end_dataset = QPushButton(); self._tr("s1_btn_generate_base_dataset", btn_generate_end_dataset.setText)
             btn_generate_end_dataset.setFixedWidth(200)
-            btn_generate_end_dataset.setStyleSheet("""
-    QPushButton {
-        background-color: #B7E4C7;   /* Verde pastel claro */
-        color: #C9D1D9              /* Cinza escuro */
-        font-size: 12pt;
-        font-weight: bold;
-        border: 1px solid #222;
-        border-radius: 4px;
-    }
-    QPushButton:hover {
-        background-color: #74C69D;   /* Verde pastel médio ao passar o mouse */
-        color: #000000;  /* Preto */
-    }
-    QPushButton:pressed {
-        background-color: #40916C;   /* Verde pastel escuro ao clicar */
-        color: #000000;  /* Preto */
-    }
-    """)
-            btn_generate_end_dataset.clicked.connect(self.generate_end_dataset)      
+            btn_generate_end_dataset.setProperty("role", "primary")
+            btn_generate_end_dataset.clicked.connect(self.generate_end_dataset)
             request_time_label = self._trL("s1_lbl_request_time")
             request_time_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             self.ed_request_time = QLineEdit("30")
@@ -14887,9 +14839,9 @@ class MainWindow(QMainWindow):
             gL5_widget = QWidget()
             gL5 = QGridLayout(gL5_widget)
             self.cb_internal_dataset_list = QComboBox(); self.cb_internal_dataset_list.addItems([""]); self.cb_internal_dataset_list.setEditable(True)
-            self.btn_update_internal_dataset = QPushButton(); self._tr("btn_update", self.btn_update_internal_dataset.setText); self.btn_update_internal_dataset.setFixedWidth(80); self.btn_update_internal_dataset.setStyleSheet("QPushButton{background:#DFFFE0;font-size:12px;font-weight:bold;border:1px solid #222;border-radius:4px}"); self.btn_update_internal_dataset.clicked.connect(self.update_internal_dataset)
+            self.btn_update_internal_dataset = QPushButton(); self._tr("btn_update", self.btn_update_internal_dataset.setText); self.btn_update_internal_dataset.setFixedWidth(80); self.btn_update_internal_dataset.setProperty("role", "secondary"); self.btn_update_internal_dataset.clicked.connect(self.update_internal_dataset)
             self.cb_columns_list = QComboBox(); self.cb_columns_list.addItems([""]); self.cb_columns_list.setEditable(True)
-            self.btn_view_graph = QPushButton(); self._tr("s1_btn_view_graph", self.btn_view_graph.setText); self.btn_view_graph.setFixedWidth(140); self.btn_view_graph.setStyleSheet("QPushButton{background:#CCCCCC;font-size:12px;font-weight:bold;border:1px solid #222;border-radius:4px}"); self.btn_view_graph.clicked.connect(self.run_view_graph)
+            self.btn_view_graph = QPushButton(); self._tr("s1_btn_view_graph", self.btn_view_graph.setText); self.btn_view_graph.setFixedWidth(140); self.btn_view_graph.setProperty("role", "select"); self.btn_view_graph.clicked.connect(self.run_view_graph)
             gL5.addWidget(self._trL("s1_lbl_internal_dataset_list"),0,0); gL5.addWidget(self._trL("s1_lbl_columns"),0,2);
             gL5.addWidget(self.cb_internal_dataset_list,1,0); gL5.addWidget(self.btn_update_internal_dataset,1,1); gL5.addWidget(self.cb_columns_list,1,2); gL5.addWidget(self.btn_view_graph,1,3)
             gL5.setColumnStretch(0, 3); gL5.setColumnStretch(1, 1); gL5.setColumnStretch(2, 1); gL5.setColumnStretch(3, 1)
@@ -15016,7 +14968,7 @@ class MainWindow(QMainWindow):
             g6.setStyleSheet("QGroupBox { background-color: #F5F5F5; border: 1px solid #ccc; border-radius: 6px; }")
             # Layout principal vertical para o QGroupBox
             g6_main_layout = QVBoxLayout(g6)
-            l3.addWidget(g6)        
+            l3.addWidget(g6, alignment=Qt.AlignTop)                 
 
             # Primeiro grid:
             gL6_widget = QWidget()
@@ -15033,6 +14985,7 @@ class MainWindow(QMainWindow):
             gL6.addWidget(label_select_columns,0,0); gL6.addWidget(self.list_columns,0,1); gL6.addLayout(gL6_btn,0,2)
             gL6.setColumnStretch(0, 1); gL6.setColumnStretch(1, 2); gL6.setColumnStretch(2, 2)
             g6_main_layout.addWidget(gL6_widget)
+            g6_main_layout.addSpacing(27)           
             
             # Segundo grid:
             gL7_widget = QWidget()
@@ -15043,6 +14996,7 @@ class MainWindow(QMainWindow):
             gL7.addWidget(label_select_types,0,0); gL7.addWidget(self.list_types,0,1); gL7.addWidget(btn_convert_types,0,2)
             gL7.setColumnStretch(0, 1); gL7.setColumnStretch(1, 2); gL7.setColumnStretch(2, 2)
             g6_main_layout.addWidget(gL7_widget)
+            
 
             # Terceiro grid:
             gL8_widget = QWidget()
@@ -15051,14 +15005,16 @@ class MainWindow(QMainWindow):
             self.list_units = QComboBox(); self.list_units.addItems([]);
             btn_convert_units = QPushButton(); self._tr("s2_btn_convert_units", btn_convert_units.setText); btn_convert_units.setProperty("role", "secondary"); btn_convert_units.setFixedWidth(150); btn_convert_units.clicked.connect(self.run_convert_units)
             gL8.addWidget(label_select_columns,0,0); gL8.addWidget(self.list_units,0,1); gL8.addWidget(btn_convert_units,0,2)
-            gL8.setColumnStretch(0, 1); gL8.setColumnStretch(1, 2); gL8.setColumnStretch(2, 2)
+            gL8.setColumnStretch(0, 1); gL8.setColumnStretch(1, 2); gL8.setColumnStretch(2, 2)                     
             g6_main_layout.addWidget(gL8_widget)
+            g6_main_layout.addSpacing(30)         
+            g6_main_layout.addStretch()
 
             g7 = QGroupBox(); self._tr("s2_grp_treat_repetitions", g7.setTitle)
             g7.setStyleSheet("QGroupBox { background-color: #F5F5F5; border: 1px solid #ccc; border-radius: 6px; }")
             # Layout principal vertical para o QGroupBox
             g7_main_layout = QVBoxLayout(g7)
-            l3.addWidget(g7)
+            l3.addWidget(g7, alignment=Qt.AlignTop)
 
             # Primeiro grid:
             gL9_widget = QWidget()
@@ -15102,8 +15058,8 @@ class MainWindow(QMainWindow):
             # g7_main_layout.addWidget(btn_check_rep, alignment=Qt.AlignCenter) 
             g7_main_layout.addStretch()
 
-            g67_layout.addWidget(g6)
-            g67_layout.addWidget(g7)
+            g67_layout.addWidget(g6, alignment=Qt.AlignTop)
+            g67_layout.addWidget(g7, alignment=Qt.AlignTop)
             l3.addLayout(g67_layout)
 
             g89_layout = QHBoxLayout()
@@ -15112,12 +15068,14 @@ class MainWindow(QMainWindow):
             # Layout principal vertical para o QGroupBox
             g8_main_layout = QVBoxLayout(g8)
 
-            label_select_column_trans = self._trL("lbl_select_column"); label_select_column_trans.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
-            self.list_columns_trans = QComboBox(); self.list_columns_trans.addItems([]); self.list_columns_trans.setFixedWidth(200)
+            label_select_column_trans = self._trL("s2_lbl_select_column_trans"); label_select_column_trans.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
+            label_select_column_trans.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            self.list_columns_trans = QComboBox(); self.list_columns_trans.addItems([]); self.list_columns_trans.setFixedWidth(140)
 
             # Combobox única de seleção de transformação (uma por execução), no lugar dos
             # checkboxes anteriores (que permitiam aplicar várias transformações de uma vez).
             label_select_trans = self._trL("s2_lbl_select_transformations"); label_select_trans.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
+            label_select_trans.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             self.cb_transformation = QComboBox()
             self.cb_transformation.addItems([
                 "-Log10 (Only > 0 - pIC50|pMIC)",
@@ -15140,28 +15098,24 @@ class MainWindow(QMainWindow):
             btn_inf.setFixedSize(200, 60)
             btn_inf.clicked.connect(self.run_inf_value)
 
-            # Grid único: 2 colunas x 3 linhas.
+            # Grid único: 4 colunas x 2 linhas.
             #   linha 0: label "Select column:" (col0, direita) + combobox de coluna (col1, esquerda)
-            #   linha 1: label "Select Transformation:" (col0, direita) + combobox de transformação (col1, esquerda)
-            #   linha 2: botão Run Transformation (col0) + botão Eliminating invalid... (col1)
+            #            + label "Select Transformation:" (col2, direita) + combobox de transformação (col3, esquerda)
+            #   linha 1: botão Run Transformation (col0-1) + botão Eliminating invalid... (col2-3)
             gL12_widget = QWidget()
             gL12 = QGridLayout(gL12_widget)
             gL12.addWidget(label_select_column_trans, 0, 0, alignment=Qt.AlignRight)
             gL12.addWidget(self.list_columns_trans, 0, 1, alignment=Qt.AlignLeft)
-            gL12.addWidget(label_select_trans, 1, 0, alignment=Qt.AlignRight)
-            gL12.addWidget(self.cb_transformation, 1, 1, alignment=Qt.AlignLeft)
-            gL12.addWidget(btn_set_trans, 2, 0, alignment=Qt.AlignCenter)
-            gL12.addWidget(btn_inf, 2, 1, alignment=Qt.AlignCenter)
-            gL12.setColumnStretch(0, 1); gL12.setColumnStretch(1, 1)
+            gL12.addWidget(label_select_trans, 0, 2, alignment=Qt.AlignRight)
+            gL12.addWidget(self.cb_transformation, 0, 3, alignment=Qt.AlignLeft)
+            gL12.setVerticalSpacing(20)
+            gL12.addWidget(btn_set_trans, 1, 0, 1, 2, alignment=Qt.AlignCenter)
+            gL12.addWidget(btn_inf, 1, 2, 1, 2, alignment=Qt.AlignCenter)
+            gL12.setColumnStretch(0, 1); gL12.setColumnStretch(1, 1); gL12.setColumnStretch(2, 1); gL12.setColumnStretch(3, 1)
 
             g8_main_layout.addWidget(gL12_widget)
             g8_main_layout.addStretch()
 
-            # Grupo "Outlier Elimination" — antigamente misturava estatística descritiva/distribuição
-            # e testes de normalidade no mesmo QGroupBox; esses dois recursos foram movidos para a
-            # aba STATISTICS (dataframe próprio), então este grupo ficou só com detecção/eliminação
-            # de outliers e ganhou sua própria combobox de coluna (list_columns_outlier), já que a
-            # antiga (list_columns_stat) foi junto para a nova aba.
             g9 = QGroupBox(); self._tr("s2_grp_outlier_elimination", g9.setTitle)
             g9.setStyleSheet("QGroupBox { background-color: #F5F5F5; border: 1px solid #ccc; border-radius: 6px; }")
             # Layout principal vertical para o QGroupBox
@@ -15169,15 +15123,15 @@ class MainWindow(QMainWindow):
 
             gL15_widget = QWidget()
             gL15 = QGridLayout(gL15_widget)
+            gL15.setVerticalSpacing(10)
             label_select_column_outlier = self._trL("lbl_select_column")
             label_select_column_outlier.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
             self.list_columns_outlier = QComboBox()
             self.list_columns_outlier.addItems([])
             label_outlier = self._trL("s2_lbl_outlier_detection")
             label_outlier.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
-            self.chk_outlier_zscore = QCheckBox("Z-Score")
-            self.chk_outlier_iqr = QCheckBox("IQR")
-            self.chk_outlier_sd = QCheckBox("SD")
+            self.cb_outlier_method = QComboBox()
+            self.cb_outlier_method.addItems(["Z-Score", "IQR", "SD"])
             self.threshold_outlier = QLineEdit(); self.threshold_outlier.setFixedSize(80, 25); self.threshold_outlier.setAlignment(Qt.AlignCenter); self.threshold_outlier.setText("1.5")
             self.btn_run_outlier = QPushButton()
             self._tr("s2_btn_outlier_elimination", self.btn_run_outlier.setText)
@@ -15185,18 +15139,21 @@ class MainWindow(QMainWindow):
             self.btn_run_outlier.setFixedWidth(150)
             self.btn_run_outlier.clicked.connect(self.run_outlier)
 
-            gL15.addWidget(label_select_column_outlier, 0, 0); gL15.addWidget(self.list_columns_outlier, 0, 1)
-            gL15.addWidget(label_outlier, 0, 2); gL15.addWidget(self._trL("lbl_threshold"),0,3,alignment=Qt.AlignVCenter| Qt.AlignLeft); gL15.addWidget(self.threshold_outlier,0,3,alignment=Qt.AlignVCenter | Qt.AlignRight)
-            gL15.addWidget(self.chk_outlier_zscore, 1, 2)
-            gL15.addWidget(self.chk_outlier_iqr, 2, 2); gL15.addWidget(self.btn_run_outlier, 2, 3, alignment=Qt.AlignCenter)
-            gL15.addWidget(self.chk_outlier_sd, 3, 2)
-            gL15.setColumnStretch(0, 1); gL15.setColumnStretch(1, 1); gL15.setColumnStretch(2, 1); gL15.setColumnStretch(3, 1)
 
+            gL15.addWidget(label_select_column_outlier, 0, 0, alignment=Qt.AlignRight)
+            gL15.addWidget(self.list_columns_outlier, 0, 1, alignment=Qt.AlignLeft)
+            gL15.addWidget(self._trL("lbl_threshold"), 0, 2, alignment=Qt.AlignRight)
+            gL15.addWidget(self.threshold_outlier, 0, 3, alignment=Qt.AlignLeft)
+            gL15.addWidget(label_outlier, 1, 0, alignment=Qt.AlignRight)
+            gL15.addWidget(self.cb_outlier_method, 1, 1, alignment=Qt.AlignLeft)
+            gL15.addWidget(self.btn_run_outlier, 1, 2, alignment=Qt.AlignLeft)
+            gL15.setColumnStretch(0, 1); gL15.setColumnStretch(1, 1); gL15.setColumnStretch(2, 1); gL15.setColumnStretch(3, 1)
+            gL15.setVerticalSpacing(35)
             g9_main_layout.addWidget(gL15_widget)
             g9_main_layout.addStretch()
 
-            g89_layout.addWidget(g8)
-            g89_layout.addWidget(g9)
+            g89_layout.addWidget(g8, alignment=Qt.AlignTop)
+            g89_layout.addWidget(g9, alignment=Qt.AlignTop)
 
             l3.addLayout(g89_layout)
 
@@ -15361,6 +15318,7 @@ class MainWindow(QMainWindow):
             self.ed_class3_ref = QLineEdit(); self.ed_class3_ref.setPlaceholderText("Ex: Q3 value"); self.ed_class3_ref.setFixedWidth(120); self.ed_class3_ref.setAlignment(Qt.AlignCenter)
 
             btn_set_class = QPushButton(); self._tr("s3_btn_set_classes", btn_set_class.setText)
+            btn_set_class.setProperty("role", "primary")
             btn_set_class.setFixedSize(150, 30)
             btn_set_class.clicked.connect(self.run_set_class)
             label_view_class = self._trL("s3_lbl_view_molecule_class"); label_view_class.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
@@ -15369,11 +15327,13 @@ class MainWindow(QMainWindow):
             label_class = self._trL("lbl_class"); label_class.setStyleSheet("color: #C9D1D9; font-size: 10pt")
             self.ed_class = QLineEdit(); self.ed_class.setReadOnly(True); self.ed_class.setFixedSize(200, 25); self.ed_class.setAlignment(Qt.AlignCenter)
             btn_view_class = QPushButton(); self._tr("s3_btn_view_class", btn_view_class.setText)
+            btn_view_class.setProperty("role", "secondary")
             btn_view_class.setFixedSize(150, 30)
             btn_view_class.clicked.connect(self.run_view_class)
             label_select_class_column = self._trL("s3_lbl_select_class_column"); label_select_class_column.setStyleSheet("color: #C9D1D9; font-size: 10pt")
             self.list_class_column = QComboBox(); self.list_class_column.addItems([]); self.list_class_column.setFixedWidth(200)
             btn_view_class_frequency = QPushButton(); self._tr("s3_btn_view_frequency", btn_view_class_frequency.setText)
+            btn_view_class_frequency.setProperty("role", "secondary")
             btn_view_class_frequency.setFixedSize(150, 30)
             btn_view_class_frequency.clicked.connect(self.run_view_class_frequency)
 
@@ -15403,12 +15363,7 @@ class MainWindow(QMainWindow):
             gL16.addWidget(btn_view_class, 6, 2, alignment=Qt.AlignCenter)
             gL16.addWidget(label_select_class_column, 7, 0, alignment=Qt.AlignRight); gL16.addWidget(self.list_class_column, 7, 1)
             gL16.addWidget(btn_view_class_frequency, 7, 2, alignment=Qt.AlignCenter)
-            # Larguras mínimas explícitas: com o grupo sem largura fixa, o stretch por si só só
-            # reparte espaço extra (que não existe aqui) - sem isso, cada coluna só herda o
-            # tamanho do maior widget nela, ignorando a proporção pedida. Fixando um valor comum
-            # para as colunas de peso 1 (0,2,3,4,5) e o triplo para a de peso 3 (1), a proporção
-            # 1:3:1:1:1:1 passa a valer de fato, e o stretch continua cuidando de qualquer espaço
-            # extra futuro na mesma razão.
+
             CAT_COL_UNIT = 100
             gL16.setColumnMinimumWidth(0, CAT_COL_UNIT)
             gL16.setColumnMinimumWidth(1, CAT_COL_UNIT * 2)
@@ -15539,12 +15494,12 @@ class MainWindow(QMainWindow):
             btn_lip_layout = QHBoxLayout()
             btn_set_lip = QPushButton()
             self._tr("s3_btn_set_druggability", btn_set_lip.setText)
-            btn_set_lip.setStyleSheet("QPushButton{background:#DFFFE0;font-size:12px;font-weight:bold;border:1px solid #222;border-radius:4px}")
+            btn_set_lip.setProperty("role", "primary")
             btn_set_lip.setFixedSize(150, 50)
             btn_set_lip.clicked.connect(self.run_set_lip)
             btn_filter_lip = QPushButton()
             self._tr("s3_btn_filter_druggability", btn_filter_lip.setText)
-            btn_filter_lip.setStyleSheet("QPushButton{background:#FFE5D0;font-size:12px;font-weight:bold;border:1px solid #222;border-radius:4px}")
+            btn_filter_lip.setProperty("role", "secondary")
             btn_filter_lip.setFixedSize(150, 50)
             btn_filter_lip.clicked.connect(self.run_filter_lip)
             
@@ -15553,13 +15508,15 @@ class MainWindow(QMainWindow):
             gL17.setColumnStretch(0, 1); gL17.setColumnStretch(1, 1)
 
             g11_main_layout.addWidget(gL17_widget)
-            g11_main_layout.addSpacing(10)
+            g11_main_layout.addSpacing(30)
             btn_lip_layout.addWidget(btn_set_lip)
             btn_lip_layout.addWidget(btn_filter_lip)
             g11_main_layout.addLayout(btn_lip_layout)
+            g11_main_layout.addSpacing(30)
+            g11_main_layout.addStretch()
 
-            g10_11_layout.addWidget(g10)
-            g10_11_layout.addWidget(g11)
+            g10_11_layout.addWidget(g10, alignment=Qt.AlignTop)
+            g10_11_layout.addWidget(g11, alignment=Qt.AlignTop)
 
             l4.addLayout(g10_11_layout)
 
@@ -15732,6 +15689,7 @@ class MainWindow(QMainWindow):
             self.cb_select_structure = QComboBox(); self.cb_select_structure.addItems([]); self.cb_select_structure.setEditable(True)
             btn_select_structures = QPushButton()
             self._tr("s4_btn_select_structures_file", btn_select_structures.setText)
+            btn_select_structures.setProperty("role", "secondary")
             btn_select_structures.setFixedWidth(100)
             btn_select_structures.clicked.connect(self.run_select_structures)
 
@@ -15786,24 +15744,7 @@ class MainWindow(QMainWindow):
 
             btn_generate_descriptors = QPushButton()
             self._tr("s4_btn_generate_descriptors", btn_generate_descriptors.setText)
-            btn_generate_descriptors.setStyleSheet("""
-            QPushButton {
-                background-color: #B7E4C7;   /* Verde pastel claro */
-                color: #C9D1D9;              /* Cinza escuro */
-                font-size: 10pt;
-                font-weight: bold;
-                border: 1px solid #222;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #74C69D;   /* Verde pastel médio ao passar o mouse */
-                color: #000000;  /* Preto */
-            }
-            QPushButton:pressed {
-                background-color: #40916C;   /* Verde pastel escuro ao clicar */
-                color: #000000;  /* Preto */
-            }
-            """)
+            btn_generate_descriptors.setProperty("role", "primary")
             btn_generate_descriptors.setFixedWidth(150)
             btn_generate_descriptors.clicked.connect(self.run_generate_descriptors)
 
@@ -15890,7 +15831,7 @@ class MainWindow(QMainWindow):
             self.cb_recommended_scaling.setEditable(True); self.cb_recommended_scaling.setFixedWidth(200)
             btn_recommended_scaling = QPushButton()
             self._tr("s4_btn_run_scaling", btn_recommended_scaling.setText)
-            # btn_recommended_scaling.setStyleSheet("QPushButton{background:#DFFFE0;font-size:12px;font-weight:bold;border:1px solid #222;border-radius:4px}")
+            btn_recommended_scaling.setProperty("role", "primary")
             btn_recommended_scaling.setFixedWidth(150)
             btn_recommended_scaling.clicked.connect(self.run_recommended_scaling)
 
@@ -15922,7 +15863,7 @@ class MainWindow(QMainWindow):
             self.cb_recommended_selection.setEditable(True); self.cb_recommended_selection.setFixedWidth(200)
             btn_recommended_selection = QPushButton()
             self._tr("s4_btn_run_selection", btn_recommended_selection.setText)
-            # btn_recommended_selection.setStyleSheet("QPushButton{background:#DFFFE0;font-size:12px;font-weight:bold;border:1px solid #222;border-radius:4px}")
+            btn_recommended_selection.setProperty("role", "primary")
             btn_recommended_selection.setFixedWidth(150)
             btn_recommended_selection.clicked.connect(self.run_recommended_selection)
 
@@ -15939,7 +15880,7 @@ class MainWindow(QMainWindow):
             self.cb_recommended_projection.setEditable(True); self.cb_recommended_projection.setFixedWidth(200)
             btn_recommended_projection= QPushButton()
             self._tr("s4_btn_run_projection", btn_recommended_projection.setText)
-            # btn_recommended_projection.setStyleSheet("QPushButton{background:#DFFFE0;font-size:12px;font-weight:bold;border:1px solid #222;border-radius:4px}")
+            btn_recommended_projection.setProperty("role", "primary")
             btn_recommended_projection.setFixedWidth(150)
             btn_recommended_projection.clicked.connect(self.run_recommended_projection)
             
@@ -15972,16 +15913,22 @@ class MainWindow(QMainWindow):
             pca_layout_container = QWidget()
             pca_layout_parameters = QVBoxLayout()
             pca_layout_container.setLayout(pca_layout_parameters); pca_layout_container.setMaximumWidth(550)
-            label_pca_parameter = self._trL("s4_lbl_parameters")
-            label_pca_parameter.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
-            label_pca_parameter.setAlignment(Qt.AlignCenter)
+            # "Parameters:" vira um botão clicável que abre/fecha a tabela abaixo -
+            # ver _toggle_proj_params_table.
+            self.btn_toggle_proj_params = QPushButton()
+            self.btn_toggle_proj_params.setCursor(Qt.PointingHandCursor)
+            self.btn_toggle_proj_params.setProperty("role", "secondary")
+            self._proj_table_expanded = False
+            self._tr("s4_lbl_parameters", lambda _txt: self._refresh_proj_table_toggle_label())
+            self.btn_toggle_proj_params.clicked.connect(self._toggle_proj_params_table)
             btn_reset_params = QPushButton()
             self._tr("btn_reset", btn_reset_params.setText)
+            btn_reset_params.setProperty("role", "orange")
             btn_reset_params.setFixedWidth(80)
             self._tr("s4_tooltip_reset_params", btn_reset_params.setToolTip)
             pca_header_layout = QHBoxLayout()
             pca_header_layout.addStretch(1)
-            pca_header_layout.addWidget(label_pca_parameter)
+            pca_header_layout.addWidget(self.btn_toggle_proj_params)
             pca_header_layout.addWidget(btn_reset_params)
             pca_header_layout.addStretch(1)
 
@@ -16037,11 +15984,11 @@ class MainWindow(QMainWindow):
                 if tooltip:
                     value_item.setToolTip(tooltip)
                 self.tbl_proj_params.setItem(row, 1, value_item)
-            self.tbl_proj_params.setFixedHeight(
-                self.tbl_proj_params.horizontalHeader().sizeHint().height()
-                + len(proj_param_rows) * 30
-                + 45
-            )
+            # Fechada por padrão (só N.Components/Top3 Variance/Variance threshold visíveis) -
+            # ver _apply_proj_table_visibility. Expande sozinha se o método selecionado
+            # precisar de uma linha escondida (_auto_expand_proj_table_if_needed).
+            self._apply_proj_table_visibility()
+            self._refresh_proj_table_toggle_label()
             # Presets originais de cada linha editável, usados pelo botão "Reset".
             self.PROJ_TABLE_PRESETS = {
                 row: preset for row, (row_label, ever_editable, tooltip, preset) in enumerate(proj_param_rows)
@@ -16449,13 +16396,13 @@ class MainWindow(QMainWindow):
 
             lay_skl_screen.addLayout(screen_cols_row, 1)
             screen_btns_row = QHBoxLayout()
-            
+
             self.btn_skl_select_all = QPushButton(); self._tr("btn_select_all", self.btn_skl_select_all.setText)
+            self.btn_skl_select_all.setProperty("role", "secondary")
             self.btn_skl_select_all.setFixedWidth(120)
             self.btn_skl_select_all.clicked.connect(self.list_skl_models.selectAll)
             screen_btns_row.addWidget(self.btn_skl_select_all, alignment=Qt.AlignLeft)
-            lay_skl_screen.addLayout(screen_btns_row, 1)
-            
+
             self.btn_skl_run_screening = QPushButton(); self._tr("s6_btn_run_screening", self.btn_skl_run_screening.setText)
             self.btn_skl_run_screening.setProperty("role", "primary")
             self.btn_skl_run_screening.setFixedWidth(160)
@@ -16520,6 +16467,7 @@ class MainWindow(QMainWindow):
             tune_row3.addWidget(self.cb_skl_tune_param)
             tune_row3.addSpacing(14)
             self.btn_skl_tune_plot = QPushButton(); self._tr("btn_plot", self.btn_skl_tune_plot.setText)
+            self.btn_skl_tune_plot.setProperty("role", "select")
             self.btn_skl_tune_plot.setFixedWidth(100)
             tune_row3.addWidget(self.btn_skl_tune_plot)
             #tune_row3.addStretch()
@@ -16620,12 +16568,12 @@ class MainWindow(QMainWindow):
 
             last_row_skl = QHBoxLayout()
             self.btn_skl_predict = QPushButton(); self._tr("s5_subtab_predict", self.btn_skl_predict.setText)
-            self.btn_skl_predict.setProperty("role", "danger")
+            self.btn_skl_predict.setProperty("role", "primary")
             self.btn_skl_predict.setFixedWidth(120)
             last_row_skl.addWidget(self.btn_skl_predict, alignment=Qt.AlignLeft)
             last_row_skl.addStretch()
             self.btn_skl_remove_model = QPushButton(); self._tr("s6_btn_remove_model", self.btn_skl_remove_model.setText)
-            self.btn_skl_remove_model.setProperty("role", "secondary")
+            self.btn_skl_remove_model.setProperty("role", "danger")
             self.btn_skl_remove_model.setFixedWidth(120)
             last_row_skl.addWidget(self.btn_skl_remove_model, alignment=Qt.AlignRight)
             right_col_skl_save_pred.addLayout(last_row_skl)
@@ -16644,10 +16592,12 @@ class MainWindow(QMainWindow):
 
             btn_col_skl_charts = QVBoxLayout()
             self.btn_skl_charts_select_all = QPushButton(); self._tr("btn_select_all", self.btn_skl_charts_select_all.setText)
+            self.btn_skl_charts_select_all.setProperty("role", "secondary")
             self.btn_skl_charts_select_all.setFixedWidth(120)
             self.btn_skl_charts_select_all.clicked.connect(self.list_skl_charts.selectAll)
             btn_col_skl_charts.addWidget(self.btn_skl_charts_select_all, alignment=Qt.AlignCenter)
             self.btn_skl_plot = QPushButton(); self._tr("btn_plot_model", self.btn_skl_plot.setText)
+            self.btn_skl_plot.setProperty("role", "primary")
             self.btn_skl_plot.setFixedWidth(120)
             btn_col_skl_charts.addWidget(self.btn_skl_plot, alignment=Qt.AlignCenter)
             self.chk_skl_metric_legend = QCheckBox(); self._tr("s6_chk_metric_legend", self.chk_skl_metric_legend.setText)
@@ -17293,47 +17243,13 @@ class MainWindow(QMainWindow):
             
             btn_del_df_reduced= QPushButton()
             self._tr("edit_btn_remove_from_dataframes", btn_del_df_reduced.setText)
-            btn_del_df_reduced.setStyleSheet("""
-            QPushButton {
-                background-color: #FFE5D0;   /* Laranja pastel claro */
-                color: #C9D1D9;              /* Cinza escuro */
-                font-size: 10pt;
-                font-weight: bold;
-                border: 1px solid #222;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #E6BFA8;   /* Laranja pastel médio ao passar o mouse */
-                color: #000000;  /* Preto */
-            }
-            QPushButton:pressed {
-                background-color: #E6BFA8;   /* Laranja pastel escuro ao clicar */
-                color: #000000;  /* Preto */
-            }
-            """)
+            btn_del_df_reduced.setProperty("role", "danger")
             btn_del_df_reduced.setFixedWidth(120)
             btn_del_df_reduced.clicked.connect(self.run_del_df_reduced)
 
             btn_del_df = QPushButton()
             self._tr("edit_btn_delete_dataframes", btn_del_df.setText)
-            btn_del_df.setStyleSheet("""
-            QPushButton {
-                background-color: #FFE5D0;   /* Laranja pastel claro */
-                color: #C9D1D9;              /* Cinza escuro */
-                font-size: 10pt;
-                font-weight: bold;
-                border: 1px solid #222;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #E6BFA8;   /* Laranja pastel médio ao passar o mouse */
-                color: #000000;  /* Preto */
-            }
-            QPushButton:pressed {
-                background-color: #E6BFA8;   /* Laranja pastel escuro ao clicar */
-                color: #000000;  /* Preto */
-            }
-            """)
+            btn_del_df.setProperty("role", "danger")
             btn_del_df.setFixedWidth(120)
             btn_del_df.clicked.connect(self.run_del_df)
             
@@ -17694,7 +17610,7 @@ class MainWindow(QMainWindow):
             self.list_columns_stat.addItems([])
             btn_descritive_stat = QPushButton()
             self._tr("s2_btn_view_descriptive_stats", btn_descritive_stat.setText)
-            btn_descritive_stat.setProperty("role", "secondary")
+            btn_descritive_stat.setProperty("role", "select")
             btn_descritive_stat.setFixedWidth(150)
             btn_descritive_stat.clicked.connect(self.run_descritive_stat)
             label_select_dist_chart = self._trL("s2_lbl_select_chart")
@@ -17703,7 +17619,7 @@ class MainWindow(QMainWindow):
             self.list_dist_chart.addItems(["Histogram", "Boxplot", "Q-Q Plot", "Violin plot"])
             btn_chart = QPushButton()
             self._tr("s2_btn_view_dist_chart", btn_chart.setText)
-            btn_chart.setProperty("role", "secondary")
+            btn_chart.setProperty("role", "select")
             btn_chart.setFixedWidth(150)
             btn_chart.clicked.connect(self.run_chart)
             gL13.addWidget(label_select_column_stat,0,0); gL13.addWidget(self.list_columns_stat,0,1); gL13.addWidget(btn_descritive_stat,0,2)
@@ -17733,16 +17649,25 @@ class MainWindow(QMainWindow):
             self.threshold_stats = QLineEdit(); self.threshold_stats.setFixedSize(80, 25); self.threshold_stats.setAlignment(Qt.AlignCenter); self.threshold_stats.setText("1.5")
             self.btn_interpretation = QPushButton()
             self._tr("s2_btn_view_interpretation", self.btn_interpretation.setText)
-            self.btn_interpretation.setProperty("role", "secondary")
+            self.btn_interpretation.setProperty("role", "select")
             self.btn_interpretation.setFixedWidth(150)
             self.btn_interpretation.clicked.connect(self.run_interpretation)
+            # Label "Threshold:" e caixa lado a lado (não na mesma célula do grid, senão
+            # se sobrepõem) - label alinhada à direita, colada na caixa.
+            row_threshold_stats = QHBoxLayout()
+            row_threshold_stats.addWidget(self._trL("lbl_threshold"), alignment=Qt.AlignVCenter | Qt.AlignRight)
+            row_threshold_stats.addWidget(self.threshold_stats, alignment=Qt.AlignVCenter | Qt.AlignLeft)
+            row_threshold_stats_widget = QWidget()
+            row_threshold_stats_widget.setLayout(row_threshold_stats)
+
             gL15_stats.addWidget(label_normal_test, 0, 0)
-            gL15_stats.addWidget(self._trL("lbl_threshold"), 0, 1, alignment=Qt.AlignVCenter | Qt.AlignLeft); gL15_stats.addWidget(self.threshold_stats, 0, 1, alignment=Qt.AlignVCenter | Qt.AlignRight)
-            gL15_stats.addWidget(self.chk_normal_test_shapiro, 1, 0)
-            gL15_stats.addWidget(self.btn_interpretation, 1, 1, 3, 1, alignment=Qt.AlignCenter)
-            gL15_stats.addWidget(self.chk_normal_test_anderson, 2, 0)
-            gL15_stats.addWidget(self.chk_normal_test_kolmogorov, 3, 0)
-            gL15_stats.setColumnStretch(0, 1); gL15_stats.setColumnStretch(1, 1)
+            gL15_stats.addWidget(self.chk_normal_test_shapiro, 0, 1)
+            gL15_stats.addWidget(self.chk_normal_test_anderson, 0, 2)
+            gL15_stats.addWidget(self.chk_normal_test_kolmogorov, 0, 3)
+            gL15_stats.addWidget(row_threshold_stats_widget, 0, 4)
+            gL15_stats.addWidget(self.btn_interpretation, 1, 0, 1, 5, alignment=Qt.AlignCenter)
+            gL15_stats.setColumnStretch(0, 1); gL15_stats.setColumnStretch(1, 1); gL15_stats.setColumnStretch(2, 1)
+            gL15_stats.setColumnStretch(3, 1); gL15_stats.setColumnStretch(4, 1)
 
             g_stats_desc_main_layout.addWidget(gL13_widget)
             g_stats_desc_main_layout.addWidget(gL14_widget)
@@ -17764,6 +17689,7 @@ class MainWindow(QMainWindow):
 
             gL_power_widget = QWidget()
             gL_power = QGridLayout(gL_power_widget)
+            gL_power.setVerticalSpacing(12)
 
             # Nível de Confiança: caixas % <-> Z (conversão dinâmica) + Erro Tipo I (α) automático
             label_stats_confidence = self._trL("stats_lbl_confidence"); label_stats_confidence.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
@@ -17784,6 +17710,12 @@ class MainWindow(QMainWindow):
             self.ed_stats_p1 = QLineEdit("0.5"); self.ed_stats_p1.setFixedSize(70, 25); self.ed_stats_p1.setAlignment(Qt.AlignCenter)
             label_stats_p2 = self._trL("stats_lbl_p2")
             self.ed_stats_p2 = QLineEdit(""); self.ed_stats_p2.setFixedSize(70, 25); self.ed_stats_p2.setAlignment(Qt.AlignCenter)
+            # Ícone de informação ao lado da caixa de p2, explicando via tooltip que ela é
+            # opcional e o que muda ao preenchê-la (comparação entre 2 grupos).
+            info_icon_p2 = QLabel("ℹ️")
+            info_icon_p2.setStyleSheet("font-size: 11pt;")
+            info_icon_p2.setCursor(Qt.WhatsThisCursor)
+            self._tr("stats_lbl_p2_hint", info_icon_p2.setToolTip)
 
             # Margem de Erro (só usada no cálculo de uma única proporção) e Tamanho da População.
             # N é preenchido automaticamente com o número de linhas ao carregar um dataframe na
@@ -17802,7 +17734,7 @@ class MainWindow(QMainWindow):
             gL_power.addWidget(label_stats_beta, 1, 2, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_beta, 1, 3)
 
             gL_power.addWidget(label_stats_p1, 2, 0, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_p1, 2, 1)
-            gL_power.addWidget(label_stats_p2, 2, 2, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_p2, 2, 3)
+            gL_power.addWidget(label_stats_p2, 2, 2, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_p2, 2, 3); gL_power.addWidget(info_icon_p2, 2, 4, alignment=Qt.AlignLeft)
 
             gL_power.addWidget(label_stats_margin_error, 3, 0, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_margin_error, 3, 1)
             gL_power.addWidget(label_stats_population_size, 3, 2, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_population_size, 3, 3)
@@ -17818,25 +17750,21 @@ class MainWindow(QMainWindow):
             self._sync_stats_confidence_from_pct()
             self._sync_stats_power_from_power()
 
-            hint_stats_p2 = self._trL("stats_lbl_p2_hint")
-            hint_stats_p2.setStyleSheet("color: #6E8CA8; font-size: 9pt; font-style: italic;")
-
             btn_stats_layout = QHBoxLayout()
             self.btn_stats_sample_size = QPushButton()
             self._tr("stats_btn_sample_size", self.btn_stats_sample_size.setText)
-            self.btn_stats_sample_size.setProperty("role", "secondary")
+            self.btn_stats_sample_size.setProperty("role", "primary")
             self.btn_stats_sample_size.setFixedWidth(150)
             self.btn_stats_sample_size.clicked.connect(self.run_sample_size_calc)
             self.btn_stats_power = QPushButton()
             self._tr("stats_btn_power", self.btn_stats_power.setText)
-            self.btn_stats_power.setProperty("role", "secondary")
+            self.btn_stats_power.setProperty("role", "primary")
             self.btn_stats_power.setFixedWidth(150)
             self.btn_stats_power.clicked.connect(self.run_power_calc)
             btn_stats_layout.addWidget(self.btn_stats_sample_size, alignment=Qt.AlignCenter)
             btn_stats_layout.addWidget(self.btn_stats_power, alignment=Qt.AlignCenter)
 
             g_stats_power_main_layout.addWidget(gL_power_widget)
-            g_stats_power_main_layout.addWidget(hint_stats_p2)
             g_stats_power_main_layout.addSpacing(10)
             g_stats_power_main_layout.addLayout(btn_stats_layout)
             g_stats_power_main_layout.addStretch()
