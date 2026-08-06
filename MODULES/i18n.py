@@ -79,10 +79,10 @@ _TEXTOS = {
         "en": "Target, assay and bioactivity dataset construction from source data",
         "pt": "Construção do dataset de alvo, ensaio e bioatividade a partir dos dados de origem",
     },
-    "home_step2_name": {"en": "Step 2 — Exploratory Analysis", "pt": "Etapa 2 — Análise Exploratória"},
+    "home_step2_name": {"en": "Step 2 — Data Preprocessing", "pt": "Etapa 2 — Pré-Processamento de dados"},
     "home_step2_desc": {
-        "en": "Cleaning, type conversion, visualization, distribution analysis, class categorization and druggability descriptor filtering",
-        "pt": "Limpeza, conversão de tipos, visualização, análise de distribuição, categorização de classes e filtragem de descritores de drogabilidade",
+        "en": "Cleaning, type conversion, handling of repetitions, Outliers Elimination, categorization and druggability",
+        "pt": "Limpeza, conversão de tipos, tratamento de repetições, Eliminação de Outliers, categorização e drogabilidade",
     },
     "home_step3_name": {"en": "Step 3 — Feature Engineering", "pt": "Etapa 3 — Engenharia de Atributos"},
     "home_step3_desc": {
@@ -101,8 +101,8 @@ _TEXTOS = {
     },
     "home_step6_name": {"en": "Step 6 — Consensus Analysis", "pt": "Etapa 6 — Análise de Consenso"},
     "home_step6_desc": {
-        "en": "Consensus ranking with z-score integration, median-rank validation and Spearman concordance",
-        "pt": "Ranqueamento por consenso com integração de z-score, validação por mediana de rank e concordância de Spearman",
+        "en": "Consensus ranking with z-score integration and Spearman concordance",
+        "pt": "Ranqueamento por consenso com integração de z-score e concordância de Spearman",
     },
     "home_btn_start": {"en": "Start", "pt": "Iniciar"},
     "home_btn_install": {"en": "Install Requirements", "pt": "Instalar Dependências"},
