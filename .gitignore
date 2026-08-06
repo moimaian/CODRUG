@@ -6,3 +6,6 @@ JOBS/
 
 # Backups manuais antigos — substituídos pelo histórico do git
 ANTIGOS/
+
+# Saída do build do pacote .deb (packaging/deb/build.sh) — binário gerado, não fonte
+packaging/dist/

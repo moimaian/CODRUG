@@ -1,0 +1,25 @@
+Package: codrug
+Version: @VERSION@
+Section: science
+Priority: optional
+Architecture: all
+Depends: python3 (>= 3.10), python3-venv, python3-pip
+Recommends: python3.10, rsync
+Maintainer: Moisés Maia <moimaian@gmail.com>
+Installed-Size: @INSTALLED_SIZE@
+Homepage: https://github.com/moimaian/CODRUG
+Description: QSAR analysis and machine learning tool for drug discovery
+ CODRUG is a PyQt5-based graphical tool for QSAR analysis using machine
+ learning models: preparation of labeled internal datasets, preprocessing,
+ exploratory and statistical analysis, generation of molecular descriptors
+ and feature engineering, construction and validation of regression,
+ classification and clustering models, cross-validation, hyperparameter
+ optimization, and prediction of classes or bioactivities in external
+ databases.
+ .
+ This package installs the application files to /opt/codrug and a menu
+ launcher. On first run, CODRUG itself creates an isolated Python 3.10
+ virtual environment at ~/.venv/CODRUG and installs its own scientific
+ dependencies (RDKit, scikit-learn, PyCaret, etc.) into it — this package
+ does not do that as root during installation, by design (see
+ packaging/deb/README.md).

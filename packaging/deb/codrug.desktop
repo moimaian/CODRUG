@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=CODRUG
+Comment=QSAR analysis and machine learning tool
+Comment[pt_BR]=Ferramenta de análise QSAR e aprendizado de máquina
+Exec=/usr/bin/codrug
+Icon=/opt/codrug/ICONS/CODRUG.png
+Terminal=true
+Categories=Science;Qt;
+StartupNotify=false

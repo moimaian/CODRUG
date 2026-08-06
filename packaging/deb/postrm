@@ -1,0 +1,27 @@
+#!/bin/sh
+# postrm do pacote codrug
+#
+# Da mesma forma que o postinst nunca escreve em $HOME, o postrm nunca
+# apaga nada em $HOME: $HOME/CODRUG/JOBS guarda resultados gerados pelo
+# usuário e $HOME/.venv/CODRUG é um ambiente virtual por-usuário. Um script
+# de sistema (root) removendo isso de forma automática — inclusive em
+# "purge" — arriscaria apagar dados de trabalho de qualquer usuário que já
+# tenha logado na máquina, sem chance de confirmação. Só avisamos.
+
+set -e
+
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database -q /usr/share/applications || true
+fi
+
+if [ "$1" = "purge" ]; then
+    cat <<'EOF' >&2
+codrug: o pacote foi removido, mas dados por-usuário NÃO foram apagados:
+  - Código copiado/resultados:  ~/CODRUG  (inclui ~/CODRUG/JOBS)
+  - Ambiente virtual Python:    ~/.venv/CODRUG
+Remova manualmente esses diretórios, para cada usuário que os tenha, se
+quiser liberar o espaço.
+EOF
+fi
+
+exit 0

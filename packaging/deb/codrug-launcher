@@ -1,0 +1,41 @@
+#!/bin/bash
+# /usr/bin/codrug — instalado pelo pacote .deb.
+#
+# Roda como o usuário comum que clicou no menu (não como root). Só faz duas
+# coisas:
+#   1) sincroniza o código instalado pelo pacote em /opt/codrug para
+#      $HOME/CODRUG, sem nunca tocar em $HOME/CODRUG/JOBS (resultados do
+#      usuário) nem em caches de bytecode;
+#   2) delega tudo o mais — criação/atualização do venv em
+#      $HOME/.venv/CODRUG, instalação das dependências científicas,
+#      criação do .desktop em ~/.local/share/applications — para o próprio
+#      CODRUG.py, que já faz isso sozinho na primeira execução (ver
+#      MODULES/module_requirements.py e MODULES/splash_screen.py).
+set -euo pipefail
+
+SRC_DIR="/opt/codrug"
+APP_DIR="${HOME}/CODRUG"
+
+if [ ! -d "$SRC_DIR" ]; then
+    echo "codrug: $SRC_DIR não encontrado — o pacote está corrompido ou foi removido." >&2
+    exit 1
+fi
+
+mkdir -p "$APP_DIR"
+
+if command -v rsync >/dev/null 2>&1; then
+    rsync -a \
+        --exclude='JOBS/' \
+        --exclude='__pycache__/' \
+        --exclude='*.pyc' \
+        "$SRC_DIR"/ "$APP_DIR"/
+else
+    # Fallback sem rsync: copia tudo exceto a pasta JOBS do usuário.
+    for item in "$SRC_DIR"/*; do
+        name="$(basename "$item")"
+        [ "$name" = "JOBS" ] && continue
+        cp -rf "$item" "$APP_DIR"/
+    done
+fi
+
+exec python3 "$APP_DIR/CODRUG.py" "$@"

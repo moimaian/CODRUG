@@ -1,0 +1,22 @@
+#!/bin/sh
+# postinst do pacote codrug
+#
+# Propositalmente NÃO cria $HOME/CODRUG nem $HOME/.venv/CODRUG aqui: este
+# script roda como root durante "apt install"/"dpkg -i", momento em que
+# $HOME/SUDO_USER não identificam de forma confiável o usuário final da
+# máquina (e em máquinas multiusuário sequer faria sentido escolher um só).
+# Esse trabalho por-usuário já é feito pelo próprio CODRUG.py na primeira
+# execução (ver MODULES/module_requirements.py:ensure_venv /
+# MODULES/splash_screen.py). Aqui só atualizamos caches do sistema.
+
+set -e
+
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database -q /usr/share/applications || true
+fi
+
+if command -v gtk-update-icon-cache >/dev/null 2>&1 && [ -d /usr/share/icons/hicolor ]; then
+    gtk-update-icon-cache -q /usr/share/icons/hicolor || true
+fi
+
+exit 0
