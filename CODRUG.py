@@ -14201,7 +14201,7 @@ class MainWindow(QMainWindow):
             self.df_selecionado = filtered_df.copy()
             file_path2 = str(getattr(self, "step5_filter_file_path2", "") or "").strip()
             if file_path2:
-                default_name = f"filtered_{os.path.basename(file_path2)}"
+                default_name = f"filtered_{self._sanitize_filename(value_col)}_{os.path.basename(file_path2)}"
                 self._next_dataframe_save_path = os.path.join(os.path.dirname(file_path2), default_name)
             self.show_dataframe(filtered_df)
             QMessageBox.information(self, i18n.t("msg_title_success", self._idioma), f"Filtered DataFrame generated with {len(filtered_df)} rows from Dataframe 2.")
@@ -14260,13 +14260,17 @@ class MainWindow(QMainWindow):
             os.makedirs(predictions_dir, exist_ok=True)
 
         file_path1 = str(getattr(self, "step5_filter_file_path1", "") or "").strip()
+        # "Filtered column:" in the UI is cb_step5_filter_predictions_col (pred_col) - the
+        # Dataframe 1 column being kept/filtered - not cb_step5_filter_value_col (value_col,
+        # labeled "Filter column:", Dataframe 2's filter criterion column).
+        safe_pred_col = self._sanitize_filename(pred_col)
         if file_path1:
             base_name = os.path.basename(file_path1)
             stem, ext = os.path.splitext(base_name)
-            suggested_name = f"{stem}_AD_Filtered{ext or '.csv'}"
+            suggested_name = f"{stem}_{safe_pred_col}_AD_Filtered{ext or '.csv'}"
         else:
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-            suggested_name = f"filtered_predictions_ad_{timestamp}.csv"
+            suggested_name = f"filtered_predictions_ad_{safe_pred_col}_{timestamp}.csv"
 
         self._next_dataframe_save_path = os.path.join(predictions_dir, suggested_name)
         self.show_dataframe(filtered_df)
