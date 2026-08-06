@@ -10658,7 +10658,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, i18n.t("msg_title_error", self._idioma), f"An error occurred during consensus analysis:\n{e}")
 
     def generate_final_report(self) -> None:
-        """STEP 8 'Generate Final Report' button: builds <job_name>_REPORT.docx under the
+        """STEP 6 'Generate Final Report' button: builds <job_name>_REPORT_<timestamp>.docx under the
         job's RESULTS folder from the unified per-job JSON (job_dir/<job_name>.json) plus the
         result files each STEP has written to disk so far. Mirrors CODOC's STEP 5 handler of
         the same name (CODOC.py, generate_final_report)."""
@@ -10679,7 +10679,10 @@ class MainWindow(QMainWindow):
 
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
-            output_path = _generate_final_report_docx(job_dir=job_dir, job_name=job_name, state=state)
+            output_path = _generate_final_report_docx(
+                job_dir=job_dir, job_name=job_name, state=state,
+                idioma=self._idioma, app_dir=self.dp_dir,
+            )
         except Exception as e:
             QApplication.restoreOverrideCursor()
             QMessageBox.critical(self, i18n.t("msg_title_generate_final_report", self._idioma), f"Failed to generate the final report:\n{e}")
@@ -19276,7 +19279,7 @@ class MainWindow(QMainWindow):
             fig.tight_layout()
 
             self._set_current_sklearn_usi_context()
-            self._show_skl_plot_dialog(fig, f"{x_label}_curve", f"{model_name}_{x_label}_curve")
+            self._show_skl_plot_dialog(fig, f"{x_label}_curve", f"{model_name}_{x_label}_curve_{self.skl_usi_key}")
         except Exception as e:
             import traceback; traceback.print_exc()
             QMessageBox.critical(self, i18n.t("msg_title_plot_error", self._idioma), str(e))
@@ -19559,7 +19562,7 @@ class MainWindow(QMainWindow):
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             file_suffix = selected_names[0] if len(selected_names) == 1 else f"{len(selected_names)}models"
             self._next_dataframe_save_path = os.path.join(
-                self.skl_predictions_path, f"{timestamp}_df_predicted_{file_suffix}.csv"
+                self.skl_predictions_path, f"{timestamp}_df_predicted_{file_suffix}_{self.skl_usi_key}.csv"
             )
             self.show_dataframe(df_result)
         except Exception as e:
@@ -19607,6 +19610,7 @@ class MainWindow(QMainWindow):
 
         self._set_current_sklearn_usi_context()
         file_stem = f"{y_col}_Train_Test_Plot" if y_col else "Train_Test_Plot"
+        file_stem = f"{file_stem}_{self.skl_usi_key}"
         auto_path = os.path.join(self.skl_plot_path, f"{file_stem}.png")
         try:
             fig.savefig(auto_path, dpi=300, bbox_inches="tight", facecolor="white")
@@ -19652,14 +19656,14 @@ class MainWindow(QMainWindow):
                 if fig is None:
                     continue
                 if auto_save_only:
-                    path = os.path.join(self.skl_plot_path, f"{model_name}_{kind}.png")
+                    path = os.path.join(self.skl_plot_path, f"{model_name}_{kind}_{self.skl_usi_key}.png")
                     try:
                         fig.savefig(path, dpi=300, bbox_inches="tight", facecolor="white")
                         saved_paths.append(path)
                     finally:
                         plt.close(fig)
                 else:
-                    self._show_skl_plot_dialog(fig, kind, f"{model_name}_{kind}")
+                    self._show_skl_plot_dialog(fig, kind, f"{model_name}_{kind}_{self.skl_usi_key}")
 
             if auto_save_only and saved_paths:
                 QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma),
