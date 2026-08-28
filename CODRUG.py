@@ -2408,7 +2408,13 @@ class MainWindow(QMainWindow):
         
         # Atribuir df_selecionado como None inicialmente:
         self.df_selecionado = None
-        
+
+        # Widgets de conteúdo de cada aba (o widget "de dentro" do QScrollArea de cada uma),
+        # usados por _fit_window_to_content() para dimensionar a janela principal de acordo
+        # com a aba mais larga/alta, sem depender do minimumSizeHint (que fica pequeno por
+        # causa do QScrollArea — ver _fit_window_to_content).
+        self._tab_content_widgets = []
+
         # Menu Bar — "Menu" (título do menu de nível superior) permanece literal nos dois idiomas,
         # a pedido explícito do usuário; os demais itens (e o menu "Help") são traduzidos.
         menu_bar = self.menuBar()
@@ -14445,9 +14451,10 @@ class MainWindow(QMainWindow):
             outer0.addWidget(scroll0)
             self.tabs.addTab(t0, "HOME")
             self._tr("tab_home", lambda txt: self.tabs.setTabText(0, txt))
-            # Guardado para dimensionar a janela ao conteúdo da HOME logo após a construção
-            # da interface, evitando a necessidade de scroll ao abrir o programa.
-            self._home_content_widget = inner0
+            # Guardado para dimensionar a janela ao conteúdo das abas logo após a construção
+            # da interface, evitando a necessidade de scroll ao abrir o programa (ver
+            # _fit_window_to_content).
+            self._tab_content_widgets.append(inner0)
         except Exception as exc:
             import traceback
 
@@ -14464,7 +14471,9 @@ class MainWindow(QMainWindow):
         try:
             # Layout principal da aba de configuração:
             t1 = QWidget(); l1 = QVBoxLayout(t1)
-            self.tabs.addTab(t1, "CONFIG")
+            scroll1 = QScrollArea(); scroll1.setWidgetResizable(True); scroll1.setFrameShape(QFrame.NoFrame); scroll1.setWidget(t1)
+            self._tab_content_widgets.append(t1)
+            self.tabs.addTab(scroll1, "CONFIG")
             self._tr("tab_config", lambda txt: self.tabs.setTabText(1, txt))
             
             # Label de título:
@@ -14848,7 +14857,9 @@ class MainWindow(QMainWindow):
         # ==============================================================================================================================================
         try:
             t2 = QWidget(); l2 = QVBoxLayout(t2)
-            self.tabs.addTab(t2, "STEP 1")
+            scroll2 = QScrollArea(); scroll2.setWidgetResizable(True); scroll2.setFrameShape(QFrame.NoFrame); scroll2.setWidget(t2)
+            self._tab_content_widgets.append(t2)
+            self.tabs.addTab(scroll2, "STEP 1")
             self._tr("tab_step1", lambda txt: self.tabs.setTabText(2, txt))
 
             # Adiciona título:
@@ -15185,7 +15196,9 @@ class MainWindow(QMainWindow):
         try:
             # Layout principal da aba de análise exploratória:
             t3 = QWidget(); l3 = QVBoxLayout(t3)
-            self.tabs.addTab(t3, "STEP 2")
+            scroll3 = QScrollArea(); scroll3.setWidgetResizable(True); scroll3.setFrameShape(QFrame.NoFrame); scroll3.setWidget(t3)
+            self._tab_content_widgets.append(t3)
+            self.tabs.addTab(scroll3, "STEP 2")
             self._tr("tab_step2", lambda txt: self.tabs.setTabText(3, txt))
             l3.addWidget(self._mk_title("title_step2"))
             l3.addSpacing(10)
@@ -15243,7 +15256,7 @@ class MainWindow(QMainWindow):
             gL6_widget = QWidget()
             gL6 = QGridLayout(gL6_widget)
             label_select_columns = self._trL("s2_lbl_select_columns_interest"); label_select_columns.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;");
-            self.list_columns = QListWidget(); self.list_columns.addItems([]); self.list_columns.setSelectionMode(QAbstractItemView.MultiSelection); self.list_columns.setFixedHeight(100); self.list_columns.setFixedWidth(300)
+            self.list_columns = QListWidget(); self.list_columns.addItems([]); self.list_columns.setSelectionMode(QAbstractItemView.MultiSelection); self.list_columns.setMinimumHeight(60); self.list_columns.setFixedWidth(300)
             btn_filter_columns = QPushButton(); self._tr("s2_btn_count_filter_columns", btn_filter_columns.setText); btn_filter_columns.setProperty("role", "secondary"); btn_filter_columns.setFixedWidth(150); btn_filter_columns.clicked.connect(self.run_list_columns)
             btn_del_null = QPushButton(); self._tr("s2_btn_count_del_null", btn_del_null.setText)
             btn_del_null.setProperty("role", "danger")
@@ -15253,7 +15266,10 @@ class MainWindow(QMainWindow):
             gL6_btn.addWidget(btn_del_null)        
             gL6.addWidget(label_select_columns,0,0); gL6.addWidget(self.list_columns,0,1); gL6.addLayout(gL6_btn,0,2)
             gL6.setColumnStretch(0, 1); gL6.setColumnStretch(1, 2); gL6.setColumnStretch(2, 2)
-            g6_main_layout.addWidget(gL6_widget)
+            # Stretch=1: sem isso, list_columns (mesmo com setMinimumHeight em vez de
+            # setFixedHeight) nunca era de fato convidada a crescer/encolher com a janela
+            # principal — mesma causa corrigida em STEP 4 (Models/Status).
+            g6_main_layout.addWidget(gL6_widget, 1)
             g6_main_layout.addSpacing(27)           
             
             # Segundo grid:
@@ -15327,9 +15343,14 @@ class MainWindow(QMainWindow):
             # g7_main_layout.addWidget(btn_check_rep, alignment=Qt.AlignCenter) 
             g7_main_layout.addStretch()
 
-            g67_layout.addWidget(g6, alignment=Qt.AlignTop)
-            g67_layout.addWidget(g7, alignment=Qt.AlignTop)
-            l3.addLayout(g67_layout)
+            # Sem alignment=Qt.AlignTop (removido): com ele, g6/g7 nunca preenchiam a altura
+            # cheia da linha, mesmo quando g67_layout tinha mais altura disponível — o
+            # "encolhimento" pedido também depende de crescer/encolher, não só ter um mínimo
+            # menor. l3.addLayout(g67_layout, 1): sem stretch aqui, a linha inteira nunca era
+            # de fato convidada a mudar de altura com a janela principal.
+            g67_layout.addWidget(g6)
+            g67_layout.addWidget(g7)
+            l3.addLayout(g67_layout, 1)
 
             g89_layout = QHBoxLayout()
             g8 = QGroupBox(); self._tr("s2_grp_data_transformation", g8.setTitle)
@@ -15487,27 +15508,27 @@ class MainWindow(QMainWindow):
             label_mol_chembl_id = self._trL("s3_lbl_molecule_chembl_id"); label_mol_chembl_id.setStyleSheet("color: #C9D1D9; font-size: 10pt"); label_mol_chembl_id.setAlignment(Qt.AlignCenter)
             self.cb_molecule_chembl_id_cat = QComboBox(); self.cb_molecule_chembl_id_cat.addItems([]); self.cb_molecule_chembl_id_cat.setEditable(True); self.cb_molecule_chembl_id_cat.setFixedWidth(200)
             label_class = self._trL("lbl_class"); label_class.setStyleSheet("color: #C9D1D9; font-size: 10pt")
-            self.ed_class = QLineEdit(); self.ed_class.setReadOnly(True); self.ed_class.setFixedSize(200, 25); self.ed_class.setAlignment(Qt.AlignCenter)
+            self.ed_class = QLineEdit(); self.ed_class.setReadOnly(True); self.ed_class.setFixedSize(120, 25); self.ed_class.setAlignment(Qt.AlignCenter)
             btn_view_class = QPushButton(); self._tr("s3_btn_view_class", btn_view_class.setText)
             btn_view_class.setProperty("role", "secondary")
-            btn_view_class.setFixedSize(150, 30)
+            btn_view_class.setFixedSize(110, 30)
             btn_view_class.clicked.connect(self.run_view_class)
             label_select_class_column = self._trL("s3_lbl_select_class_column"); label_select_class_column.setStyleSheet("color: #C9D1D9; font-size: 10pt")
             self.list_class_column = QComboBox(); self.list_class_column.addItems([]); self.list_class_column.setFixedWidth(200)
             btn_view_class_frequency = QPushButton(); self._tr("s3_btn_view_frequency", btn_view_class_frequency.setText)
             btn_view_class_frequency.setProperty("role", "secondary")
-            btn_view_class_frequency.setFixedSize(150, 30)
+            btn_view_class_frequency.setFixedSize(110, 30)
             btn_view_class_frequency.clicked.connect(self.run_view_class_frequency)
 
             gL16.addWidget(label_class1, 0, 0, alignment=Qt.AlignRight)
             gL16.addWidget(self.ed_class1_name, 0, 1)
             gL16.addWidget(self.cb_class1_op, 0, 2, alignment=Qt.AlignCenter)
             gL16.addWidget(label_class1_ref, 0, 3, alignment=Qt.AlignRight)
-            gL16.addWidget(self.ed_class1_ref, 0, 4, alignment=Qt.AlignLeft)
+            gL16.addWidget(self.ed_class1_ref, 0, 4, alignment=Qt.AlignCenter)
 
             gL16.addWidget(label_class2, 1, 0, alignment=Qt.AlignRight)
             gL16.addWidget(self.ed_class2_name, 1, 1)
-            gL16.addWidget(label_class2_range, 1, 2, alignment=Qt.AlignCenter)
+            gL16.addWidget(label_class2_range, 1, 2, alignment=Qt.AlignRight)
             gL16.addWidget(self.ed_class2_min, 1, 3, alignment=Qt.AlignRight)
             gL16.addWidget(label_class2_to, 1, 4, alignment=Qt.AlignCenter)
             gL16.addWidget(self.ed_class2_max, 1, 5, alignment=Qt.AlignLeft)
@@ -15516,7 +15537,7 @@ class MainWindow(QMainWindow):
             gL16.addWidget(self.ed_class3_name, 2, 1)
             gL16.addWidget(self.cb_class3_op, 2, 2, alignment=Qt.AlignCenter)
             gL16.addWidget(label_class3_ref, 2, 3, alignment=Qt.AlignRight)
-            gL16.addWidget(self.ed_class3_ref, 2, 4, alignment=Qt.AlignLeft)
+            gL16.addWidget(self.ed_class3_ref, 2, 4, alignment=Qt.AlignCenter)
 
             gL16.addWidget(btn_set_class, 3, 1, alignment=Qt.AlignCenter)
             gL16.addWidget(label_view_class, 4, 1, alignment=Qt.AlignCenter)
@@ -15526,9 +15547,14 @@ class MainWindow(QMainWindow):
             gL16.addWidget(label_select_class_column, 6, 0, alignment=Qt.AlignRight); gL16.addWidget(self.list_class_column, 6, 1)
             gL16.addWidget(btn_view_class_frequency, 6, 2, alignment=Qt.AlignCenter)
 
-            CAT_COL_UNIT = 100
+            # CAT_COL_UNIT menor: com 100 (e 200 na coluna 1), setColumnMinimumWidth somado às
+            # 6 colunas travava esse grupo em ~1041px de largura mínima IGUAL à sua largura
+            # natural (zero folga) — bem mais largo do que o conteúdo realmente precisa,
+            # forçando "Generating Categories" (e por tabela, a aba STEP 2 inteira) a ser bem
+            # mais larga que o necessário.
+            CAT_COL_UNIT = 60
             gL16.setColumnMinimumWidth(0, CAT_COL_UNIT)
-            gL16.setColumnMinimumWidth(1, CAT_COL_UNIT * 2)
+            gL16.setColumnMinimumWidth(1, int(CAT_COL_UNIT * 1.5))
             gL16.setColumnMinimumWidth(2, CAT_COL_UNIT)
             gL16.setColumnMinimumWidth(3, CAT_COL_UNIT)
             gL16.setColumnMinimumWidth(4, CAT_COL_UNIT)
@@ -15745,7 +15771,9 @@ class MainWindow(QMainWindow):
         try:
             # Layout principal da aba para gerar descritores:
             t5 = QWidget(); l5 = QVBoxLayout(t5)
-            self.tabs.addTab(t5, "STEP 4")
+            scroll5 = QScrollArea(); scroll5.setWidgetResizable(True); scroll5.setFrameShape(QFrame.NoFrame); scroll5.setWidget(t5)
+            self._tab_content_widgets.append(t5)
+            self.tabs.addTab(scroll5, "STEP 4")
             self._tr("tab_step4", lambda txt: self.tabs.setTabText(4, txt))
             l5.addWidget(self._mk_title("title_step4"))
             l5.addSpacing(10)
@@ -16397,6 +16425,7 @@ class MainWindow(QMainWindow):
             l_skl.setSpacing(14)
             scroll_skl.setWidget(inner_skl)
             outer_skl.addWidget(scroll_skl)
+            self._tab_content_widgets.append(inner_skl)
 
             l_skl.addWidget(self._mk_title("title_step5"))
             l_skl.addSpacing(10)
@@ -16498,56 +16527,60 @@ class MainWindow(QMainWindow):
             models_col_skl.addWidget(self._trL("lbl_models"))
             self.list_skl_models = QListWidget()
             self.list_skl_models.setSelectionMode(QAbstractItemView.MultiSelection)
-            self.list_skl_models.setFixedHeight(270)
+            # setMinimumHeight (não setFixedHeight) para que o stretch factor já usado abaixo
+            # (models_col_skl.addWidget(self.list_skl_models, 1)) realmente funcione — com
+            # altura fixa, o widget nunca encolhia ao reduzir a janela principal.
+            self.list_skl_models.setMinimumHeight(100)
             models_col_skl.addWidget(self.list_skl_models, 1)
             screen_cols_row.addLayout(models_col_skl, 2)
 
             # Coluna 2 (proporção 1): Select All, Sort metric, Select X range, Select Y column, Select Test Size
-            metric_col_skl = QVBoxLayout()
-            metric_col_skl.addSpacing(10)
-            metric_col_skl.addWidget(self._trL("s6_lbl_sort_metric"), alignment=Qt.AlignCenter)
+            # QFormLayout (rótulo ao lado do campo, não em cima) em vez da pilha vertical
+            # anterior: essa coluna só tinha campos de altura fixa e nenhuma folga, então
+            # forçava a LINHA inteira (e, por tabela, list_skl_models/txt_skl_status ao lado)
+            # a nunca ficar mais baixa que ela — impedindo Models/Status de encolher junto
+            # com a janela principal. Rótulo ao lado reduz bastante a altura mínima dessa
+            # coluna, liberando a linha para encolher de verdade.
+            metric_col_skl_widget = QWidget()
+            metric_col_skl = QFormLayout(metric_col_skl_widget)
+            metric_col_skl.setContentsMargins(0, 10, 0, 0)
+            metric_col_skl.setVerticalSpacing(8)
+
             self.cb_skl_metric = QComboBox()
             self.cb_skl_metric.setFixedWidth(160)
-            metric_col_skl.addWidget(self.cb_skl_metric, alignment=Qt.AlignCenter)
-            metric_col_skl.addSpacing(10)
+            metric_col_skl.addRow(self._trL("s6_lbl_sort_metric"), self.cb_skl_metric)
 
-            metric_col_skl.addWidget(self._trL("s6_lbl_select_x_range"), alignment=Qt.AlignCenter)
             x_range_row_skl = QHBoxLayout()
-            x_range_row_skl.addStretch()
             self.ed_skl_x_first_col = QLineEdit(); self.ed_skl_x_first_col.setToolTip("First Column Index"); self.ed_skl_x_first_col.setFixedSize(60, 25); self.ed_skl_x_first_col.setAlignment(Qt.AlignCenter); self.ed_skl_x_first_col.setValidator(QIntValidator()); self.ed_skl_x_first_col.setText("2")
             x_range_row_skl.addWidget(self.ed_skl_x_first_col)
             label_skl_x_to = self._trL("lbl_to_short"); label_skl_x_to.setAlignment(Qt.AlignCenter); label_skl_x_to.setFixedSize(20, 25)
             x_range_row_skl.addWidget(label_skl_x_to)
             self.ed_skl_x_last_col = QLineEdit(); self.ed_skl_x_last_col.setToolTip("Last Column Index"); self.ed_skl_x_last_col.setFixedSize(60, 25); self.ed_skl_x_last_col.setAlignment(Qt.AlignCenter); self.ed_skl_x_last_col.setValidator(QIntValidator())
             x_range_row_skl.addWidget(self.ed_skl_x_last_col)
-            x_range_row_skl.addStretch()
-            metric_col_skl.addLayout(x_range_row_skl)
-            metric_col_skl.addSpacing(10)
+            metric_col_skl.addRow(self._trL("s6_lbl_select_x_range"), x_range_row_skl)
 
-            metric_col_skl.addWidget(self._trL("s6_lbl_select_y_column_internal"), alignment=Qt.AlignCenter)
             self.cb_skl_y = QComboBox(); self.cb_skl_y.setEditable(True)
             self.cb_skl_y.addItems([""])
             self.cb_skl_y.setFixedWidth(160)
-            metric_col_skl.addWidget(self.cb_skl_y, alignment=Qt.AlignCenter)
-            metric_col_skl.addSpacing(10)
+            metric_col_skl.addRow(self._trL("s6_lbl_select_y_column_internal"), self.cb_skl_y)
 
-            metric_col_skl.addWidget(self._trL("s6_lbl_select_test_size"), alignment=Qt.AlignCenter)
             self.dsp_skl_test_size = QDoubleSpinBox()
             self.dsp_skl_test_size.setRange(0.05, 0.95)
             self.dsp_skl_test_size.setSingleStep(0.05)
             self.dsp_skl_test_size.setValue(0.30)
             self.dsp_skl_test_size.setFixedWidth(90)
-            metric_col_skl.addWidget(self.dsp_skl_test_size, alignment=Qt.AlignCenter)
+            metric_col_skl.addRow(self._trL("s6_lbl_select_test_size"), self.dsp_skl_test_size)
 
-            #metric_col_skl.addStretch()
-            screen_cols_row.addLayout(metric_col_skl, 1)
+            screen_cols_row.addWidget(metric_col_skl_widget, 1)
+            screen_cols_row.setAlignment(metric_col_skl_widget, Qt.AlignTop)
 
             # Coluna 3 (proporção 3): Status + barra de progresso
             status_col_skl = QVBoxLayout()
             status_col_skl.addWidget(self._trL("lbl_status"))
             self.txt_skl_status = QTextEdit()
             self.txt_skl_status.setReadOnly(True)
-            self.txt_skl_status.setFixedHeight(240)
+            # setMinimumHeight (não setFixedHeight) pelo mesmo motivo do list_skl_models acima.
+            self.txt_skl_status.setMinimumHeight(100)
             status_col_skl.addWidget(self.txt_skl_status, 1)
             self.pb_skl_screening = self._mk_progress()
             self.pb_skl_screening.setMaximum(100); self.pb_skl_screening.setValue(0)
@@ -16578,7 +16611,11 @@ class MainWindow(QMainWindow):
             screen_btns_row.addWidget(self.btn_skl_run_screening, alignment=Qt.AlignRight)
             lay_skl_screen.addLayout(screen_btns_row, 1)
 
-            l_skl.addWidget(gb_skl_screen)
+            # Stretch=1: sem isso, gb_skl_screen (e a lista Models/caixa Status dentro dele)
+            # sempre usava seu tamanho natural, e era outra parte da aba que absorvia toda a
+            # compressão ao reduzir a altura da janela principal — Models/Status pareciam ter
+            # altura mínima grande porque nunca eram, de fato, convidados a encolher.
+            l_skl.addWidget(gb_skl_screen, 1)
 
             # ---------- GROUP: HYPERPARAMETER TUNING ----------
             gb_skl_tune = QGroupBox(); self._tr("s6_grp_hyperparameter_tuning", gb_skl_tune.setTitle)
@@ -16855,7 +16892,9 @@ class MainWindow(QMainWindow):
         try:
             # Layout principal da aba para gerar descritores:
             t7 = QWidget(); l7 = QVBoxLayout(t7)
-            self.tabs.addTab(t7, "STEP 6")
+            scroll7 = QScrollArea(); scroll7.setWidgetResizable(True); scroll7.setFrameShape(QFrame.NoFrame); scroll7.setWidget(t7)
+            self._tab_content_widgets.append(t7)
+            self.tabs.addTab(scroll7, "STEP 6")
             self._tr("tab_step6", lambda txt: self.tabs.setTabText(6, txt))
             l7.addWidget(self._mk_title("title_step6"))
             l7.addSpacing(10)
@@ -17383,7 +17422,9 @@ class MainWindow(QMainWindow):
         # ==============================================================================================================================================
         try:
             t9 = QWidget(); l9 = QVBoxLayout(t9)
-            self.tabs.addTab(t9, "EDIT")
+            scroll9 = QScrollArea(); scroll9.setWidgetResizable(True); scroll9.setFrameShape(QFrame.NoFrame); scroll9.setWidget(t9)
+            self._tab_content_widgets.append(t9)
+            self.tabs.addTab(scroll9, "EDIT")
             self._tr("tab_edit", lambda txt: self.tabs.setTabText(8, txt))
             l9.addWidget(self._mk_title("title_edit"))
             l9.addSpacing(10)
@@ -17785,7 +17826,9 @@ class MainWindow(QMainWindow):
         try:
             # Layout principal da aba de estatística:
             t10 = QWidget(); l10 = QVBoxLayout(t10)
-            self.tabs.addTab(t10, "STATISTICS")
+            scroll10 = QScrollArea(); scroll10.setWidgetResizable(True); scroll10.setFrameShape(QFrame.NoFrame); scroll10.setWidget(t10)
+            self._tab_content_widgets.append(t10)
+            self.tabs.addTab(scroll10, "STATISTICS")
             self._tr("tab_statistics", lambda txt: self.tabs.setTabText(9, txt))
             l10.addWidget(self._mk_title("title_statistics"))
             l10.addSpacing(10)
@@ -18302,27 +18345,44 @@ class MainWindow(QMainWindow):
                 i18n.t("msg_statistics_build_error", self._idioma, e=e)
             )
 
-        # Redimensiona a janela para caber o conteúdo da HOME por inteiro, sem scroll,
-        # ao abrir o programa (a janela nunca fica maior que a área útil da tela).
-        self._fit_window_to_home()
+        # Redimensiona a janela para caber por inteiro o conteúdo da aba mais larga/alta
+        # (ex.: STEP 2), sem precisar de scroll, adaptando ao tamanho da tela do usuário.
+        self._fit_window_to_content()
 
-    def _fit_window_to_home(self):
-        home_widget = getattr(self, "_home_content_widget", None)
+    def _fit_window_to_content(self):
+        """
+        Dimensiona a janela principal, uma vez, logo após montar a interface, para caber
+        por inteiro o conteúdo da aba mais larga e da aba mais alta — usando como referência
+        o sizeHint() do widget "de dentro" do QScrollArea de cada aba (não o
+        minimumSizeHint(), que é propositalmente pequeno por causa do próprio QScrollArea;
+        ver correção do encaixe nas bordas da tela). Isso faz a janela abrir grande o
+        suficiente para mostrar qualquer aba (ex.: STEP 2) sem scroll, com o tamanho em
+        pixels acompanhando a resolução da tela — mas nunca maior que a área útil dela. Se o
+        conteúdo não couber mesmo assim (tela pequena demais para o conjunto de abas), a aba
+        correspondente volta a exibir scroll normalmente, como reserva.
+        """
         screen = QGuiApplication.primaryScreen()
-        if home_widget is None or screen is None:
+        if screen is None or not self._tab_content_widgets:
             return
 
         available = screen.availableGeometry()
-        content_size = home_widget.sizeHint()
+        # Largura: sizeHint() (tamanho "natural"/confortável do conteúdo) — a janela abre
+        # com a largura da aba mais larga, sem sobras.
+        max_width = max(w.sizeHint().width() for w in self._tab_content_widgets)
+        # Altura: minimumSizeHint() (não sizeHint()) — graças ao stretch já aplicado em
+        # algumas abas (STEP 2 "Select columns of interest", STEP 4 Models/Status), o
+        # conteúdo comprime sem precisar de scroll bem abaixo do seu tamanho "preferido".
+        # Usar sizeHint() aqui abria a janela ~100-150px mais alta do que o necessário.
+        max_height = max(w.minimumSizeHint().height() for w in self._tab_content_widgets)
 
         # Margem para a barra de abas e bordas — evita que uma barra de rolagem
-        # apareça por causa de poucos pixels de folga.
+        # apareça só por causa de poucos pixels de folga.
         tab_bar = self.tabs.tabBar()
-        extra_height = (tab_bar.sizeHint().height() if tab_bar else 0) + 60
+        extra_height = (tab_bar.sizeHint().height() if tab_bar else 0) + 45
         extra_width = 60
 
-        target_width = min(available.width(), max(self.width(), content_size.width() + extra_width))
-        target_height = min(available.height(), max(self.height(), content_size.height() + extra_height))
+        target_width = min(available.width(), max_width + extra_width)
+        target_height = min(available.height(), max_height + extra_height)
 
         self.resize(target_width, target_height)
         self.move(
@@ -19814,14 +19874,20 @@ class MainWindow(QMainWindow):
             y_label = selected_metric if scoring else "Score"
 
             try:
+                # shuffle=True: por padrão o sklearn NÃO embaralha antes de repartir os 5 folds
+                # (shuffle=False), e sem shuffle=True o random_state é ignorado. Sem embaralhar,
+                # os folds viram blocos contíguos na ordem original das linhas do dataset — que
+                # em datasets do ChEMBL costuma estar agrupada por alvo/assay/fonte, não é
+                # aleatória — derrubando artificialmente o score de Cross-Validation exibido.
                 train_sizes, train_scores, test_scores = learning_curve(
-                    clone(model), x, y, cv=5, scoring=scoring, random_state=self._get_skl_random_state()
+                    clone(model), x, y, cv=5, scoring=scoring, shuffle=True,
+                    random_state=self._get_skl_random_state()
                 )
             except Exception:
                 # Scorer incompatível com o modelo/tarefa atual (ex.: AUC sem predict_proba) -
                 # volta para o score padrão do sklearn em vez de falhar o gráfico.
                 train_sizes, train_scores, test_scores = learning_curve(
-                    clone(model), x, y, cv=5, random_state=self._get_skl_random_state()
+                    clone(model), x, y, cv=5, shuffle=True, random_state=self._get_skl_random_state()
                 )
                 sign, y_label = 1.0, "Score"
 
