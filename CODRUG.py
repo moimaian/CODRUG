@@ -3747,6 +3747,8 @@ class MainWindow(QMainWindow):
         ("proportion_p2", "ed_stats_p2"),
         ("margin_error", "ed_stats_margin_error"),
         ("population_size", "ed_stats_population_size"),
+        ("sample_size_n1", "ed_stats_n1"),
+        ("sample_size_n2", "ed_stats_n2"),
     ]
 
     def _collect_statistics_state(self):
@@ -7131,11 +7133,12 @@ class MainWindow(QMainWindow):
     def run_power_calc(self):
         """Botão "Calcular Poder Estatístico" da aba STATISTICS.
 
-        Calcula o poder alcançado ao comparar as proporções dos Grupos 1 e 2 (p1/p2)
-        usando "Tamanho da População (N)" / 2 por grupo (assumindo grupos de tamanho
-        igual) e o α (Erro Tipo I) informado. N é preenchido automaticamente ao carregar
-        um dataframe, mas pode ser editado manualmente - não depende de haver um
-        dataframe selecionado no momento do cálculo.
+        Calcula o poder alcançado ao comparar as proporções dos Grupos 1 e 2 (p1/p2),
+        usando o tamanho REAL de cada grupo (n1/n2, digitados pelo usuário) e o α (Erro
+        Tipo I) informado. Antes, isso era estimado como "Tamanho da População (N)" / 2,
+        assumindo grupos de tamanho igual - o que confundia o tamanho do dataset inteiro
+        (Population Size, usado noutro cálculo, o de Sample Size) com o tamanho de cada
+        grupo especificamente comparado, quase sempre desbalanceados em dados de QSAR.
         """
         p2_text = self.ed_stats_p2.text().strip().replace(",", ".") if hasattr(self, "ed_stats_p2") else ""
         if not p2_text:
@@ -7154,18 +7157,22 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Proporção do Grupo 1 (p1) e Proporção do Grupo 2 (p2) devem estar entre 0 e 1.")
             return
 
-        N = self._get_stats_population_size()
-        if N is None or N < 4:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Preencha 'Tamanho da População (N)' com um valor válido (>= 4) para calcular o poder de um teste de comparação entre 2 grupos.")
+        try:
+            n1 = int(float(self.ed_stats_n1.text().strip().replace(",", ".")))
+            n2 = int(float(self.ed_stats_n2.text().strip().replace(",", ".")))
+        except (ValueError, AttributeError):
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Preencha 'Sample size Group 1 (n1)' e 'Sample size Group 2 (n2)' com o número real de observações de cada grupo comparado.")
             return
-
-        n_per_group = N // 2
+        if n1 < 2 or n2 < 2:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "n1 e n2 devem ser >= 2.")
+            return
 
         try:
             from statsmodels.stats.proportion import proportion_effectsize
             from statsmodels.stats.power import NormalIndPower
             effect = abs(proportion_effectsize(p1, p2))
-            power = NormalIndPower().power(effect_size=effect, nobs1=n_per_group, alpha=alpha, ratio=1.0, alternative="two-sided")
+            # ratio = nobs2/nobs1 (convenção do statsmodels) — permite grupos desbalanceados.
+            power = NormalIndPower().power(effect_size=effect, nobs1=n1, alpha=alpha, ratio=n2 / n1, alternative="two-sided")
         except Exception as e:
             QMessageBox.critical(self, i18n.t("msg_title_error", self._idioma), f"Erro no cálculo de poder estatístico: {e}\n(statsmodels instalado?)")
             return
@@ -7175,7 +7182,7 @@ class MainWindow(QMainWindow):
         lines.append(f"p1 = {p1}, p2 = {p2}")
         lines.append(f"Effect size (Cohen's h) = {effect:.4f}")
         lines.append(f"Alpha (Type I) = {alpha:.4f}")
-        lines.append(f"Assumed sample size per group (N/2, N = Population Size field): {n_per_group}")
+        lines.append(f"Sample size Group 1 (n1) = {n1}, Sample size Group 2 (n2) = {n2}")
         lines.append(f"Achieved statistical power: {power:.4f} ({power * 100:.2f}%)")
         if power < 0.8:
             lines.append("Note: achieved power is below the conventional 0.8 (80%) threshold.")
@@ -18000,6 +18007,18 @@ class MainWindow(QMainWindow):
             label_stats_population_size = self._trL("stats_lbl_population_size"); label_stats_population_size.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
             self.ed_stats_population_size = QLineEdit("0"); self.ed_stats_population_size.setFixedSize(70, 25); self.ed_stats_population_size.setAlignment(Qt.AlignCenter)
 
+            # n1/n2: usados só por "Calculate Statistical Power" - o tamanho real de cada um
+            # dos 2 grupos comparados (p1 x p2), não uma metade artificial de Population Size
+            # (que representa o dataset inteiro, não os grupos específicos da comparação).
+            label_stats_n1 = self._trL("stats_lbl_n1"); label_stats_n1.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
+            self.ed_stats_n1 = QLineEdit(""); self.ed_stats_n1.setFixedSize(70, 25); self.ed_stats_n1.setAlignment(Qt.AlignCenter)
+            label_stats_n2 = self._trL("stats_lbl_n2")
+            self.ed_stats_n2 = QLineEdit(""); self.ed_stats_n2.setFixedSize(70, 25); self.ed_stats_n2.setAlignment(Qt.AlignCenter)
+            info_icon_n1n2 = QLabel("ℹ️")
+            info_icon_n1n2.setStyleSheet("font-size: 11pt;")
+            info_icon_n1n2.setCursor(Qt.WhatsThisCursor)
+            self._tr("stats_lbl_n1n2_hint", info_icon_n1n2.setToolTip)
+
             gL_power.addWidget(label_stats_confidence, 0, 0, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_confidence_pct, 0, 1)
             gL_power.addWidget(label_stats_confidence_z, 0, 2, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_confidence_z, 0, 3)
             gL_power.addWidget(label_stats_alpha, 0, 4, alignment=Qt.AlignRight); gL_power.addWidget(self.lbl_stats_alpha_value, 0, 5)
@@ -18012,6 +18031,9 @@ class MainWindow(QMainWindow):
 
             gL_power.addWidget(label_stats_margin_error, 3, 0, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_margin_error, 3, 1)
             gL_power.addWidget(label_stats_population_size, 3, 2, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_population_size, 3, 3)
+
+            gL_power.addWidget(label_stats_n1, 4, 0, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_n1, 4, 1)
+            gL_power.addWidget(label_stats_n2, 4, 2, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_n2, 4, 3); gL_power.addWidget(info_icon_n1n2, 4, 4, alignment=Qt.AlignLeft)
 
             gL_power.setColumnStretch(0, 1); gL_power.setColumnStretch(1, 1); gL_power.setColumnStretch(2, 1)
             gL_power.setColumnStretch(3, 1); gL_power.setColumnStretch(4, 1); gL_power.setColumnStretch(5, 1)

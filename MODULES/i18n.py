@@ -370,6 +370,12 @@ _TEXTOS = {
     },
     "stats_lbl_margin_error": {"en": "Margin of Error (%):", "pt": "Margem de Erro (%):"},
     "stats_lbl_population_size": {"en": "Population Size (N):", "pt": "Tamanho da População (N):"},
+    "stats_lbl_n1": {"en": "Sample size Group 1 (n1):", "pt": "Tamanho amostral Grupo 1 (n1):"},
+    "stats_lbl_n2": {"en": "Sample size Group 2 (n2):", "pt": "Tamanho amostral Grupo 2 (n2):"},
+    "stats_lbl_n1n2_hint": {
+        "en": "(used only by 'Calculate Statistical Power' - the actual number of observations in each of the 2 compared groups, not the total dataset size)",
+        "pt": "(usado só em 'Calcular Poder Estatístico' - o número real de observações em cada um dos 2 grupos comparados, não o tamanho do dataset inteiro)",
+    },
     "stats_btn_sample_size": {"en": "Calculate\nSample Size", "pt": "Calcular\nTamanho Amostral"},
     "stats_btn_power": {"en": "Calculate\nStatistical Power", "pt": "Calcular\nPoder Estatístico"},
 
