@@ -1224,17 +1224,6 @@ def _show_tensor_preview(parent, X_out, y_out=None, w_out=None):
     dlg.resize(900, 600)
     dlg.exec_()
 
-def _ensure_models_dir(job_dir, task: str):
-    base = os.path.join(job_dir, "MODELS")
-    sub = {
-        "classification": "CLASSIFICATION",
-        "regression": "REGRESSION",
-        "clustering": "CLUSTERING"
-    }.get((task or "").lower(), "REGRESSION")
-    out = os.path.join(base, sub)
-    os.makedirs(out, exist_ok=True)
-    return out
-
 def _normalize_usi_key(usi_key: str) -> str:
     cleaned = str(usi_key or "").strip()
     return cleaned or "LOAD"
@@ -3278,6 +3267,14 @@ class MainWindow(QMainWindow):
         load_previous_job_state = False
         if self.previous_job_name.isEnabled():
             job_name = self.previous_job_name.currentText().strip()
+            no_folder_placeholder = i18n.t("cfg_no_folder_found", self._idioma)
+            if not job_name or job_name == no_folder_placeholder:
+                QMessageBox.warning(
+                    self,
+                    i18n.t("msg_project_required_title", self._idioma),
+                    i18n.t("msg_project_required_body", self._idioma)
+                )
+                return
             load_previous_job_state = True
         else:
             # Usa current_date e ed_job_name
@@ -3289,6 +3286,13 @@ class MainWindow(QMainWindow):
                     self,
                     i18n.t("msg_task_type_required_title", self._idioma),
                     i18n.t("msg_task_type_required_body", self._idioma)
+                )
+                return
+            if not name_str:
+                QMessageBox.warning(
+                    self,
+                    i18n.t("msg_project_required_title", self._idioma),
+                    i18n.t("msg_project_required_body", self._idioma)
                 )
                 return
             job_name = f"{date_str}_{task_type}_{name_str}" if date_str and name_str and task_type else date_str or name_str or task_type
@@ -3307,7 +3311,6 @@ class MainWindow(QMainWindow):
             f'{self.job_dir}/DATA_BASES/DESCRIPTORS/fingerprint',
             f'{self.job_dir}/DATA_BASES/STRUCTURES',
             f'{self.job_dir}/DATA_BASES/STRUCTURES/1D',
-            f'{self.job_dir}/DATA_BASES/STRUCTURES/2D',
             f'{self.job_dir}/DATA_BASES/STRUCTURES/3D',
             f'{self.job_dir}/DATA_BASES/INTERNAL_DATA',
             f'{self.job_dir}/DATA_BASES/EXTERNAL_DATA',
@@ -3316,12 +3319,13 @@ class MainWindow(QMainWindow):
             f'{self.job_dir}/RESULTS/MIDIA',
             f'{self.job_dir}/RESULTS/STATISTICS',
             f'{self.job_dir}/RESULTS/AD',
-            f'{self.job_dir}/MODELS',
-            f'{self.job_dir}/MODELS/CLASSIFICATION',
-            f'{self.job_dir}/MODELS/REGRESSION',
-            f'{self.job_dir}/MODELS/CLUSTERING',
-            f'{self.job_dir}/MODELS/NEURAL_NETWORK'
         ]
+        # MODELS/{CLASSIFICATION,REGRESSION,CLUSTERING}/PROJECTION_MODELS ainda é usado (cache de
+        # modelos de projeção UMAP/t-SNE/Isomap, ver _ensure_models_dir), mas não é mais pré-criado
+        # aqui: fica a cargo do próprio _ensure_models_dir criá-lo sob demanda, evitando pastas MODELS
+        # vazias em jobs que nunca chegam a cachear uma projeção. DATA_BASES/STRUCTURES/2D nunca é
+        # escrito por nenhum código do app — removida da criação antecipada (STRUCTURES/1D e /3D
+        # continuam sendo criadas: 1D alimenta o PaDEL-Descriptor, 3D é usada por "Select Structures").
     
         for folder in directories:
             if not os.path.exists(folder):
@@ -3504,6 +3508,36 @@ class MainWindow(QMainWindow):
         except OSError:
             pass
 
+    def _to_job_relative_path(self, file_path):
+        """Converts an absolute CSV/XLSX path into one relative to job_dir, when the file
+        lives under it (the common case - INTERNAL_DATA, EXTERNAL_DATA, RESULTS/...). Kept
+        as an absolute path otherwise (e.g. a file the user picked from outside the job
+        folder via the file dialog), so it can still be resolved back with
+        _from_job_relative_path even if the job folder itself is later moved/renamed."""
+        if not file_path:
+            return file_path
+        job_dir = getattr(self, "job_dir", "")
+        if not job_dir:
+            return file_path
+        try:
+            abs_file = os.path.abspath(file_path)
+            abs_job = os.path.abspath(job_dir)
+            if os.path.commonpath([abs_file, abs_job]) == abs_job:
+                return os.path.relpath(abs_file, abs_job)
+        except (ValueError, OSError):
+            pass
+        return file_path
+
+    def _from_job_relative_path(self, stored_path, job_dir=None):
+        """Inverse of _to_job_relative_path. `stored_path` may be a path relative to job_dir
+        (the common case) or an absolute path saved for a file outside the job folder."""
+        if not stored_path:
+            return stored_path
+        if os.path.isabs(stored_path):
+            return stored_path
+        job_dir = job_dir or getattr(self, "job_dir", "")
+        return os.path.join(job_dir, stored_path) if job_dir else stored_path
+
     def _widget_get_value(self, widget):
         """Generic state getter used by STEP 2-8 field specs, dispatching on widget type."""
         if widget is None:
@@ -3662,6 +3696,8 @@ class MainWindow(QMainWindow):
         ("unit_column", "list_units"),
         ("rep_group_column", "list_columns_rep"),
         ("rep_method", "list_methods_rep"),
+        ("value_rep_column", "cb_value_column_rep"),
+        ("value_rep_tolerance", "sp_tolerance_rep"),
         ("rep_check_column", "list_columns_rep_check"),
         ("transform_column", "list_columns_trans"),
         ("transform_type", "cb_transformation"),
@@ -3703,13 +3739,34 @@ class MainWindow(QMainWindow):
         ("druggability_ro5_min", "ed_min_Vo5"),
         ("druggability_ro5_max", "ed_max_Vo5"),
     ]
+    STEP2_PLAIN_SPEC = [
+        ("dataframe_path", "_step2_df_path"),
+    ]
 
     def _collect_step2_state(self):
-        return self._collect_state_from_spec(self.STEP2_FIELD_SPEC)
+        state = self._collect_state_from_spec(self.STEP2_FIELD_SPEC)
+        state.update(self._collect_plain_attrs(self.STEP2_PLAIN_SPEC))
+        return state
 
     def _apply_step2_state(self, state):
         if not isinstance(state, dict) or not state:
             return False
+        # The dataframe itself must be reread from disk (and every dependent combo/list -
+        # list_types, list_units, list_columns, etc. - repopulated from it) BEFORE the saved
+        # selections below are applied, since those widgets start empty and silently ignore a
+        # setCurrentText/selection request for an item that doesn't exist yet (see
+        # _refresh_step2_dataframe_widgets).
+        stored_path = state.get("dataframe_path")
+        file_path = self._from_job_relative_path(stored_path)
+        if file_path and os.path.isfile(file_path):
+            try:
+                df = self._read_selected_table_file(file_path)
+                self.df_selecionado = df
+                self._step2_df_path = stored_path
+                self._refresh_step2_dataframe_widgets()
+                self._step_df_cache[3] = (self.df_selecionado, os.path.basename(file_path))
+            except Exception:
+                pass
         self._apply_state_from_spec(self.STEP2_FIELD_SPEC, state)
         return True
 
@@ -3750,13 +3807,30 @@ class MainWindow(QMainWindow):
         ("sample_size_n1", "ed_stats_n1"),
         ("sample_size_n2", "ed_stats_n2"),
     ]
+    STATISTICS_PLAIN_SPEC = [
+        ("dataframe_path", "_stats_df_path"),
+    ]
 
     def _collect_statistics_state(self):
-        return self._collect_state_from_spec(self.STATISTICS_FIELD_SPEC)
+        state = self._collect_state_from_spec(self.STATISTICS_FIELD_SPEC)
+        state.update(self._collect_plain_attrs(self.STATISTICS_PLAIN_SPEC))
+        return state
 
     def _apply_statistics_state(self, state):
         if not isinstance(state, dict) or not state:
             return False
+        # Same reasoning as _apply_step2_state: reread the dataframe and repopulate its
+        # dependent widgets before applying the saved selections that target them.
+        stored_path = state.get("dataframe_path")
+        file_path = self._from_job_relative_path(stored_path)
+        if file_path and os.path.isfile(file_path):
+            try:
+                df = self._read_selected_table_file(file_path)
+                self.stats_df = df.copy()
+                self._stats_df_path = stored_path
+                self._refresh_statistics_dataframe_widgets()
+            except Exception:
+                pass
         self._apply_state_from_spec(self.STATISTICS_FIELD_SPEC, state)
         if hasattr(self, "_sync_stats_confidence_from_pct"):
             self._sync_stats_confidence_from_pct()
@@ -3790,6 +3864,7 @@ class MainWindow(QMainWindow):
         ("random_state", "ed_rd_session_id"),
     ]
     STEP4_PLAIN_SPEC = [
+        ("dataframe_path", "_step4_df_path"),
         ("last_scaling_method", "_step4_last_scaling_method"),
         ("last_scaling_file", "_step4_last_scaling_file"),
         ("last_selection_method", "_step4_last_selection_method"),
@@ -3840,6 +3915,21 @@ class MainWindow(QMainWindow):
     def _apply_step4_state(self, state):
         if not isinstance(state, dict) or not state:
             return False
+        # Same reasoning as _apply_step2_state: reread the dataframe and repopulate its
+        # dependent combos (cb_class_column/"Label Column", cb_select_structure, etc.) before
+        # applying the saved selections that target them.
+        stored_path = state.get("dataframe_path")
+        file_path = self._from_job_relative_path(stored_path)
+        if file_path and os.path.isfile(file_path):
+            try:
+                df = self._read_selected_table_file(file_path)
+                df = _normalize_chembl_columns(df)
+                self.df_selecionado = df
+                self._step4_df_path = stored_path
+                self._refresh_step4_dataframe_widgets()
+                self._step_df_cache[4] = (self.df_selecionado, os.path.basename(file_path))
+            except Exception:
+                pass
         self._apply_state_from_spec(self.STEP4_FIELD_SPEC, state)
         self._apply_plain_attrs(self.STEP4_PLAIN_SPEC, state)
         self._apply_proj_table_state(state.get("projection_parameters_table"))
@@ -3903,9 +3993,14 @@ class MainWindow(QMainWindow):
         ("fingerprint_kind", "cb_ad_fp"),
         ("use_pca_for_plots", "chk_ad_use_pca"),
     ]
+    STEP7_PLAIN_SPEC = [
+        ("internal_dataframe_path", "_df_int_path"),
+        ("external_dataframe_path", "_df_ext_path"),
+    ]
 
     def _collect_step7_state(self):
         state = self._collect_state_from_spec(self.STEP7_FIELD_SPEC)
+        state.update(self._collect_plain_attrs(self.STEP7_PLAIN_SPEC))
         df_res = getattr(self, "df_ad_result", None)
         if df_res is not None and "ad_verdict" in df_res.columns:
             counts = df_res["ad_verdict"].value_counts().to_dict()
@@ -3918,6 +4013,15 @@ class MainWindow(QMainWindow):
     def _apply_step7_state(self, state):
         if not isinstance(state, dict) or not state:
             return False
+        # Reread the Internal/External DataFrames from disk (also used by the ML Screening tab -
+        # see _load_internal_dataframe/_load_external_dataframe) before applying the rest of the
+        # spec, with no preview dialog/warning popup during an automatic Previous Project load.
+        internal_path = self._from_job_relative_path(state.get("internal_dataframe_path"))
+        if internal_path and os.path.isfile(internal_path):
+            self._load_internal_dataframe(internal_path, show_preview=False)
+        external_path = self._from_job_relative_path(state.get("external_dataframe_path"))
+        if external_path and os.path.isfile(external_path):
+            self._load_external_dataframe(external_path, show_preview=False)
         self._apply_state_from_spec(self.STEP7_FIELD_SPEC, state)
         return True
 
@@ -4134,13 +4238,20 @@ class MainWindow(QMainWindow):
         # already know how to handle "no dataframe selected") clear their derived combos/lists
         # before the remaining independent fields are blanked via FIELD_SPEC below.
         self.df_selecionado = None
+        self._step2_df_path = None
+        self._step4_df_path = None
+        self._step_df_cache.pop(3, None)
+        self._step_df_cache.pop(4, None)
         self._refresh_step2_dataframe_widgets()
         self._refresh_step4_dataframe_widgets()
         self.stats_df = None
+        self._stats_df_path = None
         self._refresh_statistics_dataframe_widgets()
 
         self.df_int = None
         self.df_ext = None
+        self._df_int_path = None
+        self._df_ext_path = None
         for attr in ("df_name_view_int_skl", "df_name_view_ext_skl"):
             widget = getattr(self, attr, None)
             if widget is not None:
@@ -4182,8 +4293,12 @@ class MainWindow(QMainWindow):
         loaded_any = self._apply_dataset_preparation_state(payload.get("step1", {}))
         loaded_any = self._apply_step2_state(payload.get("step2", {})) or loaded_any
         loaded_any = self._apply_step4_state(payload.get("step4", {})) or loaded_any
-        loaded_any = self._apply_step6_sklearn_state(payload.get("step6_sklearn", {})) or loaded_any
+        # step7_ad must be applied before step6_sklearn: it reloads the Internal/External
+        # DataFrames and (re)populates cb_skl_y from their columns, and step6_sklearn's USI
+        # restore then selects a specific saved value inside that now-populated combo - the
+        # reverse order would try to select into a still-empty cb_skl_y and silently no-op.
         loaded_any = self._apply_step7_state(payload.get("step7_ad", {})) or loaded_any
+        loaded_any = self._apply_step6_sklearn_state(payload.get("step6_sklearn", {})) or loaded_any
         loaded_any = self._apply_step8_state(payload.get("step8_consensus", {})) or loaded_any
         loaded_any = self._apply_statistics_state(payload.get("statistics", {})) or loaded_any
         new_path = self._job_state_path(job_dir)
@@ -5255,6 +5370,7 @@ class MainWindow(QMainWindow):
         self.df_selecionado = df
         self.show_dataframe(df)
         self.df_name_view.setText(os.path.basename(file_path))
+        self._step2_df_path = self._to_job_relative_path(file_path)
         self._refresh_step2_dataframe_widgets()
         self._save_step2_state()
 
@@ -5651,6 +5767,8 @@ class MainWindow(QMainWindow):
         dialog.exec_()
     
     def run_inf_value(self):
+        import os
+
         # Verifica se o DataFrame está definido
         if getattr(self, "df_selecionado", None) is None:
             QMessageBox.warning(self, i18n.t("msg_title_warning", self._idioma), "No DataFrame loaded.")
@@ -5673,17 +5791,43 @@ class MainWindow(QMainWindow):
             invalid_counts[col_name] = int(invalid.sum())
             invalid_mask = invalid_mask | invalid
 
-        # Cria DataFrame de resultado
-        result_df = pd.DataFrame({
-            "Column": list(invalid_counts.keys()),
-            "Invalid Values": list(invalid_counts.values())
-        })
+        # Null/Empty/OutOfType values (same logic as "Count and Delete null or empty values") -
+        # Run Transformation can leave these behind (e.g. -log10/ln/sqrt/boxcox return NaN for
+        # out-of-domain inputs), so this button now also counts and removes them instead of only
+        # inf/out-of-range floats, in the same pass.
+        null_summary, null_any = self._null_empty_type_mismatch_summary(df)
 
-        # Remove linhas inválidas e atualiza o DataFrame selecionado
-        self.df_selecionado = df[~invalid_mask].copy()
+        # Uma única janela de contagem, combinando as duas checagens por coluna:
+        result_df = null_summary.copy()
+        result_df["InfOrOutOfRange"] = result_df["Column"].map(invalid_counts).fillna(0).astype(int)
+        result_df = result_df.sort_values(
+            by=["Null", "Empty", "OutOfType", "InfOrOutOfRange"], ascending=False
+        ).reset_index(drop=True)
+
+        # Remove linhas inválidas (inf/fora do range OU null/vazio/tipo incompatível) e atualiza
+        # o DataFrame selecionado:
+        combined_mask = invalid_mask.to_numpy() | null_any
+        self.df_selecionado = df[~combined_mask].copy()
+
+        # Salva sob o MESMO nome usado por "Run Transformation" (sobrescreve), em vez de criar
+        # um arquivo separado: este botão só termina de limpar o df2_Transformation_(...).csv já
+        # gerado, não deve gerar outro dataset com nome diferente.
+        try:
+            target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
+            target_organism = self.ed_organism_name.text().strip() if hasattr(self, "ed_organism_name") else ""
+            out_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
+            os.makedirs(out_dir, exist_ok=True)
+            out_path = os.path.join(out_dir, f"df2_Transformation_{target_chembl_id}_{target_organism}.csv")
+            self.df_selecionado.to_csv(out_path, index=False)
+            self.df_name_view.setText(os.path.basename(out_path))
+            self._step2_df_path = self._to_job_relative_path(out_path)
+        except Exception as e:
+            print(f"[run_inf_value] Warning when saving the cleaned dataframe: {e}")
 
         self.show_dataframe(result_df)
         self.show_dataframe(self.df_selecionado)
+        self._refresh_step2_dataframe_widgets()
+        self._save_step2_state()
 
     def run_interpretation(self):
         # Seleciona a coluna de interesse
@@ -5926,7 +6070,14 @@ class MainWindow(QMainWindow):
         outlier_method = self.cb_outlier_method.currentText()
 
         if outlier_method == "Z-Score":
-            df['z_score'] = zscore(data)
+            # nan_policy='omit' is required here: scipy's default ('propagate') makes the mean/std
+            # (and therefore every z-score, not just the missing ones) NaN as soon as `data` has a
+            # single NaN - extremely common after pd.to_numeric(..., errors='coerce') on real
+            # bioactivity data with blank/non-numeric cells. With every z-score NaN, the filter
+            # below ("> -threshold" and "< threshold") is False for every row, silently producing
+            # an empty dataset (the bug being fixed here). Rows where `data` itself is NaN still
+            # end up excluded from df_out below, same as the IQR/SD branches.
+            df['z_score'] = zscore(data, nan_policy='omit')
             outliers_below = df[df['z_score'] < -threshold]
             outliers_above = df[df['z_score'] > threshold]
             n_below = len(outliers_below)
@@ -5977,6 +6128,7 @@ class MainWindow(QMainWindow):
         self.df_selecionado = df_out
         self.show_dataframe(df_out)
         self.df_name_view.setText(os.path.basename(file_path))
+        self._step2_df_path = self._to_job_relative_path(file_path)
         self._refresh_step2_dataframe_widgets()
         report_name = f"{outlier_method}_Outliers_Removal_Report"
         try:
@@ -6006,6 +6158,7 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 QMessageBox.critical(self, i18n.t("msg_title_error_opening_file", self._idioma), str(e))
             self.df_name_view.setText(os.path.basename(file_path))
+            self._step2_df_path = self._to_job_relative_path(file_path)
         self._refresh_step2_dataframe_widgets()
 
     def _refresh_step2_dataframe_widgets(self):
@@ -6022,6 +6175,12 @@ class MainWindow(QMainWindow):
         try:
             self.list_columns.clear()
             self.list_columns.addItems(self.df_selecionado.columns.astype(str))
+            # Pré-seleciona as colunas de interesse mais comuns, quando presentes:
+            default_selected = {"molecule_chembl_id", "canonical_smiles", "assay_chembl_id", "type", "units", "value"}
+            for i in range(self.list_columns.count()):
+                item = self.list_columns.item(i)
+                if item.text().strip() in default_selected:
+                    item.setSelected(True)
         except Exception as e:
             self.list_columns.clear()
             QMessageBox.critical(self, i18n.t("msg_title_error_list_columns_csv", self._idioma), str(e))
@@ -6067,6 +6226,29 @@ class MainWindow(QMainWindow):
                 self.list_columns_rep_check.setCurrentIndex(idx)
         except Exception as e:
             self.list_columns_rep_check.clear()
+            QMessageBox.critical(self, i18n.t("msg_title_error_list_columns_csv", self._idioma), str(e))
+        try:
+            self.cb_value_column_rep.clear()
+            self.cb_value_column_rep.addItems(self.df_selecionado.columns.astype(str))
+            # Mesma preferência de "3. Select the value column:" usada em "Check Molecule":
+            # self.type_name (já escolhido em "Select standard type"), senão 'value', senão o
+            # primeiro valor de 'type'.
+            type_name = getattr(self, "type_name", None)
+            cols = self.df_selecionado.columns
+            if type_name in cols:
+                search_value = type_name
+            elif 'value' in cols:
+                search_value = "value"
+            elif "type" in cols and not self.df_selecionado['type'].dropna().empty:
+                search_value = str(self.df_selecionado['type'].dropna().iloc[0])
+            else:
+                search_value = None
+            if search_value:
+                idx = self.cb_value_column_rep.findText(search_value)
+                if idx >= 0:
+                    self.cb_value_column_rep.setCurrentIndex(idx)
+        except Exception as e:
+            self.cb_value_column_rep.clear()
             QMessageBox.critical(self, i18n.t("msg_title_error_list_columns_csv", self._idioma), str(e))
         # Pré-seleciona a coluna de bioatividade (IC50, MIC, EC50, ED50, MIC50, MIC90,
         # pIC50... mesmo vocabulário usado para popular Assay Metric na STEP 1), se
@@ -6121,6 +6303,74 @@ class MainWindow(QMainWindow):
             self.list_columns_cat.clear()
             QMessageBox.critical(self, i18n.t("msg_title_error_list_columns_csv", self._idioma), str(e))
 
+        # Reaplica a lógica de "Use Standard values" sempre que um novo DataFrame é
+        # carregado neste grupo (Count/Filter, Del Nulls, Convert Type, Convert Units, ...),
+        # enquanto o checkbox permanecer marcado - sem isso, cada novo DataFrame reseta a
+        # seleção de standard_value/standard_unit(s) como se o checkbox tivesse sido
+        # desmarcado, exigindo desmarcar/marcar manualmente de novo.
+        self._apply_use_standard_values_selection()
+
+    def _apply_use_standard_values_selection(self, checked=None):
+        """Marca/desmarca standard_value/standard_unit(s) em "1. Select columns of
+        interest" conforme o estado do checkbox "Use Standard values" e, quando marcado,
+        preenche os valores padrão de "2. Select standard type" e "3. Select standard
+        unit" a partir das colunas 'type'/standard_unit(s). Chamado tanto pelo toggle do
+        checkbox quanto por _refresh_step2_dataframe_widgets (novo DataFrame carregado).
+        """
+        if getattr(self, "chk_use_standard_values", None) is None:
+            return
+        if checked is None:
+            checked = self.chk_use_standard_values.isChecked()
+        if getattr(self, "df_selecionado", None) is None:
+            return
+        if not checked:
+            # Desmarca standard_value/standard_unit(s) em "1. Select columns of interest",
+            # deixando as demais seleções intocadas:
+            for i in range(self.list_columns.count()):
+                item = self.list_columns.item(i)
+                if item.text().strip().lower() in ("standard_value", "standard_unit", "standard_units"):
+                    item.setSelected(False)
+            return
+        # Adiciona standard_value/standard_unit(s) à seleção de "1. Select columns of interest",
+        # quando presentes, preservando as demais colunas já selecionadas:
+        for i in range(self.list_columns.count()):
+            item = self.list_columns.item(i)
+            if item.text().strip().lower() in ("standard_value", "standard_unit", "standard_units"):
+                item.setSelected(True)
+        # Preenche "3. Select standard unit" com o valor já presente na coluna standard_unit(s):
+        standard_unit_col = next(
+            (c for c in self.df_selecionado.columns if str(c).strip().lower() in ("standard_unit", "standard_units")),
+            None
+        )
+        if standard_unit_col is not None:
+            vals = self.df_selecionado[standard_unit_col].dropna().astype(str).map(str.strip)
+            vals = vals[vals != ""]
+            if not vals.empty:
+                try:
+                    val = vals.mode().iloc[0]
+                except Exception:
+                    val = vals.iloc[0]
+                idx = self.list_units.findText(val)
+                if idx < 0:
+                    self.list_units.addItem(val)
+                    idx = self.list_units.findText(val)
+                self.list_units.setCurrentIndex(idx)
+        # Preenche "2. Select standard type" com o valor predominante da coluna 'type'
+        # (já normalizada a partir de standard_type, quando aplicável):
+        if "type" in self.df_selecionado.columns:
+            vals_t = self.df_selecionado["type"].dropna().astype(str).map(str.strip)
+            vals_t = vals_t[vals_t != ""]
+            if not vals_t.empty:
+                try:
+                    val_t = vals_t.mode().iloc[0]
+                except Exception:
+                    val_t = vals_t.iloc[0]
+                idx_t = self.list_types.findText(val_t)
+                if idx_t < 0:
+                    self.list_types.addItem(val_t)
+                    idx_t = self.list_types.findText(val_t)
+                self.list_types.setCurrentIndex(idx_t)
+
     def run_list_columns(self):
         new_columns = self.list_columns.selectedItems()
         if not new_columns:
@@ -6142,6 +6392,7 @@ class MainWindow(QMainWindow):
         self._next_dataframe_save_path = file_path
         self.show_dataframe(self.df_selecionado)
         self.df_name_view.setText(os.path.basename(file_path))
+        self._step2_df_path = self._to_job_relative_path(file_path)
         self._refresh_step2_dataframe_widgets()
         self._save_step2_state()
 
@@ -6237,6 +6488,7 @@ class MainWindow(QMainWindow):
         self.df_selecionado = df_result
         self.show_dataframe(df_result)
         self.df_name_view.setText(os.path.basename(file_path))
+        self._step2_df_path = self._to_job_relative_path(file_path)
         self._refresh_step2_dataframe_widgets()
         self._save_step2_state()
 
@@ -6304,19 +6556,17 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, i18n.t("msg_title_error", self._idioma), f"Failed to build df_top_rep: {e}")
 
-    def run_del_nulls(self):
-        import os
+    def _null_empty_type_mismatch_summary(self, df):
+        """Per-column Null/Empty/OutOfType counts plus the combined row mask to drop - shared by
+        "Count and Delete null or empty values" (run_del_nulls) and "Eliminating invalid,
+        infinite..." (run_inf_value), since Run Transformation can leave NaN cells behind (e.g.
+        -log10/ln/sqrt/boxcox return NaN for out-of-domain inputs) that the latter must also
+        catch. Returns (df_summary, invalid_any) where invalid_any is a plain positional bool
+        ndarray (same row order as df, safe to combine with other masks regardless of df.index)."""
         import numpy as np
         import pandas as pd
         from pandas.api.types import is_numeric_dtype
 
-        if getattr(self, "df_selecionado", None) is None:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "No filtered DataFrame available.")
-            return
-
-        df = self.df_selecionado
-
-        # --- Helpers -------------------------------------------------------------
         def infer_col_type(s: pd.Series) -> str:
             """Infer column intended type: 'numeric' or 'string'."""
             # If dtype already numeric, accept numeric
@@ -6374,8 +6624,24 @@ class MainWindow(QMainWindow):
 
             invalid_masks.append(nulls | empties | mismatches)
 
-        # --- DataFrame de resumo -------------------------------------------------
         df_summary = pd.DataFrame(summary_rows, columns=["Column", "Type", "Null", "Empty", "OutOfType"])
+
+        if invalid_masks:
+            invalid_any = np.column_stack([m.values for m in invalid_masks]).any(axis=1)
+        else:
+            invalid_any = np.zeros(len(df), dtype=bool)
+
+        return df_summary, invalid_any
+
+    def run_del_nulls(self):
+        import os
+
+        if getattr(self, "df_selecionado", None) is None:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "No filtered DataFrame available.")
+            return
+
+        df = self.df_selecionado
+        df_summary, invalid_any = self._null_empty_type_mismatch_summary(df)
         # Ordena pelas maiores ocorrências (apenas para facilitar leitura)
         df_summary = df_summary.sort_values(by=["Null", "Empty", "OutOfType"], ascending=False).reset_index(drop=True)
 
@@ -6383,11 +6649,6 @@ class MainWindow(QMainWindow):
         self.show_dataframe(df_summary)
 
         # --- Eliminação das linhas inválidas ------------------------------------
-        if invalid_masks:
-            invalid_any = np.column_stack([m.values for m in invalid_masks]).any(axis=1)
-        else:
-            invalid_any = np.zeros(len(df), dtype=bool)
-
         df_clean = df.loc[~invalid_any].copy()
 
         # --- Salva o dataframe limpo --------------------------------------------
@@ -6410,6 +6671,7 @@ class MainWindow(QMainWindow):
         self.show_dataframe(self.df_selecionado)
         if out_path:
             self.df_name_view.setText(os.path.basename(out_path))
+            self._step2_df_path = self._to_job_relative_path(out_path)
         self._refresh_step2_dataframe_widgets()
 
         # Mensagem opcional (silenciosa se preferir)
@@ -6496,6 +6758,7 @@ class MainWindow(QMainWindow):
             self.show_dataframe(df)
             self.df_selecionado = df
             self.df_name_view.setText(os.path.basename(file_path))
+            self._step2_df_path = self._to_job_relative_path(file_path)
             self._refresh_step2_dataframe_widgets()
             self._save_step2_state()
             return
@@ -6512,13 +6775,50 @@ class MainWindow(QMainWindow):
         self.show_dataframe(df)
         self.df_selecionado = df
         self.df_name_view.setText(os.path.basename(file_path))
+        self._step2_df_path = self._to_job_relative_path(file_path)
+        self._refresh_step2_dataframe_widgets()
+        self._save_step2_state()
+
+    def run_remove_value_repetitions(self):
+        target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
+        target_organism = self.ed_organism_name.text().strip() if hasattr(self, "ed_organism_name") else ""
+        job_dir = self.job_dir
+        if getattr(self, "df_selecionado", None) is None:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "No filtered DataFrame available.")
+            return
+        if "assay_chembl_id" not in self.df_selecionado.columns:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Column 'assay_chembl_id' not found in the DataFrame.")
+            return
+
+        value_col = self.cb_value_column_rep.currentText()
+        if not value_col or value_col not in self.df_selecionado.columns:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid value column.")
+            return
+
+        tolerance = self.sp_tolerance_rep.value()
+
+        df = self.df_selecionado.copy()
+        # Repetições: linhas que compartilham o mesmo valor na coluna selecionada dentro do
+        # mesmo grupo de assay_chembl_id. Mantém até (tolerance + 1) ocorrências por grupo
+        # (assay_chembl_id, value_col) e remove o excedente.
+        group_rank = df.groupby(["assay_chembl_id", value_col]).cumcount()
+        keep_mask = group_rank <= tolerance
+        df_result = df.loc[keep_mask].reset_index(drop=True)
+
+        file_path = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA", f'df2_ValueRepetitions_{target_chembl_id}_{target_organism}.csv')
+        df_result.to_csv(file_path, index=False)
+        self.df_selecionado = df_result
+        self.show_dataframe(df_result)
+        self.df_name_view.setText(os.path.basename(file_path))
+        self._step2_df_path = self._to_job_relative_path(file_path)
         self._refresh_step2_dataframe_widgets()
         self._save_step2_state()
 
     def run_convert_units(self):
         """
-        Converte a coluna de bioatividade (self.type_name) para a unidade-alvo escolhida
-        em self.list_units. Suporta:
+        Converte a coluna de bioatividade (self.type_name — já renomeada de 'value' pelo
+        botão "Convert type", row 2 "2. Select standard type") para a unidade-alvo
+        escolhida em self.list_units. Suporta:
         • Molaridade: M, mM, uM/μM/µM, nM (e variantes: mol/L, mmol/L, umol l-1, etc.)
         • Massa/volume (solução): ng/uL, ug/mL, mg/L, g/L, etc. (para M usando MW)
         • Dose por massa corporal: ng/g, ug/g, mg/g, g/g, ng/kg, ug/kg, mg/kg, g/kg
@@ -6537,7 +6837,48 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Column 'units' not found in the DataFrame.")
             return
 
-        # coluna de valor a converter
+        # ---------------- "Use Standard values": pula todo o cálculo de conversão e apenas ----------------
+        # ---------------- copia standard_value/standard_unit(s), já padronizados pelo ChEMBL, linha a ----------------
+        # ---------------- linha. A coluna 'value' já foi renomeada pelo botão "Convert type" (row 2) ----------------
+        # ---------------- para o nome selecionado em "2. Select standard type" (ex.: IC50, MIC, ...); é ----------------
+        # ---------------- essa coluna (não mais 'value') que recebe os valores de standard_value. ----------------
+        if getattr(self, "chk_use_standard_values", None) is not None and self.chk_use_standard_values.isChecked():
+            standard_value_col = next(
+                (c for c in self.df_selecionado.columns if str(c).strip().lower() == "standard_value"), None
+            )
+            standard_unit_col = next(
+                (c for c in self.df_selecionado.columns if str(c).strip().lower() in ("standard_unit", "standard_units")), None
+            )
+            if standard_value_col is None or standard_unit_col is None:
+                QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma),
+                    "Columns 'standard_value' and 'standard_unit(s)' are required to use standard values."
+                )
+                return
+
+            type_name = self.list_types.currentText().strip()
+            value_col = type_name if type_name else "value"
+            self.df_selecionado[value_col] = pd.to_numeric(self.df_selecionado[standard_value_col], errors="coerce")
+            self.df_selecionado["units"] = self.df_selecionado[standard_unit_col]
+
+            target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
+            target_organism = self.ed_organism_name.text().strip() if hasattr(self, "ed_organism_name") else ""
+            job_dir = getattr(self, "job_dir", os.getcwd())
+            out_dir = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA")
+            os.makedirs(out_dir, exist_ok=True)
+            file_path = os.path.join(out_dir, f"df2_unit_{target_chembl_id}_{target_organism}.csv")
+
+            self.df_selecionado.to_csv(file_path, index=False)
+            self._next_dataframe_save_path = file_path
+            self.show_dataframe(self.df_selecionado)
+            self.df_name_view.setText(os.path.basename(file_path))
+            self._step2_df_path = self._to_job_relative_path(file_path)
+            self._refresh_step2_dataframe_widgets()
+            self._save_step2_state()
+            return
+
+        # coluna de valor a converter: o botão "Convert type" (row 2, "2. Select standard type")
+        # já renomeia 'value' para o tipo selecionado (ex.: IC50, MIC, ...) antes deste passo, por
+        # isso é essa coluna (já renomeada) que é lida/escrita aqui, não mais 'value'.
         self.type_name = self.list_types.currentText()
         if self.type_name not in self.df_selecionado.columns:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), f"Column '{self.type_name}' not found in the DataFrame.")
@@ -6859,6 +7200,7 @@ class MainWindow(QMainWindow):
         self._next_dataframe_save_path = file_path
         self.show_dataframe(self.df_selecionado)
         self.df_name_view.setText(os.path.basename(file_path))
+        self._step2_df_path = self._to_job_relative_path(file_path)
         self._refresh_step2_dataframe_widgets()
         self._save_step2_state()
 
@@ -6890,6 +7232,7 @@ class MainWindow(QMainWindow):
 
             self.stats_df = df.copy()
             self.df_name_view_stats.setText(os.path.basename(file_path))
+            self._stats_df_path = self._to_job_relative_path(file_path)
             self.show_dataframe(df)
         except Exception as e:
             QMessageBox.critical(self, i18n.t("msg_title_error", self._idioma), f"An error occurred while loading the DataFrame:\n{e}")
@@ -7272,6 +7615,7 @@ class MainWindow(QMainWindow):
         self.df_selecionado = df
         self.show_dataframe(df)
         self.df_name_view.setText(os.path.basename(out_path))
+        self._step2_df_path = self._to_job_relative_path(out_path)
         self._refresh_step2_dataframe_widgets()
         self._save_step2_state()
 
@@ -7599,6 +7943,7 @@ class MainWindow(QMainWindow):
             self.df_selecionado = df_out
             self.show_dataframe(df_out)
             self.df_name_view.setText(os.path.basename(out_path))
+            self._step2_df_path = self._to_job_relative_path(out_path)
             self._refresh_step2_dataframe_widgets()
             self._save_step2_state()
 
@@ -7685,6 +8030,7 @@ class MainWindow(QMainWindow):
         out_path = os.path.join(output_dir, f"df2_Druggability_filter_{target_chembl_id}_{target_organism}.csv")
         df_filtered.to_csv(out_path, index=False)
         self.df_name_view.setText(os.path.basename(out_path))
+        self._step2_df_path = self._to_job_relative_path(out_path)
         self._refresh_step2_dataframe_widgets()
         self._save_step2_state()
 
@@ -8810,6 +9156,7 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 QMessageBox.critical(self, i18n.t("msg_title_error_opening_file", self._idioma), str(e))
             self.df_name_view5.setText(os.path.basename(file_path))
+            self._step4_df_path = self._to_job_relative_path(file_path)
             # self.update_internal_dataset_dual()
         self._refresh_step4_dataframe_widgets()
 
@@ -8877,6 +9224,17 @@ class MainWindow(QMainWindow):
         dataframe), so STEP4's dropdowns never go stale relative to the "Select
         DataFrame" description at the top of the tab.
         """
+        if getattr(self, "df_selecionado", None) is None:
+            # No dataframe loaded (e.g. right after "New Project"): just blank every dependent
+            # combo instead of falling into the except below, which would otherwise pop a
+            # spurious "error listing columns" dialog on an AttributeError from None.columns.
+            for attr in ("cb_select_structure", "cb_select_bioactivity", "cb_bioactivity_column",
+                         "cb_select_name_column", "cb_class_column", "cb_tb_label_col",
+                         "cb_tb_weight_col", "cb_tb_col_for_weight"):
+                widget = getattr(self, attr, None)
+                if widget is not None:
+                    widget.clear()
+            return
         try:
             self.cb_select_structure.clear()
             self.cb_select_structure.addItems(self.df_selecionado.columns.astype(str))
@@ -9445,6 +9803,7 @@ class MainWindow(QMainWindow):
             self.df_selecionado = df
             self.show_dataframe(df)
             self.df_name_view5.setText(os.path.basename(out_csv))
+            self._step4_df_path = self._to_job_relative_path(out_csv)
             self._refresh_step4_dataframe_widgets()
 
             QMessageBox.information(self, "Pronto", f"Estruturas processadas.\nArquivo salvo em:\n{out_csv}")
@@ -10015,6 +10374,7 @@ class MainWindow(QMainWindow):
             self.df_selecionado = df_final.copy()
             self.show_dataframe(self.df_selecionado)
             self.df_name_view5.setText(os.path.basename(out_path))
+            self._step4_df_path = self._to_job_relative_path(out_path)
             self._refresh_step4_dataframe_widgets()
             self.show_output(report_lines, "Descriptor Generation Audit")
             QMessageBox.information(self, i18n.t("msg_title_success", self._idioma), f"Descriptors calculated and saved to:\n{out_path}")
@@ -12346,6 +12706,7 @@ class MainWindow(QMainWindow):
             self.df_selecionado = df_out
             self.show_dataframe(df_out)
             self.df_name_view5.setText(os.path.basename(out_path))
+            self._step4_df_path = self._to_job_relative_path(out_path)
             self._refresh_step4_dataframe_widgets()
             self._step4_last_scaling_method = method_name
             self._step4_last_scaling_file = out_path
@@ -12591,6 +12952,7 @@ class MainWindow(QMainWindow):
                 self.df_selecionado = df_sel
                 self.show_dataframe(df_sel)
                 self.df_name_view5.setText(os.path.basename(out_path))
+                self._step4_df_path = self._to_job_relative_path(out_path)
                 self._refresh_step4_dataframe_widgets()
 
                 QMessageBox.information(self, i18n.t("msg_title_finished", self._idioma),
@@ -12868,6 +13230,7 @@ class MainWindow(QMainWindow):
                 self.df_selecionado = df_proj
                 self.show_dataframe(df_proj)
                 self.df_name_view5.setText(os.path.basename(out_path))
+                self._step4_df_path = self._to_job_relative_path(out_path)
                 self._refresh_step4_dataframe_widgets()
                 self._step4_last_projection_method = method
                 self._step4_last_projection_file = out_path
@@ -13565,24 +13928,35 @@ class MainWindow(QMainWindow):
 
 
 # STEP 5: MACHINE LEARNING MODELS
-    def select_dataframe_int(self):
-        initial_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select a CSV file",
-            initial_dir,
-            "CSV Files (*.csv)"
-        )
-        if file_path:
-            try:
-                df = self._read_selected_table_file(file_path)
-                self.df_int = df
-                self.show_dataframe(df)          
-            except Exception as e:
+    def _load_internal_dataframe(self, file_path, show_preview=True):
+        """Core logic behind "Select Internal DataFrame": reads file_path into self.df_int and
+        refreshes every widget that depends on it (both the Applicability Domain tab's and the
+        ML Screening tab's copies of the label, plus cb_skl_y and the detected feature range).
+        Shared by the manual button handler (show_preview=True, pops the CSV preview dialog and
+        surfaces read errors) and by Previous-Project state restore (show_preview=False, so
+        loading a job never pops a modal dialog on its own)."""
+        try:
+            df = self._read_selected_table_file(file_path)
+            self.df_int = df
+            if show_preview:
+                self.show_dataframe(df)
+        except Exception as e:
+            if show_preview:
                 QMessageBox.critical(self, i18n.t("msg_title_error_opening_csv", self._idioma), str(e))
-            self.df_name_view_int_AD.setText(os.path.basename(file_path))
-            if hasattr(self, "df_name_view_int_skl"):
-                self.df_name_view_int_skl.setText(os.path.basename(file_path))
+            return False
+        self.df_name_view_int_AD.setText(os.path.basename(file_path))
+        if hasattr(self, "df_name_view_int_skl"):
+            self.df_name_view_int_skl.setText(os.path.basename(file_path))
+        self._df_int_path = self._to_job_relative_path(file_path)
+
+        # Ao carregar manualmente (botão "Select Internal DataFrame", não a restauração de Previous
+        # Project), já gera a USI que será usada pela primeira execução de Run Screening — assim
+        # "View Frequency" clicado antes do Screening salva numa USI real (ligada a este DataFrame),
+        # em vez de cair numa USI "LOAD" vazia/genérica. A própria Run Screening consome essa USI
+        # pendente uma única vez; da segunda execução em diante volta a gerar uma nova a cada clique.
+        if show_preview and hasattr(self, "ed_skl_USI"):
+            self._set_current_sklearn_usi_context(_generate_new_usi_code(self.job_dir))
+            self._skl_usi_pending_from_load = True
 
         try:
             # Adiciona as colunas do DataFrame para seleção da label, já deixando a coluna de
@@ -13597,13 +13971,49 @@ class MainWindow(QMainWindow):
                         self.cb_skl_y.setCurrentIndex(i)
                         break
         except Exception as e:
-            QMessageBox.critical(self, i18n.t("msg_title_error_list_columns_csv", self._idioma), str(e))
+            if show_preview:
+                QMessageBox.critical(self, i18n.t("msg_title_error_list_columns_csv", self._idioma), str(e))
 
         self._update_predict_descriptor_range_inputs(getattr(self, "df_int", None) if getattr(self, "chk_pd_internal", None) and self.chk_pd_internal.isChecked() else None)
         # STEP 6 Model Screening's "Select X range (internal df):" — mesma heurística de detecção de
         # descritores usada em STEP 4 (exclui Name/SMILES/Class/bioatividade, prioriza colunas "FP").
         self._apply_detected_feature_range(getattr(self, "df_int", None), "ed_skl_x_first_col", "ed_skl_x_last_col")
+        return True
+
+    def select_dataframe_int(self):
+        initial_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select a CSV file",
+            initial_dir,
+            "CSV Files (*.csv)"
+        )
+        if file_path:
+            self._load_internal_dataframe(file_path, show_preview=True)
         return
+
+    def _load_external_dataframe(self, file_path, show_preview=True):
+        """Core logic behind "Select External DataFrame" - see _load_internal_dataframe."""
+        try:
+            df = self._read_selected_table_file(file_path)
+            self.df_ext = df
+            if show_preview:
+                self._warn_missing_external_columns(df)
+                self.show_dataframe(df)
+        except Exception as e:
+            if show_preview:
+                QMessageBox.critical(self, i18n.t("msg_title_error_opening_csv", self._idioma), str(e))
+            return False
+        self.df_name_view_ext_AD.setText(os.path.basename(file_path))
+        if hasattr(self, "df_name_view_ext_skl"):
+            self.df_name_view_ext_skl.setText(os.path.basename(file_path))
+        self._df_ext_path = self._to_job_relative_path(file_path)
+
+        self._update_predict_descriptor_range_inputs(getattr(self, "df_ext", None) if getattr(self, "chk_pd_external", None) and self.chk_pd_external.isChecked() else None)
+        # STEP 6 "Remove Model and Predict" group's "Descriptors Columns Range" — mesma heurística de
+        # detecção de descritores usada em STEP 4, aplicada ao External Dataframe (usado por Predict).
+        self._apply_detected_feature_range(getattr(self, "df_ext", None), "ed_skl_pd_first_col", "ed_skl_pd_last_col")
+        return True
 
     def select_dataframe_ext(self):
         initial_dir = os.path.join(self.job_dir, "DATA_BASES", "EXTERNAL_DATA")
@@ -13614,20 +14024,7 @@ class MainWindow(QMainWindow):
             "CSV Files (*.csv)"
         )
         if file_path:
-            try:
-                df = self._read_selected_table_file(file_path)
-                self.df_ext = df
-                self._warn_missing_external_columns(df)
-                self.show_dataframe(df)
-            except Exception as e:
-                QMessageBox.critical(self, i18n.t("msg_title_error_opening_csv", self._idioma), str(e))
-            self.df_name_view_ext_AD.setText(os.path.basename(file_path))
-            if hasattr(self, "df_name_view_ext_skl"):
-                self.df_name_view_ext_skl.setText(os.path.basename(file_path))
-        self._update_predict_descriptor_range_inputs(getattr(self, "df_ext", None) if getattr(self, "chk_pd_external", None) and self.chk_pd_external.isChecked() else None)
-        # STEP 6 "Remove Model and Predict" group's "Descriptors Columns Range" — mesma heurística de
-        # detecção de descritores usada em STEP 4, aplicada ao External Dataframe (usado por Predict).
-        self._apply_detected_feature_range(getattr(self, "df_ext", None), "ed_skl_pd_first_col", "ed_skl_pd_last_col")
+            self._load_external_dataframe(file_path, show_preview=True)
 
     def _get_external_columns_diff(self, df_ext):
         """Calcula a diferença de colunas entre o DataFrame Interno (referência de treino) e o
@@ -14891,6 +15288,72 @@ class MainWindow(QMainWindow):
                     if control is not None:
                         control.setEnabled(enabled)
 
+            def _local_data_mode_value(series):
+                """Valor mais frequente (não vazio) de uma coluna, usado para preencher um único
+                campo/combobox a partir de um dataset que pode ter múltiplas linhas repetindo o
+                mesmo alvo/ensaio."""
+                s = series.dropna().astype(str).map(str.strip)
+                s = s[s != ""]
+                if s.empty:
+                    return ""
+                try:
+                    return s.mode().iloc[0]
+                except Exception:
+                    return s.iloc[0]
+
+            def _autofill_assay_target_fields(df):
+                """Preenche Assay Type/Metric/Unit, Target Type, Organism Name e Target ChEMBL ID
+                a partir das colunas do dataset carregado em 'Search Local Data', de forma
+                equivalente ao que 'Generate Dataset by activity' + 'Search ID' deixam prontos
+                para uso em 'Generate Base Dataset'. Cada campo só é preenchido se a coluna
+                correspondente existir no dataset."""
+                if "assay_type" in df.columns:
+                    raw_assay_type = _local_data_mode_value(df["assay_type"])
+                    if raw_assay_type:
+                        match_idx = -1
+                        for i in range(self.cb_assay_type.count()):
+                            item_text = self.cb_assay_type.itemText(i)
+                            prefix = item_text.split('-')[0].strip() if '-' in item_text else item_text
+                            if prefix.strip().upper() == raw_assay_type.upper():
+                                match_idx = i
+                                break
+                        if match_idx >= 0:
+                            self.cb_assay_type.setCurrentIndex(match_idx)
+                        else:
+                            self.cb_assay_type.setCurrentText(raw_assay_type)
+
+                if "type" in df.columns:
+                    assay_metric = [t for t in df['type'].dropna().astype(str).map(str.strip).unique() if t]
+                    if assay_metric:
+                        self.update_assay_metric(assay_metric)
+
+                if "units" in df.columns:
+                    assay_units = [u for u in df['units'].dropna().astype(str).map(str.strip).unique() if u]
+                    if assay_units:
+                        self.update_assay_units(assay_units)
+
+                target_type_col = next((c for c in df.columns if str(c).strip().lower() == "target_type"), None)
+                if target_type_col:
+                    raw_target_type = _local_data_mode_value(df[target_type_col])
+                    if raw_target_type:
+                        idx = -1
+                        for i in range(self.cb_target_type.count()):
+                            if self.cb_target_type.itemText(i).strip().upper() == raw_target_type.upper():
+                                idx = i
+                                break
+                        if idx >= 0:
+                            self.cb_target_type.setCurrentIndex(idx)
+
+                if "target_organism" in df.columns:
+                    raw_organism = _local_data_mode_value(df["target_organism"])
+                    if raw_organism:
+                        self.ed_organism_name.setText(raw_organism)
+
+                if "target_chembl_id" in df.columns:
+                    raw_target_id = _local_data_mode_value(df["target_chembl_id"])
+                    if raw_target_id:
+                        self.ed_target_chembl_id.setText(raw_target_id)
+
             def on_int_data_btn_clicked():
                 set_grid_enabled(False)
                 file_paths, _ = QFileDialog.getOpenFileNames(
@@ -14904,8 +15367,6 @@ class MainWindow(QMainWindow):
                     if not job_dir:
                         QMessageBox.warning(self, i18n.t("msg_title_current_job", self._idioma), "Set or create the current project folder before importing local data.")
                         return
-                    target_chembl_id = self.ed_target_chembl_id.text().strip()
-                    target_organism = self.ed_organism_name.text().strip()
 
                     try:
                         df_list = []
@@ -14925,11 +15386,21 @@ class MainWindow(QMainWindow):
 
                         # Concatena todos os DataFrames
                         final_df = pd.concat(df_list, ignore_index=True)
+                        final_df = _normalize_chembl_columns(final_df)
+
+                        # Preenche Assay Type/Metric/Unit, Target Type, Organism e Target ChEMBL ID
+                        # a partir das colunas do dataset, quando disponíveis:
+                        _autofill_assay_target_fields(final_df)
 
                         self.df_selecionado = final_df
                         self.show_dataframe(final_df)
 
-                        # Salvando o dataframe combinado
+                        # Salva com a MESMA convenção de nome que "Generate Dataset by activity" usaria,
+                        # já com os campos Target ChEMBL ID / Organism Name recém-detectados — assim
+                        # "Generate Base Dataset" encontra o arquivo (glob "df1_by_activity*.csv") e
+                        # aplica os mesmos filtros normalmente:
+                        target_chembl_id = self.ed_target_chembl_id.text().strip()
+                        target_organism = self.ed_organism_name.text().strip()
                         save_path = os.path.join(
                             job_dir, "DATA_BASES", "INTERNAL_DATA",
                             f'df1_by_activity_{target_chembl_id}_{target_organism}.csv'
@@ -15264,13 +15735,18 @@ class MainWindow(QMainWindow):
             gL6 = QGridLayout(gL6_widget)
             label_select_columns = self._trL("s2_lbl_select_columns_interest"); label_select_columns.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;");
             self.list_columns = QListWidget(); self.list_columns.addItems([]); self.list_columns.setSelectionMode(QAbstractItemView.MultiSelection); self.list_columns.setMinimumHeight(60); self.list_columns.setFixedWidth(300)
+            self.chk_use_standard_values = QCheckBox(); self._tr("s2_chk_use_standard_values", self.chk_use_standard_values.setText)
+            self.chk_use_standard_values.setChecked(False)
+
+            self.chk_use_standard_values.toggled.connect(self._apply_use_standard_values_selection)
             btn_filter_columns = QPushButton(); self._tr("s2_btn_count_filter_columns", btn_filter_columns.setText); btn_filter_columns.setProperty("role", "secondary"); btn_filter_columns.setFixedWidth(150); btn_filter_columns.clicked.connect(self.run_list_columns)
             btn_del_null = QPushButton(); self._tr("s2_btn_count_del_null", btn_del_null.setText)
             btn_del_null.setProperty("role", "danger")
             btn_del_null.setFixedWidth(150); btn_del_null.clicked.connect(self.run_del_nulls)
             gL6_btn = QVBoxLayout()
+            gL6_btn.addWidget(self.chk_use_standard_values)
             gL6_btn.addWidget(btn_filter_columns)
-            gL6_btn.addWidget(btn_del_null)        
+            gL6_btn.addWidget(btn_del_null)
             gL6.addWidget(label_select_columns,0,0); gL6.addWidget(self.list_columns,0,1); gL6.addLayout(gL6_btn,0,2)
             gL6.setColumnStretch(0, 1); gL6.setColumnStretch(1, 2); gL6.setColumnStretch(2, 2)
             # Stretch=1: sem isso, list_columns (mesmo com setMinimumHeight em vez de
@@ -15328,6 +15804,16 @@ class MainWindow(QMainWindow):
             gL10.addWidget(label_select_method_rep,0,0); gL10.addWidget(self.list_methods_rep,0,1); gL10.addWidget(btn_method_rep,0,2)
             gL10.setColumnStretch(0, 1); gL10.setColumnStretch(1, 1); gL10.setColumnStretch(2, 1)
 
+            # Segundo grid B (valor + tolerância + remoção de repetições de valor):
+            gL10b_widget = QWidget()
+            gL10b = QGridLayout(gL10b_widget)
+            label_select_value_column_rep = self._trL("s2_lbl_select_value_column_rep"); label_select_value_column_rep.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;");
+            self.cb_value_column_rep = QComboBox(); self.cb_value_column_rep.addItems([]); self.cb_value_column_rep.setFixedWidth(200)
+            self.sp_tolerance_rep = QSpinBox(); self.sp_tolerance_rep.setRange(0, 1000000); self.sp_tolerance_rep.setValue(5); self.sp_tolerance_rep.setFixedWidth(70); self.sp_tolerance_rep.setToolTip("tolerance")
+            btn_remove_value_rep = QPushButton(); self._tr("s2_btn_remove_value_rep", btn_remove_value_rep.setText); btn_remove_value_rep.setProperty("role", "primary"); btn_remove_value_rep.setFixedWidth(150); btn_remove_value_rep.clicked.connect(self.run_remove_value_repetitions)
+            gL10b.addWidget(label_select_value_column_rep,0,0); gL10b.addWidget(self.cb_value_column_rep,0,1); gL10b.addWidget(self.sp_tolerance_rep,0,2); gL10b.addWidget(btn_remove_value_rep,0,3)
+            gL10b.setColumnStretch(0, 1); gL10b.setColumnStretch(1, 1); gL10b.setColumnStretch(2, 1); gL10b.setColumnStretch(3, 1)
+
             # Terceiro grid:
             gL11_widget = QWidget()
             gL11 = QGridLayout(gL11_widget)
@@ -15346,6 +15832,7 @@ class MainWindow(QMainWindow):
             # Adição de todos os layout na seção de tratamento de repetições:
             g7_main_layout.addWidget(gL9_widget)
             g7_main_layout.addWidget(gL10_widget)
+            g7_main_layout.addWidget(gL10b_widget)
             g7_main_layout.addWidget(gL11_widget)
             # g7_main_layout.addWidget(btn_check_rep, alignment=Qt.AlignCenter) 
             g7_main_layout.addStretch()
@@ -15923,7 +16410,7 @@ class MainWindow(QMainWindow):
             # Cria os widget para o grid 22:        
             self.chk_salt = QCheckBox(); self._tr("s4_chk_remove_salt", self.chk_salt.setText); self.chk_salt.setChecked(True)
             self.chk_aromaticity = QCheckBox(); self._tr("s4_chk_detect_aromaticity", self.chk_aromaticity.setText); self.chk_aromaticity.setChecked(True)
-            self.chk_tautomers = QCheckBox(); self._tr("s4_chk_standardize_tautomers", self.chk_tautomers.setText); self.chk_tautomers.setChecked(False)
+            self.chk_tautomers = QCheckBox(); self._tr("s4_chk_standardize_tautomers", self.chk_tautomers.setText); self.chk_tautomers.setChecked(True)
             self.chk_nitro = QCheckBox(); self._tr("s4_chk_standardize_nitro", self.chk_nitro.setText); self.chk_nitro.setChecked(True)
             self.chk_3dcoord = QCheckBox(); self._tr("s4_chk_retain_3d", self.chk_3dcoord.setText); self.chk_3dcoord.setChecked(False)
             self.chk_3dconvert = QCheckBox(); self._tr("s4_chk_convert_3d", self.chk_3dconvert.setText); self.chk_3dconvert.setChecked(False)
@@ -17711,8 +18198,9 @@ class MainWindow(QMainWindow):
                 "(x + y) / 2",
                 "x ** 2",
                 "sqrt(x)",
-                "log(x)",
+                "ln(x)",
                 "log10(x)",
+                "10**(-x)",
                 "exp(x)",
                 "abs(x)",
                 "minimum(x, y)",
@@ -18673,6 +19161,11 @@ class MainWindow(QMainWindow):
         if not code:
             return
 
+        # Usuário escolheu explicitamente uma USI existente — a USI pendente gerada ao carregar o
+        # Internal DataFrame (se ainda não consumida) deixa de fazer sentido; a próxima Run Screening
+        # volta a gerar uma nova USI normalmente, em vez de reaproveitar a antiga.
+        self._skl_usi_pending_from_load = False
+
         self._set_current_sklearn_usi_context(code)
         config_path = self._skl_session_config_path()
         if not config_path or not os.path.isfile(config_path):
@@ -19012,8 +19505,14 @@ class MainWindow(QMainWindow):
                 return
 
             # Cada execução de Run Screening grava em uma pasta USI nova, para não misturar/sobrescrever
-            # os resultados de tentativas anteriores (ranking, modelos treinados, tuning, etc.).
-            self._set_current_sklearn_usi_context(_generate_new_usi_code(self.job_dir))
+            # os resultados de tentativas anteriores (ranking, modelos treinados, tuning, etc.) — exceto
+            # a primeira execução após carregar o Internal DataFrame, que reaproveita a USI já gerada
+            # nesse momento (ver _load_internal_dataframe) em vez de descartá-la e gerar outra.
+            if getattr(self, "_skl_usi_pending_from_load", False):
+                self._set_current_sklearn_usi_context()
+                self._skl_usi_pending_from_load = False
+            else:
+                self._set_current_sklearn_usi_context(_generate_new_usi_code(self.job_dir))
             random_state = self._get_skl_random_state()
 
             model_specs = []

@@ -176,6 +176,11 @@ _TEXTOS = {
         "en": "Please choose one of the Task Type options: Classification, Regression, or Clustering.",
         "pt": "Escolha uma das opções de Tipo de Tarefa: Classificação, Regressão ou Clusterização.",
     },
+    "msg_project_required_title": {"en": "Project Required", "pt": "Projeto Necessário"},
+    "msg_project_required_body": {
+        "en": "You need to create a New Project (enter a job name) or select a Previous Project before setting the run folder.",
+        "pt": "Você precisa criar um Novo Projeto (definir um nome de job) ou selecionar um Projeto Anterior antes de definir a pasta de execução.",
+    },
     "msg_job_load_error": {
         "en": "Could not load saved job settings from the selected job.\n\nDetails:\n{e}",
         "pt": "Não foi possível carregar as configurações salvas do job selecionado.\n\nDetalhes:\n{e}",
@@ -266,6 +271,7 @@ _TEXTOS = {
     # ---------------------------------------------------------------- STEP 2 (Preprocessing / Exploratory Analysis)
     "s2_grp_select_convert": {"en": "Select columns and convert units", "pt": "Selecionar colunas e converter unidades"},
     "s2_lbl_select_columns_interest": {"en": "1. Select columns \nof interest:", "pt": "1. Selecione as colunas \nde interesse:"},
+    "s2_chk_use_standard_values": {"en": "Use Standard values", "pt": "Usar valores padronizados"},
     "s2_btn_count_filter_columns": {"en": "Count and Filter \nColumns of interest", "pt": "Contar e Filtrar \nColunas de interesse"},
     "s2_btn_count_del_null": {"en": "Count and delete \nnull or empty values", "pt": "Contar e excluir \nvalores nulos ou vazios"},
     "s2_lbl_select_standard_type": {"en": "2. Select \nstandard type:", "pt": "2. Selecione o \ntipo padrão:"},
@@ -280,6 +286,8 @@ _TEXTOS = {
         "pt": "2. Selecione os métodos \npara tratar repetições:",
     },
     "s2_btn_run_method": {"en": "Run selected\n method", "pt": "Executar\n método selecionado"},
+    "s2_lbl_select_value_column_rep": {"en": "3. Select the \nvalue column:", "pt": "3. Selecione a \ncoluna de valor:"},
+    "s2_btn_remove_value_rep": {"en": "Remove value \nrepetitions", "pt": "Remover repetições \nde valor"},
     "s2_lbl_select_molecule_id": {"en": "Select Molecule_ChEMBL_ID:", "pt": "Selecione o Molecule_ChEMBL_ID:"},
     "s2_btn_check_molecule": {"en": "Check Molecule", "pt": "Verificar Molécula"},
     "s2_grp_data_transformation": {"en": "Data transformation", "pt": "Transformação de dados"},
