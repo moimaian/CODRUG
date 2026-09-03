@@ -3453,6 +3453,48 @@ class MainWindow(QMainWindow):
         self.list_assay_units.clear()
         self.list_assay_units.addItems(assay_units)
 
+    def update_assay_chembl_id(self, assay_chembl_id):
+        self.list_assay_chembl_id.clear()
+        self.list_assay_chembl_id.addItems(assay_chembl_id)
+
+    def update_validity_comment(self, validity_comment):
+        self.list_validity_comment.clear()
+        self.list_validity_comment.addItems(validity_comment)
+
+    def update_validity_description(self, validity_description):
+        self.list_validity_description.clear()
+        self.list_validity_description.addItems(validity_description)
+
+    def _autofill_assay_lists_from_activity_df(self, df):
+        """Preenche Assay Metric/Assay Unit/Assay ChEMBL ID/Validity Comment/Validity
+        Description com os valores efetivamente presentes no dataset baixado por "Generate
+        Dataset by activity" (colunas 'type', 'units', 'assay_chembl_id',
+        'data_validity_comment', 'data_validity_description'). Cada lista só é repopulada se a
+        coluna correspondente existir e tiver ao menos um valor não vazio."""
+        if not isinstance(df, pd.DataFrame):
+            return
+
+        def _unique_nonempty(col):
+            if col not in df.columns:
+                return []
+            return [v for v in df[col].dropna().astype(str).map(str.strip).unique() if v]
+
+        assay_metric = _unique_nonempty("type")
+        if assay_metric:
+            self.update_assay_metric(assay_metric)
+        assay_units = _unique_nonempty("units")
+        if assay_units:
+            self.update_assay_units(assay_units)
+        assay_chembl_ids = _unique_nonempty("assay_chembl_id")
+        if assay_chembl_ids:
+            self.update_assay_chembl_id(assay_chembl_ids)
+        validity_comments = _unique_nonempty("data_validity_comment")
+        if validity_comments:
+            self.update_validity_comment(validity_comments)
+        validity_descriptions = _unique_nonempty("data_validity_description")
+        if validity_descriptions:
+            self.update_validity_description(validity_descriptions)
+
     def _dataset_preparation_config_path(self, job_dir=None):
         """Legacy STEP 1-only settings path, kept as a read fallback for jobs created
         before the unified per-job JSON existed (see _job_state_path)."""
@@ -4144,7 +4186,14 @@ class MainWindow(QMainWindow):
             "assay_unit_options": self._list_widget_all_items(getattr(self, "list_assay_units", None)),
             "assay_unit_selected": self._list_widget_selected_items(getattr(self, "list_assay_units", None)),
             "assay_strain": self.ed_assay_strain.text().strip() if hasattr(self, "ed_assay_strain") else "",
-            "assay_chembl_id": self.ed_assay_chembl_id.text().strip() if hasattr(self, "ed_assay_chembl_id") else "",
+            "assay_chembl_id_options": self._list_widget_all_items(getattr(self, "list_assay_chembl_id", None)),
+            "assay_chembl_id_selected": self._list_widget_selected_items(getattr(self, "list_assay_chembl_id", None)),
+            "validity_comment_checked": bool(self.chk_validity_comment.isChecked()) if hasattr(self, "chk_validity_comment") else False,
+            "validity_comment_options": self._list_widget_all_items(getattr(self, "list_validity_comment", None)),
+            "validity_comment_selected": self._list_widget_selected_items(getattr(self, "list_validity_comment", None)),
+            "validity_description_checked": bool(self.chk_validity_description.isChecked()) if hasattr(self, "chk_validity_description") else False,
+            "validity_description_options": self._list_widget_all_items(getattr(self, "list_validity_description", None)),
+            "validity_description_selected": self._list_widget_selected_items(getattr(self, "list_validity_description", None)),
             "assay_description_included": self.ed_assay_description_included.text().strip() if hasattr(self, "ed_assay_description_included") else "",
             "assay_description_excluded": self.ed_assay_description_excluded.text().strip() if hasattr(self, "ed_assay_description_excluded") else "",
             "molecule_chembl_id": self.ed_molecule_chembl_id.text().strip() if hasattr(self, "ed_molecule_chembl_id") else "",
@@ -4188,8 +4237,34 @@ class MainWindow(QMainWindow):
         )
         if hasattr(self, "ed_assay_strain"):
             self.ed_assay_strain.setText(str(state.get("assay_strain", "") or ""))
-        if hasattr(self, "ed_assay_chembl_id"):
-            self.ed_assay_chembl_id.setText(str(state.get("assay_chembl_id", "") or ""))
+        # "assay_chembl_id" (string) é o formato legado, de quando o campo era um QLineEdit;
+        # migra para uma seleção única na nova lista múltipla quando presente e o novo formato
+        # ("assay_chembl_id_options"/"_selected") ainda não existir no estado salvo.
+        legacy_assay_chembl_id = str(state.get("assay_chembl_id", "") or "").strip()
+        assay_chembl_id_options = state.get("assay_chembl_id_options", [])
+        assay_chembl_id_selected = state.get("assay_chembl_id_selected", [])
+        if not assay_chembl_id_options and not assay_chembl_id_selected and legacy_assay_chembl_id:
+            assay_chembl_id_options = [legacy_assay_chembl_id]
+            assay_chembl_id_selected = [legacy_assay_chembl_id]
+        self._set_list_widget_items_and_selection(
+            getattr(self, "list_assay_chembl_id", None),
+            assay_chembl_id_options,
+            assay_chembl_id_selected,
+        )
+        if hasattr(self, "chk_validity_comment"):
+            self.chk_validity_comment.setChecked(bool(state.get("validity_comment_checked", False)))
+        self._set_list_widget_items_and_selection(
+            getattr(self, "list_validity_comment", None),
+            state.get("validity_comment_options", []),
+            state.get("validity_comment_selected", []),
+        )
+        if hasattr(self, "chk_validity_description"):
+            self.chk_validity_description.setChecked(bool(state.get("validity_description_checked", False)))
+        self._set_list_widget_items_and_selection(
+            getattr(self, "list_validity_description", None),
+            state.get("validity_description_options", []),
+            state.get("validity_description_selected", []),
+        )
         if hasattr(self, "ed_assay_description_included"):
             self.ed_assay_description_included.setText(str(state.get("assay_description_included", "") or ""))
         if hasattr(self, "ed_assay_description_excluded"):
@@ -4215,17 +4290,21 @@ class MainWindow(QMainWindow):
         for attr in (
             "ed_organism_name", "ed_target_pref_name", "ed_target_chembl_id",
             "ed_cell_chembl_id", "ed_cell_name", "ed_cell_source_tissue", "ed_cell_description",
-            "ed_assay_strain", "ed_assay_chembl_id", "ed_assay_description_included",
+            "ed_assay_strain", "ed_assay_description_included",
             "ed_assay_description_excluded", "ed_molecule_chembl_id", "ed_molecule_pref_name",
             "ed_canonical_smiles", "ed_activity_chembl_id",
         ):
             widget = getattr(self, attr, None)
             if widget is not None:
                 widget.setText("")
-        for attr in ("list_assay_metric", "list_assay_units"):
+        for attr in ("list_assay_metric", "list_assay_units", "list_assay_chembl_id", "list_validity_comment", "list_validity_description"):
             widget = getattr(self, attr, None)
             if widget is not None:
                 widget.clear()
+        if hasattr(self, "chk_validity_comment"):
+            self.chk_validity_comment.setChecked(False)
+        if hasattr(self, "chk_validity_description"):
+            self.chk_validity_description.setChecked(False)
 
     def _reset_ui_for_new_job(self):
         """Clears every pipeline tab's fields when starting a brand New Project, so nothing
@@ -4436,9 +4515,10 @@ class MainWindow(QMainWindow):
 
                     FIELDS = [
                         'molecule_chembl_id', 'canonical_smiles', 'assay_description',
-                        'assay_type', 'activity_id', 'target_chembl_id', 'target_organism',
-                        'target_pref_name', 'type', 'units', 'standard_unit',
-                        'value', 'standard_value'
+                        'assay_type', 'assay_chembl_id', 'activity_id', 'target_chembl_id',
+                        'target_organism', 'target_pref_name', 'type', 'units', 'standard_unit',
+                        'standard_units', 'value', 'standard_value',
+                        'data_validity_comment', 'data_validity_description',
                     ]
 
                     stopped_by_user = False
@@ -4517,6 +4597,7 @@ class MainWindow(QMainWindow):
                         f"Download stopped by user. Partial dataset with {len(df)} records "
                         f"was saved to:\n{file_path}"
                     )
+                self._autofill_assay_lists_from_activity_df(df)
                 self.show_dataframe(df)
 
             def on_error(msg):
@@ -4664,7 +4745,7 @@ class MainWindow(QMainWindow):
     def run_assay_explore(self):
         assay_type_full = self.cb_assay_type.currentText().strip()
         assay_type_name = assay_type_full.split('-')[0].strip() if '-' in assay_type_full else assay_type_full
-        assay_chembl_id = self.ed_assay_chembl_id.text().strip()
+        assay_chembl_id = [item.text() for item in self.list_assay_chembl_id.selectedItems()]
         assay_description_included = self.ed_assay_description_included.text().strip()
         assay_description_excluded = self.ed_assay_description_excluded.text().strip()
         target_chembl_id = self.ed_target_chembl_id.text().strip()
@@ -4694,7 +4775,13 @@ class MainWindow(QMainWindow):
 
                     filter_kwargs = {}
                     if assay_chembl_id:
-                        filter_kwargs['assay_chembl_id'] = assay_chembl_id
+                        # Múltiplos IDs selecionados: usa o lookup "__in" do webresource_client
+                        # (mesmo padrão usado para molecule_chembl_id em run_by_molecule);
+                        # um único ID selecionado: igualdade simples.
+                        if len(assay_chembl_id) == 1:
+                            filter_kwargs['assay_chembl_id'] = assay_chembl_id[0]
+                        else:
+                            filter_kwargs['assay_chembl_id__in'] = assay_chembl_id
                     if target_organism:
                         filter_kwargs['assay_organism__icontains'] = target_organism
                     if assay_description_included:
@@ -5172,6 +5259,19 @@ class MainWindow(QMainWindow):
             target_pref_name = self.ed_target_pref_name.text().strip()
             assay_metric = [item.text() for item in self.list_assay_metric.selectedItems()]
             assay_units = [item.text() for item in self.list_assay_units.selectedItems()]
+            # Só filtra por data_validity_comment quando o checkbox "Validity Comment" está marcado
+            # (desmarcado = comportamento anterior, sem filtro por essa coluna):
+            validity_comment = (
+                [item.text() for item in self.list_validity_comment.selectedItems()]
+                if getattr(self, "chk_validity_comment", None) is not None and self.chk_validity_comment.isChecked()
+                else []
+            )
+            # Idem para data_validity_description, via checkbox "Validity Description":
+            validity_description = (
+                [item.text() for item in self.list_validity_description.selectedItems()]
+                if getattr(self, "chk_validity_description", None) is not None and self.chk_validity_description.isChecked()
+                else []
+            )
             assay_description_included = self.ed_assay_description_included.text().strip()
             assay_description_excluded = self.ed_assay_description_excluded.text().strip()
             job_dir = self.job_dir
@@ -5189,6 +5289,10 @@ class MainWindow(QMainWindow):
                 filter_kwargs['type'] = assay_metric
             if assay_units:
                 filter_kwargs['units'] = assay_units
+            if validity_comment:
+                filter_kwargs['data_validity_comment'] = validity_comment
+            if validity_description:
+                filter_kwargs['data_validity_description'] = validity_description
             if target_organism:
                 filter_kwargs['target_organism'] = target_organism
             if target_pref_name:
@@ -15302,11 +15406,11 @@ class MainWindow(QMainWindow):
                     return s.iloc[0]
 
             def _autofill_assay_target_fields(df):
-                """Preenche Assay Type/Metric/Unit, Target Type, Organism Name e Target ChEMBL ID
-                a partir das colunas do dataset carregado em 'Search Local Data', de forma
-                equivalente ao que 'Generate Dataset by activity' + 'Search ID' deixam prontos
-                para uso em 'Generate Base Dataset'. Cada campo só é preenchido se a coluna
-                correspondente existir no dataset."""
+                """Preenche Assay Type/Metric/Unit/ChEMBL ID, Validity Comment/Description,
+                Target Type, Organism Name, Pref. Name e Target ChEMBL ID a partir das colunas
+                do dataset carregado em 'Search Local Data', de forma equivalente ao que
+                'Generate Dataset by activity' deixa pronto para uso em 'Generate Base Dataset'.
+                Cada campo só é preenchido se a coluna correspondente existir no dataset."""
                 if "assay_type" in df.columns:
                     raw_assay_type = _local_data_mode_value(df["assay_type"])
                     if raw_assay_type:
@@ -15322,15 +15426,10 @@ class MainWindow(QMainWindow):
                         else:
                             self.cb_assay_type.setCurrentText(raw_assay_type)
 
-                if "type" in df.columns:
-                    assay_metric = [t for t in df['type'].dropna().astype(str).map(str.strip).unique() if t]
-                    if assay_metric:
-                        self.update_assay_metric(assay_metric)
-
-                if "units" in df.columns:
-                    assay_units = [u for u in df['units'].dropna().astype(str).map(str.strip).unique() if u]
-                    if assay_units:
-                        self.update_assay_units(assay_units)
+                # Assay Metric/Assay Unit/Assay ChEMBL ID/Validity Comment/Validity Description:
+                # mesmo helper usado ao final de "Generate Dataset by activity" (colunas 'type',
+                # 'units', 'assay_chembl_id', 'data_validity_comment', 'data_validity_description').
+                self._autofill_assay_lists_from_activity_df(df)
 
                 target_type_col = next((c for c in df.columns if str(c).strip().lower() == "target_type"), None)
                 if target_type_col:
@@ -15349,13 +15448,21 @@ class MainWindow(QMainWindow):
                     if raw_organism:
                         self.ed_organism_name.setText(raw_organism)
 
+                if "target_pref_name" in df.columns:
+                    raw_pref_name = _local_data_mode_value(df["target_pref_name"])
+                    if raw_pref_name:
+                        self.ed_target_pref_name.setText(raw_pref_name)
+
                 if "target_chembl_id" in df.columns:
                     raw_target_id = _local_data_mode_value(df["target_chembl_id"])
                     if raw_target_id:
                         self.ed_target_chembl_id.setText(raw_target_id)
 
             def on_int_data_btn_clicked():
-                set_grid_enabled(False)
+                # "Search Local Data" não deve desabilitar os elementos da aba para edição do
+                # usuário - ao contrário, habilita-os (mesmo efeito de "Use ChEMBL Data"), já
+                # que o dataset carregado localmente preenche vários desses campos abaixo.
+                set_grid_enabled(True)
                 file_paths, _ = QFileDialog.getOpenFileNames(
                     self,
                     i18n.t("s1_dlg_select_csv_excel", self._idioma),
@@ -15419,10 +15526,10 @@ class MainWindow(QMainWindow):
             int_data_btn.clicked.connect(on_int_data_btn_clicked)
             ext_data_btn.clicked.connect(lambda: set_grid_enabled(True))
             
-            g1 = QGroupBox()
-            g1.setStyleSheet("QGroupBox { background-color: #E6F2EC; border: 1px solid #ccc; border-radius: 6px; }")
-            # Layout principal vertical para o QGroupBox
-            g1_main_layout = QVBoxLayout(g1)
+            # Grupo "Target Filter":
+            g1_target = QGroupBox(); self._tr("s1_grp_target_filter", g1_target.setTitle)
+            g1_target.setStyleSheet("QGroupBox { background-color: #F5F5F5; border: 1px solid #ccc; border-radius: 6px; }")
+            g1_target_layout = QVBoxLayout(g1_target)
 
             # Primeiro grid
             gL0_widget = QWidget()
@@ -15434,17 +15541,21 @@ class MainWindow(QMainWindow):
             gL0.addWidget(self._trL("s1_lbl_target_type"),0,0); gL0.addWidget(self._trL("s1_lbl_organism_name"),0,1); gL0.addWidget(self._trL("s1_lbl_pref_name"),0,2); gL0.addWidget(self._trL("s1_lbl_target_chembl_id"),0,3)
             gL0.addWidget(self.cb_target_type,1,0); gL0.addWidget(self.ed_organism_name,1,1); gL0.addWidget(self.ed_target_pref_name,1,2); gL0.addWidget(self.ed_target_chembl_id,1,3)
             gL0.setColumnStretch(0, 1); gL0.setColumnStretch(1, 2); gL0.setColumnStretch(2, 2); gL0.setColumnStretch(3, 1)
-            g1_main_layout.addWidget(gL0_widget)
+            g1_target_layout.addWidget(gL0_widget)
 
-            # Botão para buscar o dataset pelas informações do alvo (BY TARGET):
-            target_btn = QHBoxLayout()        
+            # Botão para buscar o dataset pelas informações do alvo (BY TARGET), centralizado:
+            target_btn = QHBoxLayout()
             btn_by_target = QPushButton(); self._tr("s1_btn_explore_target", btn_by_target.setText)
             btn_by_target.setFixedWidth(150)
             btn_by_target.setProperty("role", "secondary")
             btn_by_target.clicked.connect(self.run_by_target)
+            target_btn.addStretch(1)
+            target_btn.addWidget(btn_by_target)
+            target_btn.addStretch(1)
+            g1_target_layout.addLayout(target_btn)
 
-
-            # Botão para gerar o dataset por atividade:
+            # Botão "Generate Dataset by activity" + checkbox "Web Scraping", logo abaixo do
+            # grupo "Target Filter", centralizados na janela (fora de qualquer grupo com título):
             btn_by_activity = QPushButton(); self._tr("s1_btn_generate_by_activity", btn_by_activity.setText)
             btn_by_activity.setFixedWidth(200)
             btn_by_activity.setProperty("role", "primary")
@@ -15456,15 +15567,18 @@ class MainWindow(QMainWindow):
             self._tr("s1_chk_web_scraping", self.cb_web_scraping.setText)
             self._tr("s1_tooltip_web_scraping", self.cb_web_scraping.setToolTip)
 
-            target_btn.addStretch(1)
-            target_btn.addWidget(btn_by_target)
-            target_btn.addWidget(btn_by_activity)
-            target_btn.addWidget(self.cb_web_scraping)
-            target_btn.addStretch(1)
+            activity_btn_layout = QHBoxLayout()
+            activity_btn_layout.addStretch(1)
+            activity_btn_layout.addWidget(btn_by_activity)
+            activity_btn_layout.addWidget(self.cb_web_scraping)
+            activity_btn_layout.addStretch(1)
             chembl_controls.extend([self.cb_target_type, self.ed_organism_name, self.ed_target_pref_name, self.ed_target_chembl_id, btn_by_target, btn_by_activity, self.cb_web_scraping])
 
-            g1_main_layout.addLayout(target_btn)
-           
+            # Grupo "Cell line Filter":
+            g1_cell = QGroupBox(); self._tr("s1_grp_cell_filter", g1_cell.setTitle)
+            g1_cell.setStyleSheet("QGroupBox { background-color: #F5F5F5; border: 1px solid #ccc; border-radius: 6px; }")
+            g1_cell_layout = QVBoxLayout(g1_cell)
+
             # Segundo grid
             gL1_widget = QWidget()
             gL1 = QGridLayout(gL1_widget)
@@ -15475,17 +15589,24 @@ class MainWindow(QMainWindow):
             gL1.addWidget(QLabel("cell_chembl_id:"),0,0); gL1.addWidget(QLabel("cell_name:"),0,1); gL1.addWidget(QLabel("cell_source_tissue:"),0,2); gL1.addWidget(QLabel("cell_description:"),0,3)
             gL1.addWidget(self.ed_cell_chembl_id,1,0); gL1.addWidget(self.ed_cell_name,1,1); gL1.addWidget(self.ed_cell_source_tissue,1,2); gL1.addWidget(self.ed_cell_description,1,3)
             gL1.setColumnStretch(0, 1); gL1.setColumnStretch(1, 1); gL1.setColumnStretch(2, 2); gL1.setColumnStretch(3, 2)
-            g1_main_layout.addWidget(gL1_widget)
+            g1_cell_layout.addWidget(gL1_widget)
 
-            # Botão para buscar o dataset pelas informações do alvo (BY TARGET):
-            cell_btn = QHBoxLayout()        
+            # Botão "Explore by Cell-line", centralizado:
+            cell_btn = QHBoxLayout()
             btn_by_cell = QPushButton(); self._tr("s1_btn_explore_cell", btn_by_cell.setText)
             btn_by_cell.setFixedWidth(150)
             btn_by_cell.setProperty("role", "secondary")
             btn_by_cell.clicked.connect(self.run_by_cell)
+            cell_btn.addStretch(1)
             cell_btn.addWidget(btn_by_cell)
-            g1_main_layout.addLayout(cell_btn)            
+            cell_btn.addStretch(1)
+            g1_cell_layout.addLayout(cell_btn)
             chembl_controls.extend([self.ed_cell_chembl_id, self.ed_cell_name, self.ed_cell_source_tissue, self.ed_cell_description, btn_by_cell])
+
+            # Grupo "Assay Filter":
+            g1_assay = QGroupBox(); self._tr("s1_grp_assay_filter", g1_assay.setTitle)
+            g1_assay.setStyleSheet("QGroupBox { background-color: #F5F5F5; border: 1px solid #ccc; border-radius: 6px; }")
+            g1_assay_layout = QVBoxLayout(g1_assay)
 
             # terceiro grid:
             gL2_widget = QWidget()
@@ -15494,12 +15615,12 @@ class MainWindow(QMainWindow):
             self.list_assay_metric = QListWidget(); self.list_assay_metric.addItems(["","MIC", "pMIC", "-logMIC","MIC50","MIC90","MIC99","MIC>90","MIC>99","IC50", "pIC50","-logIC50","IC90","DE50","% - Inhibition", "%", "Percent Effect", "GI"]); self.list_assay_metric.setSelectionMode(QAbstractItemView.MultiSelection); self.list_assay_metric.setFixedHeight(100); self.list_assay_metric.setFixedWidth(200)
             self.list_assay_units = QListWidget(); self.list_assay_units.addItems(["","uM","M","mM","nM","ug/mL","ug mL-1","mg/mL", "ng/mL"]); self.list_assay_units.setSelectionMode(QAbstractItemView.MultiSelection); self.list_assay_units.setFixedHeight(100); self.list_assay_units.setFixedWidth(200)
             self.ed_assay_strain = QLineEdit(); self.ed_assay_strain.setPlaceholderText("Ex.: H37Rv")
-            self.ed_assay_chembl_id = QLineEdit(); self.ed_assay_chembl_id.setPlaceholderText("Ex.: CHEMBL4665544")
+            self.list_assay_chembl_id = QListWidget(); self.list_assay_chembl_id.setSelectionMode(QAbstractItemView.MultiSelection); self.list_assay_chembl_id.setFixedHeight(100); self.list_assay_chembl_id.setFixedWidth(200)
             gL2.addWidget(self._trL("s1_lbl_assay_type"),0,0); gL2.addWidget(self._trL("s1_lbl_assay_metric"),0,1); gL2.addWidget(self._trL("s1_lbl_assay_unit"),0,2); gL2.addWidget(self._trL("s1_lbl_assay_strain"),0,3); gL2.addWidget(self._trL("s1_lbl_assay_chembl_id"),0,4)
-            gL2.addWidget(self.cb_assay_type,1,0); gL2.addWidget(self.list_assay_metric,1,1); gL2.addWidget(self.list_assay_units,1,2); gL2.addWidget(self.ed_assay_strain,1,3); gL2.addWidget(self.ed_assay_chembl_id,1,4)
+            gL2.addWidget(self.cb_assay_type,1,0); gL2.addWidget(self.list_assay_metric,1,1); gL2.addWidget(self.list_assay_units,1,2); gL2.addWidget(self.ed_assay_strain,1,3); gL2.addWidget(self.list_assay_chembl_id,1,4)
             gL2.setColumnStretch(0, 1); gL2.setColumnStretch(1, 2); gL2.setColumnStretch(2, 2); gL2.setColumnStretch(3, 1); gL2.setColumnStretch(4, 1)
-            g1_main_layout.addWidget(gL2_widget)
-            
+            g1_assay_layout.addWidget(gL2_widget)
+
             # quarto grid
             gL3_widget = QWidget()
             gL3 = QGridLayout(gL3_widget)
@@ -15508,8 +15629,8 @@ class MainWindow(QMainWindow):
             gL3.addWidget(self._trL("s1_lbl_assay_included"),1,0); gL3.addWidget(self.ed_assay_description_included,1,1)
             gL3.addWidget(self._trL("s1_lbl_assay_excluded"),2,0); gL3.addWidget(self.ed_assay_description_excluded,2,1)
             gL3.setColumnStretch(0, 1); gL3.setColumnStretch(1, 4)
-            g1_main_layout.addWidget(gL3_widget)
-            
+            g1_assay_layout.addWidget(gL3_widget)
+
             # Botão para buscar o dataset pelas informações do ensaio (BY ASSAY):
             btn_description_assay = QPushButton(); self._tr("s1_btn_assay_description_count", btn_description_assay.setText)
             btn_description_assay.setFixedWidth(200)
@@ -15525,35 +15646,49 @@ class MainWindow(QMainWindow):
 
             assay_btn = QHBoxLayout()
             assay_btn.addWidget(btn_explore_assay)
-            assay_btn.addWidget(btn_description_assay)        
-            g1_main_layout.addLayout(assay_btn)
+            assay_btn.addWidget(btn_description_assay)
+            g1_assay_layout.addLayout(assay_btn)
             chembl_controls.extend([
                 self.cb_assay_type,
                 self.list_assay_metric,
                 self.list_assay_units,
                 self.ed_assay_strain,
-                self.ed_assay_chembl_id,
+                self.list_assay_chembl_id,
                 self.ed_assay_description_included,
                 self.ed_assay_description_excluded,
                 btn_explore_assay,
                 btn_description_assay,
             ])
-        
-            # Quinto grid
-            gL4_widget = QWidget()
-            gL4 = QGridLayout(gL4_widget)
-            self.ed_molecule_chembl_id = QLineEdit(); self.ed_molecule_chembl_id.setPlaceholderText("CHEMBL1234567")
-            self.ed_molecule_pref_name = QLineEdit(); self.ed_molecule_pref_name.setPlaceholderText("Metronidazole")                
-            self.ed_canonical_smiles = QLineEdit(); self.ed_canonical_smiles.setPlaceholderText("CC(=O)OC1=CC=CC=C1C(=O)O")
-            self.ed_activity_chembl_id = QLineEdit(); self.ed_activity_chembl_id.setPlaceholderText("CHEMBL4665544")
-            btn_by_molecule = QPushButton(); self._tr("s1_btn_explore_molecule", btn_by_molecule.setText)
-            btn_by_molecule.setFixedWidth(150)
-            btn_by_molecule.setProperty("role", "secondary")
-            btn_by_molecule.clicked.connect(self.run_by_molecule)
-            gL4.addWidget(self._trL("s1_lbl_molecule_chembl_id"),0,0); gL4.addWidget(self._trL("s1_lbl_molecule_name"),0,1); gL4.addWidget(self._trL("s1_lbl_canonical_smiles"),0,2); gL4.addWidget(self._trL("s1_lbl_activity_chembl_id"),0,3); gL4.addWidget(btn_by_molecule, 0, 4, 2, 1)
-            gL4.addWidget(self.ed_molecule_chembl_id,1,0); gL4.addWidget(self.ed_molecule_pref_name,1,1); gL4.addWidget(self.ed_canonical_smiles,1,2); gL4.addWidget(self.ed_activity_chembl_id,1,3)
-            gL4.setColumnStretch(0, 1); gL4.setColumnStretch(1, 1); gL4.setColumnStretch(2, 2); gL4.setColumnStretch(3, 1); gL4.setColumnStretch(4, 1)
-            g1_main_layout.addWidget(gL4_widget)
+
+            # Grupo "Validity Filter":
+            g1_validity = QGroupBox(); self._tr("s1_grp_validity_filter", g1_validity.setTitle)
+            g1_validity.setStyleSheet("QGroupBox { background-color: #F5F5F5; border: 1px solid #ccc; border-radius: 6px; }")
+            g1_validity_layout = QVBoxLayout(g1_validity)
+
+            # Checkbox + lista múltipla de "data_validity_comment": quando marcado, "Generate
+            # Base Dataset" filtra mantendo apenas as linhas cujo data_validity_comment esteja
+            # entre os valores selecionados (mesmo padrão de filtragem exata usado por Assay
+            # Metric/Assay Unit). Desmarcado = sem filtro por essa coluna.
+            self.chk_validity_comment = QCheckBox(); self._tr("s1_chk_validity_comment", self.chk_validity_comment.setText)
+            self.list_validity_comment = QListWidget(); self.list_validity_comment.setSelectionMode(QAbstractItemView.MultiSelection); self.list_validity_comment.setFixedHeight(60)
+            # Checkbox + lista múltipla de "data_validity_description", mesmo padrão de filtro:
+            self.chk_validity_description = QCheckBox(); self._tr("s1_chk_validity_description", self.chk_validity_description.setText)
+            self.list_validity_description = QListWidget(); self.list_validity_description.setSelectionMode(QAbstractItemView.MultiSelection); self.list_validity_description.setFixedHeight(60)
+
+            # Sem addStretch nas pontas e com stretch factor nas duas listas: elas se expandem
+            # para preencher toda a largura disponível do grupo, em vez de ficarem com largura
+            # fixa centralizada.
+            validity_row = QHBoxLayout()
+            validity_row.addWidget(self.chk_validity_comment)
+            validity_row.addWidget(self.list_validity_comment, 1)
+            validity_row.addSpacing(12)
+            validity_row.addWidget(self.chk_validity_description)
+            validity_row.addWidget(self.list_validity_description, 1)
+            g1_validity_layout.addLayout(validity_row)
+            chembl_controls.extend([self.chk_validity_comment, self.list_validity_comment, self.chk_validity_description, self.list_validity_description])
+
+            # Botão "Generate Base Dataset" + "Request time (s)", logo após o grupo "Validity
+            # Filter", centralizados na janela (fora de qualquer grupo com título):
             btn_generate_end_dataset = QPushButton(); self._tr("s1_btn_generate_base_dataset", btn_generate_end_dataset.setText)
             btn_generate_end_dataset.setFixedWidth(200)
             btn_generate_end_dataset.setProperty("role", "primary")
@@ -15564,6 +15699,35 @@ class MainWindow(QMainWindow):
             self.ed_request_time.setFixedWidth(70)
             self.ed_request_time.setFixedHeight(30)
             self.ed_request_time.setValidator(QIntValidator(1, 999999))
+
+            generate_row = QHBoxLayout()
+            generate_row.addStretch(1)
+            generate_row.addWidget(btn_generate_end_dataset)
+            generate_row.addSpacing(12)
+            generate_row.addWidget(request_time_label)
+            generate_row.addWidget(self.ed_request_time)
+            generate_row.addStretch(1)
+
+            # Grupo "Explore Molecules" (não funciona como filtro de "Generate Base Dataset"):
+            g1_molecule = QGroupBox(); self._tr("s1_grp_explore_molecules", g1_molecule.setTitle)
+            g1_molecule.setStyleSheet("QGroupBox { background-color: #F5F5F5; border: 1px solid #ccc; border-radius: 6px; }")
+            g1_molecule_layout = QVBoxLayout(g1_molecule)
+
+            # Quinto grid
+            gL4_widget = QWidget()
+            gL4 = QGridLayout(gL4_widget)
+            self.ed_molecule_chembl_id = QLineEdit(); self.ed_molecule_chembl_id.setPlaceholderText("CHEMBL1234567")
+            self.ed_molecule_pref_name = QLineEdit(); self.ed_molecule_pref_name.setPlaceholderText("Metronidazole")
+            self.ed_canonical_smiles = QLineEdit(); self.ed_canonical_smiles.setPlaceholderText("CC(=O)OC1=CC=CC=C1C(=O)O")
+            self.ed_activity_chembl_id = QLineEdit(); self.ed_activity_chembl_id.setPlaceholderText("CHEMBL4665544")
+            btn_by_molecule = QPushButton(); self._tr("s1_btn_explore_molecule", btn_by_molecule.setText)
+            btn_by_molecule.setFixedWidth(150)
+            btn_by_molecule.setProperty("role", "secondary")
+            btn_by_molecule.clicked.connect(self.run_by_molecule)
+            gL4.addWidget(self._trL("s1_lbl_molecule_chembl_id"),0,0); gL4.addWidget(self._trL("s1_lbl_molecule_name"),0,1); gL4.addWidget(self._trL("s1_lbl_canonical_smiles"),0,2); gL4.addWidget(self._trL("s1_lbl_activity_chembl_id"),0,3); gL4.addWidget(btn_by_molecule, 0, 4, 2, 1)
+            gL4.addWidget(self.ed_molecule_chembl_id,1,0); gL4.addWidget(self.ed_molecule_pref_name,1,1); gL4.addWidget(self.ed_canonical_smiles,1,2); gL4.addWidget(self.ed_activity_chembl_id,1,3)
+            gL4.setColumnStretch(0, 1); gL4.setColumnStretch(1, 1); gL4.setColumnStretch(2, 2); gL4.setColumnStretch(3, 1); gL4.setColumnStretch(4, 1)
+            g1_molecule_layout.addWidget(gL4_widget)
             chembl_controls.extend([
                 self.ed_molecule_chembl_id,
                 self.ed_molecule_pref_name,
@@ -15574,16 +15738,6 @@ class MainWindow(QMainWindow):
                 request_time_label,
                 self.ed_request_time,
             ])
-            
-            # molecule_btn.addWidget(btn_by_molecule)
-            request_time_layout = QHBoxLayout()
-            request_time_layout.addStretch(1)
-            request_time_layout.addWidget(btn_generate_end_dataset)
-            request_time_layout.addSpacing(12)
-            request_time_layout.addWidget(request_time_label)
-            request_time_layout.addWidget(self.ed_request_time)
-            request_time_layout.addStretch(1)
-            g1_main_layout.addLayout(request_time_layout)
 
             # Iniciam inativos:
             set_grid_enabled(False)
@@ -15606,7 +15760,13 @@ class MainWindow(QMainWindow):
             g2_main_layout.addWidget(gL5_widget)
             self.cb_internal_dataset_list.currentIndexChanged.connect(self.update_columns_list)
 
-            l2.addWidget(g1)
+            l2.addWidget(g1_target)
+            l2.addLayout(activity_btn_layout)
+            l2.addWidget(g1_cell)
+            l2.addWidget(g1_assay)
+            l2.addWidget(g1_validity)
+            l2.addLayout(generate_row)
+            l2.addWidget(g1_molecule)
             l2.addWidget(g2)
 
             l2.addStretch()       

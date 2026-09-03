@@ -209,6 +209,7 @@ _TEXTOS = {
     # ---------------------------------------------------------------- STEP 1 (Dataset Preparation)
     "s1_btn_search_local": {"en": "Search Local Data", "pt": "Buscar Dados Locais"},
     "s1_btn_use_chembl": {"en": "Use ChEMBL Data", "pt": "Usar Dados do ChEMBL"},
+    "s1_grp_target_filter": {"en": "Target Filter", "pt": "Filtro de Alvo"},
     "s1_lbl_target_type": {"en": "Target Type:", "pt": "Tipo de Alvo:"},
     "s1_lbl_organism_name": {"en": "Organism Name:", "pt": "Nome do Organismo:"},
     "s1_lbl_pref_name": {"en": "Pref. Name:", "pt": "Nome Preferencial:"},
@@ -224,7 +225,9 @@ _TEXTOS = {
               "do site de exploração do ChEMBL (mesmo CSV exportado pelo botão 'CSV' do site) "
               "em vez de consultar a API chembl_webresource_client.",
     },
+    "s1_grp_cell_filter": {"en": "Cell line Filter", "pt": "Filtro de Linhagem Celular"},
     "s1_btn_explore_cell": {"en": "Explore by Cell-line", "pt": "Explorar por linhagem celular"},
+    "s1_grp_assay_filter": {"en": "Assay Filter", "pt": "Filtro de Ensaio"},
     "s1_lbl_assay_type": {"en": "Assay Type:", "pt": "Tipo de Ensaio:"},
     "s1_lbl_assay_metric": {"en": "Assay Metric:", "pt": "Métrica do Ensaio:"},
     "s1_lbl_assay_unit": {"en": "Assay Unit:", "pt": "Unidade do Ensaio:"},
@@ -239,6 +242,10 @@ _TEXTOS = {
     "s1_lbl_canonical_smiles": {"en": "Canonical SMILES:", "pt": "SMILES Canônico:"},
     "s1_lbl_activity_chembl_id": {"en": "Activity ChEMBL ID:", "pt": "Activity ChEMBL ID:"},
     "s1_btn_explore_molecule": {"en": "Explore \nby molecule", "pt": "Explorar \npor molécula"},
+    "s1_grp_validity_filter": {"en": "Validity Filter", "pt": "Filtro de Validade"},
+    "s1_chk_validity_comment": {"en": "Validity Comment", "pt": "Comentário de Validade"},
+    "s1_chk_validity_description": {"en": "Validity Description", "pt": "Descrição de Validade"},
+    "s1_grp_explore_molecules": {"en": "Explore Molecules", "pt": "Explorar Moléculas"},
     "s1_btn_generate_base_dataset": {"en": "Generate \nBase Dataset", "pt": "Gerar \nDataset Base"},
     "s1_lbl_request_time": {"en": "Request time (s)", "pt": "Tempo de requisição (s)"},
     "s1_grp_view_frequency": {"en": "View frequency graphs", "pt": "Ver gráficos de frequência"},
