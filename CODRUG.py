@@ -318,7 +318,7 @@ except NameError:
 # Grades de hiperparâmetros padrão (editáveis na UI) para o Tuning da STEP 6:
 # Cada valor é uma string CSV que o usuário pode editar diretamente na tabela de hiperparâmetros.
 SKL_PARAM_GRIDS = {
-    "RandomForestRegressor": [("n_estimators", "100,200,300"), ("max_depth", "None,10,20,30"), ("min_samples_split", "2,5,10"), ("max_features", "None,sqrt,log2")],
+    "RandomForestRegressor": [("n_estimators", "100,200,300"), ("max_depth", "None,10,20,30"), ("min_samples_split", "2,5,10"), ("min_samples_leaf", "1,2,4"), ("max_features", "None,sqrt,log2")],
     "XGBRegressor": [("n_estimators", "100,200,300"), ("learning_rate", "0.01,0.05,0.1,0.2"), ("max_depth", "3,6,10"), ("subsample", "0.8,1.0")],
     "HistGradientBoostingRegressor": [("max_iter", "100,200,300"), ("learning_rate", "0.01,0.05,0.1,0.2"), ("max_depth", "None,10,20")],
     "LGBMRegressor": [("n_estimators", "50,100,200"), ("learning_rate", "0.05,0.1,0.2"), ("num_leaves", "31,50,100"), ("max_depth", "-1,10,20")],
@@ -326,7 +326,7 @@ SKL_PARAM_GRIDS = {
     "NuSVR": [("nu", "0.3,0.5,0.7"), ("C", "0.1,1.0,10.0"), ("gamma", "scale,auto")],
     "SVR": [("C", "0.1,0.5,1.0,10.0"), ("epsilon", "0.01,0.1,0.5"), ("gamma", "scale,auto")],
     "GradientBoostingRegressor": [("n_estimators", "100,200,300"), ("learning_rate", "0.01,0.05,0.1"), ("max_depth", "3,5,7"), ("subsample", "0.8,1.0")],
-    "ExtraTreesRegressor": [("n_estimators", "100,200,300"), ("max_depth", "None,10,20"), ("min_samples_split", "2,5,10")],
+    "ExtraTreesRegressor": [("n_estimators", "100,200,300"), ("max_depth", "None,10,20"), ("min_samples_split", "2,5,10"), ("min_samples_leaf", "1,2,4")],
     "AdaBoostRegressor": [("n_estimators", "50,100,200"), ("learning_rate", "0.01,0.1,1.0"), ("loss", "linear,square,exponential")],
     "KNeighborsRegressor": [("n_neighbors", "3,5,7,10"), ("weights", "uniform,distance"), ("algorithm", "auto,ball_tree,kd_tree")],
     "Ridge": [("alpha", "0.1,1.0,10.0,100.0"), ("solver", "auto,svd,cholesky")],
@@ -340,7 +340,7 @@ SKL_PARAM_GRIDS = {
     "SGDRegressor": [("alpha", "0.0001,0.001,0.01"), ("penalty", "l2,l1,elasticnet"), ("max_iter", "1000,2000")],
     "CatBoostRegressor": [("iterations", "100,200,300"), ("learning_rate", "0.01,0.05,0.1"), ("depth", "4,6,8"), ("l2_leaf_reg", "1,3,5")],
 
-    "RandomForestClassifier": [("n_estimators", "100,200,300"), ("max_depth", "None,10,20,30"), ("min_samples_split", "2,5,10"), ("criterion", "gini,entropy")],
+    "RandomForestClassifier": [("n_estimators", "100,200,300"), ("max_depth", "None,10,20,30"), ("min_samples_split", "2,5,10"), ("min_samples_leaf", "1,2,4"), ("criterion", "gini,entropy")],
     "XGBClassifier": [("n_estimators", "100,200,300"), ("learning_rate", "0.01,0.05,0.1,0.2"), ("max_depth", "3,6,10"), ("subsample", "0.8,1.0")],
     "HistGradientBoostingClassifier": [("max_iter", "100,200,300"), ("learning_rate", "0.01,0.05,0.1,0.2"), ("max_depth", "None,10,20")],
     "LGBMClassifier": [("n_estimators", "50,100,200"), ("learning_rate", "0.05,0.1,0.2"), ("num_leaves", "31,50,100"), ("max_depth", "-1,10,20")],
@@ -348,7 +348,7 @@ SKL_PARAM_GRIDS = {
     "NuSVC": [("nu", "0.3,0.5,0.7"), ("gamma", "scale,auto")],
     "SVC": [("C", "0.1,1.0,10.0"), ("gamma", "scale,auto"), ("kernel", "rbf,linear,poly")],
     "GradientBoostingClassifier": [("n_estimators", "100,200,300"), ("learning_rate", "0.01,0.05,0.1"), ("max_depth", "3,5,7"), ("subsample", "0.8,1.0")],
-    "ExtraTreesClassifier": [("n_estimators", "100,200,300"), ("max_depth", "None,10,20"), ("min_samples_split", "2,5,10")],
+    "ExtraTreesClassifier": [("n_estimators", "100,200,300"), ("max_depth", "None,10,20"), ("min_samples_split", "2,5,10"), ("min_samples_leaf", "1,2,4")],
     "AdaBoostClassifier": [("n_estimators", "50,100,200"), ("learning_rate", "0.01,0.1,1.0")],
     "KNeighborsClassifier": [("n_neighbors", "3,5,7,10"), ("weights", "uniform,distance"), ("algorithm", "auto,ball_tree,kd_tree")],
     "LogisticRegression": [("C", "0.01,0.1,1.0,10.0"), ("solver", "lbfgs,liblinear")],
@@ -17309,6 +17309,21 @@ class MainWindow(QMainWindow):
             self.tbl_skl_hyperparams.setMinimumHeight(120)
             lay_skl_tune.addWidget(self.tbl_skl_hyperparams, 1)
 
+            # Add/Remove de linhas na grade de hiperparâmetros: permite testar qualquer parâmetro
+            # aceito pelo estimador (ex.: min_samples_leaf, ccp_alpha) além dos já semeados em
+            # SKL_PARAM_GRIDS, sem precisar sobrescrever uma linha existente.
+            hp_row_btns = QHBoxLayout()
+            self.btn_skl_hp_add = QPushButton(); self._tr("s6_btn_add_hyperparam_row", self.btn_skl_hp_add.setText)
+            self.btn_skl_hp_add.setProperty("role", "select")
+            self.btn_skl_hp_add.setFixedWidth(140)
+            self.btn_skl_hp_del = QPushButton(); self._tr("s6_btn_remove_hyperparam_row", self.btn_skl_hp_del.setText)
+            self.btn_skl_hp_del.setProperty("role", "select")
+            self.btn_skl_hp_del.setFixedWidth(140)
+            hp_row_btns.addWidget(self.btn_skl_hp_add)
+            hp_row_btns.addWidget(self.btn_skl_hp_del)
+            hp_row_btns.addStretch()
+            lay_skl_tune.addLayout(hp_row_btns)
+
             self.lbl_skl_tune_note = QLabel("")
             self.lbl_skl_tune_note.setStyleSheet("color: #cc4444; font-size: 9pt;")
             self.lbl_skl_tune_note.setWordWrap(True)
@@ -17527,6 +17542,8 @@ class MainWindow(QMainWindow):
             self.cb_skl_cv_method.currentTextChanged.connect(self._update_skl_cv_method_widgets)
             self.btn_skl_run_tune.clicked.connect(self.run_skl_tune)
             self.btn_skl_tune_plot.clicked.connect(self.run_skl_tune_plot)
+            self.btn_skl_hp_add.clicked.connect(self._skl_hp_add_row)
+            self.btn_skl_hp_del.clicked.connect(self._skl_hp_del_row)
             self.btn_skl_run_eval.clicked.connect(self.run_skl_evaluate)
             self.btn_skl_remove_model.clicked.connect(self.run_skl_remove_model)
             self.btn_skl_predict.clicked.connect(self.run_skl_predict)
@@ -19455,6 +19472,7 @@ class MainWindow(QMainWindow):
             getattr(self, "cb_skl_tune_model", None), getattr(self, "cb_skl_tune_method", None),
             getattr(self, "sp_skl_tune_folds", None), getattr(self, "sp_skl_tune_n_iter", None),
             getattr(self, "tbl_skl_hyperparams", None), getattr(self, "btn_skl_run_tune", None),
+            getattr(self, "btn_skl_hp_add", None), getattr(self, "btn_skl_hp_del", None),
             getattr(self, "cb_skl_tune_param", None), getattr(self, "btn_skl_tune_plot", None),
             getattr(self, "cb_skl_cv_method", None), getattr(self, "sp_skl_cv_folds", None),
             getattr(self, "sp_skl_cv_p", None), getattr(self, "chk_skl_cv_shuffle", None),
@@ -19483,6 +19501,33 @@ class MainWindow(QMainWindow):
         self._skl_tuned_param_grids = {}
         self._skl_tuning_settings = {}
         self._skl_validation_settings = {}
+
+    def _skl_hp_add_row(self):
+        """Acrescenta uma linha vazia à grade de hiperparâmetros do Tuning e deixa o usuário
+        digitar o nome do parâmetro. As linhas adicionadas são lidas por rowCount() nos loops de
+        run_skl_tune / plot, então valem para a próxima execução; ao trocar de modelo a grade
+        volta ao padrão de SKL_PARAM_GRIDS (ou à grade já ajustada, se o modelo passou por Tuning)."""
+        t = getattr(self, "tbl_skl_hyperparams", None)
+        if t is None:
+            return
+        r = t.rowCount()
+        t.insertRow(r)
+        t.setItem(r, 0, QTableWidgetItem(""))
+        t.setItem(r, 1, QTableWidgetItem(""))
+        t.setCurrentCell(r, 0)
+        t.editItem(t.item(r, 0))
+
+    def _skl_hp_del_row(self):
+        """Remove as linhas selecionadas da grade de hiperparâmetros (ou a última, se nada estiver
+        selecionado)."""
+        t = getattr(self, "tbl_skl_hyperparams", None)
+        if t is None or t.rowCount() == 0:
+            return
+        rows = sorted({idx.row() for idx in t.selectedIndexes()}, reverse=True)
+        if not rows:
+            rows = [t.rowCount() - 1]
+        for r in rows:
+            t.removeRow(r)
 
     def _refresh_skl_hyperparam_table(self, model_name):
         if not hasattr(self, "tbl_skl_hyperparams"):
@@ -19871,6 +19916,9 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "_skl_tuned_param_grids") or self._skl_tuned_param_grids is None:
             self._skl_tuned_param_grids = {}
         self._skl_tuned_param_grids[self._skl_tune_model_name] = getattr(self, "_skl_tune_raw_grid_rows", [])
+        # Reflete eventuais linhas adicionadas à grade (ex.: min_samples_leaf) no combo "Parameter:"
+        # do gráfico de tuning, sem precisar alternar o modelo selecionado.
+        self._refresh_skl_tune_param_options(self.cb_skl_tune_model.currentText())
 
         # Lembra também Method/CV folds/n_iter usados para esse modelo, pelo mesmo motivo.
         if not hasattr(self, "_skl_tuning_settings") or self._skl_tuning_settings is None:

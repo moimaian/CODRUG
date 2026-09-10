@@ -506,6 +506,8 @@ _TEXTOS = {
     "s6_col_hyperparameter": {"en": "Hyperparameter", "pt": "Hiperparâmetro"},
     "s6_col_values_to_test": {"en": "Values to test (comma-separated)", "pt": "Valores a testar (separados por vírgula)"},
     "s6_btn_run_tuning": {"en": "Run Tuning", "pt": "Executar Ajuste"},
+    "s6_btn_add_hyperparam_row": {"en": "+ Add row", "pt": "+ Adicionar linha"},
+    "s6_btn_remove_hyperparam_row": {"en": "− Remove row", "pt": "− Remover linha"},
     "lbl_parameter": {"en": "Parameter:", "pt": "Parâmetro:"},
     "btn_plot": {"en": "Plot", "pt": "Plotar"},
     "s6_grp_validation": {"en": "Validation", "pt": "Validação"},
