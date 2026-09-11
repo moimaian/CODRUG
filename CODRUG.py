@@ -1667,6 +1667,287 @@ def scrape_chembl_activity_csv(lucene_query, poll_interval=30, max_wait_seconds=
     return _add_chembl_api_schema_aliases(df)
 
 
+# ============================================================================================================
+# ===================== APPLICABILITY DOMAIN (STEP 5) — primitivas paralelas + worker =========================
+# ============================================================================================================
+# As formas quadráticas do leverage e da Mahalanobis eram feitas com np.einsum("ij,jk,ik->i", ...), que roda
+# num único núcleo (loop C escalar, sem BLAS). Reescritas como ((A @ M) * A).sum(1) → dois matmuls BLAS
+# multi-thread + uma redução. O Tanimoto com fingerprint pré-calculado saía de scipy.cdist(metric="jaccard")
+# (single-thread) → agora matmul BLAS em blocos. O caminho RDKit/SMILES é paralelizado por ThreadPoolExecutor
+# (BulkTanimotoSimilarity e a geração de FP soltam o GIL). ProcessPoolExecutor foi evitado de propósito:
+# CODRUG.py é monolítico (spawn reimporta tudo; fork a partir de uma QThread Qt trava) e os arrays seriam
+# grandes demais para picklar por task.
+
+def _ad_leverage(X_train_z, X_new_z, multiplier=3.0, alpha=0.95, cutoff_mode="theoretical"):
+    """Critério leverage da DA. `cutoff_mode`:
+      - 'theoretical' : corte = multiplier * (p+1) / n  (convenção do Williams plot; multiplier
+                        tipicamente 2, 2.5 ou 3);
+      - 'empirical'   : corte = percentil (100*alpha) da distribuição real de h_train (mesma lógica
+                        empírica do kNN/Mahalanobis). ATENÇÃO: leverage é função afim de D²_Mahal,
+                        então no modo empírico este critério fica quase redundante com o de Mahalanobis."""
+    XtX_inv = np.linalg.pinv(X_train_z.T @ X_train_z)
+    h_train = ((X_train_z @ XtX_inv) * X_train_z).sum(axis=1)  # forma quadrática via BLAS
+    h_new   = ((X_new_z   @ XtX_inv) * X_new_z).sum(axis=1)
+    n, p = X_train_z.shape
+    if (cutoff_mode or "theoretical").lower() == "empirical":
+        h_star = float(np.percentile(h_train, 100.0 * float(alpha)))
+    else:
+        h_star = float(multiplier) * (p + 1) / max(n, 1)
+    return h_new, h_star
+
+
+def _ad_tanimoto_maxsim_train_fp(fp_tr, block=2048):
+    """Para cada composto de treino, o Tanimoto máximo aos DEMAIS de treino (self excluído), a
+    partir da matriz binária, via matmul BLAS em blocos. Usado só no modo de corte empírico."""
+    B = np.asarray(fp_tr, dtype=np.float32)
+    b = B.sum(axis=1)
+    n = B.shape[0]
+    out = np.empty(n, dtype=np.float64)
+    for s in range(0, n, block):
+        e = min(s + block, n)
+        inter = B[s:e] @ B.T
+        union = b[s:e, None] + b[None, :] - inter
+        with np.errstate(invalid="ignore", divide="ignore"):
+            sim_blk = np.where(union > 0, inter / union, 0.0)
+        for i in range(e - s):
+            sim_blk[i, s + i] = -1.0          # remove o próprio composto
+        out[s:e] = sim_blk.max(axis=1)
+    return out
+
+
+def _ad_tanimoto_maxsim_train_smiles(smiles_train, fp_kind="Morgan ECFP4", workers=None):
+    """Idem via RDKit (para conjuntos sem fingerprint pré-calculado)."""
+    from rdkit import Chem
+    from rdkit.Chem import AllChem, rdMolDescriptors, MACCSkeys
+    from rdkit import DataStructs
+    from concurrent.futures import ThreadPoolExecutor
+    kind = (fp_kind or "").lower()
+
+    def _fp(s):
+        m = Chem.MolFromSmiles(s or "")
+        if m is None:
+            return None
+        Chem.SanitizeMol(m, catchErrors=True)
+        if "morgan" in kind or "ecfp" in kind:
+            return AllChem.GetMorganFingerprintAsBitVect(m, radius=3 if "6" in kind else 2, nBits=2048)
+        if "maccs" in kind:
+            return MACCSkeys.GenMACCSKeys(m)
+        if "pubchem" in kind:
+            return AllChem.GetMorganFingerprintAsBitVect(m, radius=2, nBits=881)
+        return rdMolDescriptors.GetHashedTopologicalTorsionFingerprintAsBitVect(m, nBits=2048)
+
+    n_workers = int(workers) if workers else (os.cpu_count() or 1)
+    with ThreadPoolExecutor(max_workers=n_workers) as ex:
+        fps = list(ex.map(_fp, list(smiles_train)))
+    idx = [i for i, f in enumerate(fps) if f is not None]
+    valid = [fps[i] for i in idx]
+    if len(valid) < 2:
+        return np.array([0.0] * len(idx))
+
+    def _one(j):
+        sims = DataStructs.BulkTanimotoSimilarity(valid[j], valid)
+        sims[j] = -1.0
+        return max(sims)
+
+    with ThreadPoolExecutor(max_workers=n_workers) as ex:
+        return np.array(list(ex.map(_one, range(len(valid)), chunksize=64)))
+
+
+def _ad_mahalanobis(X_train_z, X_new_z, alpha=0.95, use_shrink=True, cutoff_mode="empirical"):
+    """Critério Mahalanobis da DA. `cutoff_mode`:
+      - 'empirical'   : corte = percentil (100*alpha) da distribuição REAL de d_train (mesma lógica
+                        empírica do kNN; 'alpha' passa a significar literalmente "fração do treino
+                        contida no corte");
+      - 'theoretical' : corte = sqrt(chi2_p(alpha)) — pressupõe normalidade multivariada do treino,
+                        insensível a alpha quando p é grande (χ²_p muito estreita)."""
+    from scipy.stats import chi2
+    if use_shrink:
+        from sklearn.covariance import LedoitWolf
+        lw = LedoitWolf().fit(X_train_z)
+        cov, mean = lw.covariance_, lw.location_
+    else:
+        mean = X_train_z.mean(axis=0)
+        cov = np.cov(X_train_z, rowvar=False)
+    cov_inv = np.linalg.pinv(cov)
+    Xt = X_train_z - mean
+    Xn = X_new_z - mean
+    d_train = np.sqrt(np.maximum(((Xt @ cov_inv) * Xt).sum(axis=1), 0.0))
+    d_new   = np.sqrt(np.maximum(((Xn @ cov_inv) * Xn).sum(axis=1), 0.0))
+    p = X_train_z.shape[1]
+    mode = (cutoff_mode or "empirical").lower()
+    if mode == "theoretical":
+        cut = float(np.sqrt(chi2.ppf(alpha, df=p)))
+    else:
+        cut = float(np.percentile(d_train, 100.0 * float(alpha)))
+    return d_train, d_new, cut
+
+
+def _ad_knn(X_train_z, X_new_z, k=5, percentile=95.0, agg="mean", n_jobs=-1):
+    """Critério kNN da DA. `agg` ('mean' | 'kth') decide como as k distâncias viram um número e é
+    aplicado DOS DOIS LADOS: no lado treino (para o corte no percentil) e no lado externo (valor
+    comparado ao corte). 'mean' = média dos k mais próximos; 'kth' = distância ao mais distante dos k."""
+    from sklearn.neighbors import NearestNeighbors
+    k = int(k)
+    n_tr = X_train_z.shape[0]
+    k = max(1, min(k, max(1, n_tr - 1)))          # k não pode passar de N-1 (exclui o próprio ponto)
+    agg = (agg or "mean").lower()
+
+    nbrs = NearestNeighbors(n_neighbors=k + 1, metric="euclidean",
+                            algorithm="brute", n_jobs=n_jobs).fit(X_train_z)
+    d_tr, _ = nbrs.kneighbors(X_train_z, n_neighbors=k + 1, return_distance=True)
+    d_tr = d_tr[:, 1:k + 1]                        # descarta a coluna 0 (o próprio composto, dist. 0)
+    d_nw, _ = nbrs.kneighbors(X_new_z, n_neighbors=k, return_distance=True)
+    if d_nw.ndim == 1:
+        d_nw = d_nw[:, None]
+
+    def _reduce(D):
+        return D[:, -1] if agg == "kth" else D.mean(axis=1)   # kth = mais distante dos k (última coluna)
+
+    dist_k_train = _reduce(d_tr)
+    dist_k_new   = _reduce(d_nw)
+    cutoff = float(np.percentile(dist_k_train, percentile))
+    return dist_k_train, cutoff, dist_k_new
+
+
+def _ad_tanimoto_precomputed(fp_new, fp_tr, block=2048):
+    """max Tanimoto (New→Train) a partir de matrizes binárias, via matmul BLAS em blocos."""
+    A = np.asarray(fp_new, dtype=np.float32)
+    B = np.asarray(fp_tr,  dtype=np.float32)
+    a = A.sum(axis=1)
+    b = B.sum(axis=1)
+    out = np.empty(A.shape[0], dtype=np.float64)
+    for s in range(0, A.shape[0], block):
+        e = s + block
+        inter = A[s:e] @ B.T
+        union = a[s:e, None] + b[None, :] - inter
+        with np.errstate(invalid="ignore", divide="ignore"):
+            sim_blk = np.where(union > 0, inter / union, 0.0)
+        out[s:e] = sim_blk.max(axis=1)
+    return out.tolist()
+
+
+def _ad_tanimoto_smiles(smiles_train, smiles_new, fp_kind="Morgan ECFP4", workers=None):
+    """max Tanimoto via RDKit, paralelizado por ThreadPoolExecutor (as chamadas RDKit soltam o GIL)."""
+    from rdkit import Chem
+    from rdkit.Chem import AllChem, rdMolDescriptors, MACCSkeys
+    from rdkit import DataStructs
+    from concurrent.futures import ThreadPoolExecutor
+    kind = (fp_kind or "").lower()
+    sn = list(smiles_new)
+
+    def _mol(s):
+        m = Chem.MolFromSmiles(s or "")
+        if m is None:
+            return None
+        Chem.SanitizeMol(m, catchErrors=True)
+        return m
+
+    def _fp(m):
+        if m is None:
+            return None
+        if "morgan" in kind or "ecfp" in kind:
+            radius = 3 if "6" in kind else 2
+            return AllChem.GetMorganFingerprintAsBitVect(m, radius=radius, nBits=2048)
+        if "maccs" in kind:
+            return MACCSkeys.GenMACCSKeys(m)
+        if "pubchem" in kind:
+            return AllChem.GetMorganFingerprintAsBitVect(m, radius=2, nBits=881)
+        return rdMolDescriptors.GetHashedTopologicalTorsionFingerprintAsBitVect(m, nBits=2048)
+
+    n_workers = int(workers) if workers else (os.cpu_count() or 1)
+    with ThreadPoolExecutor(max_workers=n_workers) as ex:
+        train_fps = [fp for fp in ex.map(lambda s: _fp(_mol(s)), list(smiles_train)) if fp is not None]
+    if not train_fps:
+        return [0.0] * len(sn)
+
+    def _one(s):
+        fp = _fp(_mol(s))
+        if fp is None:
+            return 0.0
+        sims = DataStructs.BulkTanimotoSimilarity(fp, train_fps)
+        return max(sims) if sims else 0.0
+
+    with ThreadPoolExecutor(max_workers=n_workers) as ex:
+        return list(ex.map(_one, sn, chunksize=64))
+
+
+class AdComputeWorker(QThread):  # type: ignore
+    """Roda os 4 critérios de DA (STEP 5) fora da thread da UI, sobrepondo-os num ThreadPoolExecutor."""
+    progress    = pyqtSignal(int, str)   # type: ignore
+    finished_ok = pyqtSignal(dict)       # type: ignore
+    failed      = pyqtSignal(str)        # type: ignore
+
+    def __init__(self, payload):
+        super().__init__()
+        self._p = payload
+
+    def run(self):
+        backend_ctx = joblib.parallel_backend("threading")  # nada de fork() dentro de uma QThread Qt
+        backend_ctx.__enter__()
+        try:
+            from concurrent.futures import ThreadPoolExecutor
+            p = self._p
+            Xtr, Xnw = p["X_trz"], p["X_nwz"]
+            workers = p.get("workers") or None
+            n_jobs = int(workers) if workers else -1
+
+            def _lev():
+                self.progress.emit(25, "Leverage")
+                return _ad_leverage(Xtr, Xnw, multiplier=p.get("lev_mult", 3.0),
+                                    alpha=p["alpha"], cutoff_mode=p.get("lev_cutoff", "theoretical"))
+
+            def _mah():
+                self.progress.emit(45, "Mahalanobis")
+                return _ad_mahalanobis(Xtr, Xnw, alpha=p["alpha"], use_shrink=True,
+                                       cutoff_mode=p.get("mahal_cutoff", "empirical"))
+
+            def _knn():
+                self.progress.emit(65, "kNN")
+                return _ad_knn(Xtr, Xnw, k=p["k"], percentile=p.get("percentile", 95.0),
+                               agg=p.get("knn_agg", "mean"), n_jobs=n_jobs)
+
+            def _tan():
+                self.progress.emit(85, "Tanimoto")
+                tmode = p.get("tani_cutoff", "fixed")
+                thr = float(p.get("tani_threshold", 0.5))
+                a = float(p["alpha"])
+                if p["has_fp"]:
+                    sim = _ad_tanimoto_precomputed(p["fp_nw"], p["fp_tr"])
+                    if tmode == "empirical":
+                        s_tr = _ad_tanimoto_maxsim_train_fp(p["fp_tr"])
+                        return sim, float(np.percentile(s_tr, 100.0 * (1.0 - a)))
+                    return sim, thr
+                if p["smi_tr"] is not None and p["smi_nw"] is not None:
+                    sim = _ad_tanimoto_smiles(p["smi_tr"], p["smi_nw"], p["fp_kind"], workers)
+                    if tmode == "empirical":
+                        s_tr = _ad_tanimoto_maxsim_train_smiles(p["smi_tr"], p["fp_kind"], workers)
+                        return sim, float(np.percentile(s_tr, 100.0 * (1.0 - a)))
+                    return sim, thr
+                return [float("nan")] * int(Xnw.shape[0]), thr
+
+            with ThreadPoolExecutor(max_workers=4) as ex:
+                f_lev, f_mah = ex.submit(_lev), ex.submit(_mah)
+                f_knn, f_tan = ex.submit(_knn), ex.submit(_tan)
+                h_new, h_star             = f_lev.result()
+                _d_tr, d_new, chi2_cut    = f_mah.result()
+                _dkt, knn_cut, dist_k_new = f_knn.result()
+                sim, sim_cut              = f_tan.result()
+
+            self.progress.emit(97, "Finalizing")
+            self.finished_ok.emit(dict(
+                h_new=h_new, h_star=h_star, d_new=d_new, chi2_cut=chi2_cut,
+                knn_cut=knn_cut, dist_k_new=dist_k_new, sim=sim, sim_cut=sim_cut,
+            ))
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            self.failed.emit(str(e))
+        finally:
+            try:
+                backend_ctx.__exit__(None, None, None)
+            except Exception:
+                pass
+
+
 class ChemblScrapeWorker(QThread): # type: ignore
     result_signal = pyqtSignal(object, bool) # type: ignore
     error_signal = pyqtSignal(str) # type: ignore
@@ -4031,9 +4312,24 @@ class MainWindow(QMainWindow):
         ("internal_dataframe", "df_name_view_int_AD"),
         ("external_dataframe", "df_name_view_ext_AD"),
         ("knn_k", "spn_ad_k"),
+        ("knn_agg", "cb_ad_knn_agg"),
+        ("knn_percentile", "dspn_ad_percentile"),
+        ("lev_cutoff_mode", "cb_ad_lev_cutoff"),
+        ("lev_multiplier", "cb_ad_lev_mult"),
+        ("mahal_cutoff_mode", "cb_ad_mahal_cutoff"),
         ("mahalanobis_alpha", "dspn_ad_alpha"),
-        ("fingerprint_kind", "cb_ad_fp"),
-        ("use_pca_for_plots", "chk_ad_use_pca"),
+        ("tani_cutoff_mode", "cb_ad_tani_cutoff"),
+        ("tani_threshold", "dspn_ad_tani_thr"),
+        ("ad_workers", "spn_ad_workers"),
+        ("ad_expl_x", "cb_ad_expl_x"),
+        ("ad_expl_y", "cb_ad_expl_y"),
+        ("ad_expl_z", "cb_ad_expl_z"),
+        ("ad_expl_3d", "chk_ad_expl_3d"),
+        ("ad_expl_kde", "chk_ad_expl_kde"),
+        ("ad_expl_marginals", "chk_ad_expl_marginals"),
+        ("ad_expl_thresholds", "chk_ad_expl_thresholds"),
+        ("ad_expl_show_ext", "chk_ad_expl_show_ext"),
+        ("ad_expl_profile", "chk_ad_expl_profile"),
     ]
     STEP7_PLAIN_SPEC = [
         ("internal_dataframe_path", "_df_int_path"),
@@ -4049,7 +4345,7 @@ class MainWindow(QMainWindow):
             state["verdict_counts"] = {str(k): int(v) for k, v in counts.items()}
         result_path = getattr(self, "_ad_result_path", None)
         if result_path:
-            state["result_csv"] = result_path
+            state["result_csv"] = self._to_job_relative_path(result_path)
         return state
 
     def _apply_step7_state(self, state):
@@ -4065,10 +4361,110 @@ class MainWindow(QMainWindow):
         if external_path and os.path.isfile(external_path):
             self._load_external_dataframe(external_path, show_preview=False)
         self._apply_state_from_spec(self.STEP7_FIELD_SPEC, state)
+        self._ad_try_load_previous_result(state)
         return True
 
     def _save_step7_state(self):
         self._save_job_state({"step7_ad": self._collect_step7_state()})
+
+    def _ad_try_load_previous_result(self, state=None):
+        """(rápido) Ao reabrir um projeto ou re-selecionar os DataFrames: se existe um Compute AD
+        salvo que corresponde ao DataFrame Externo atual, carrega apenas a TABELA de veredito e os
+        cortes. As matrizes z-score, o fingerprint binário e a lista de compostos da AD Exploration
+        são reconstruídos SOB DEMANDA por _ad_ensure_exploration_ready() na primeira vez que a aba
+        for usada — assim a abertura do projeto não trava. Silencioso e defensivo."""
+        state = state or {}
+        try:
+            # Só prossegue se ambos os DataFrames Interno/Externo apontam para arquivos existentes
+            # (evita reaproveitar df_int/df_ext de um projeto aberto antes).
+            ip = self._from_job_relative_path(state.get("internal_dataframe_path") or getattr(self, "_df_int_path", None))
+            ep = self._from_job_relative_path(state.get("external_dataframe_path") or getattr(self, "_df_ext_path", None))
+            if not (ip and os.path.isfile(ip) and ep and os.path.isfile(ep)):
+                return
+            df_new = getattr(self, "df_ext", None)
+            f_ext = self.df_name_view_ext_AD.text().strip() if hasattr(self, "df_name_view_ext_AD") else ""
+            if df_new is None or df_new.empty or not f_ext:
+                return
+
+            # Localiza o CSV do Compute AD anterior (state -> caminho salvo; senão o mais recente
+            # em RESULTS/AD que corresponda ao nome do DataFrame Externo).
+            rp = state.get("result_csv")
+            cand = self._from_job_relative_path(rp) if rp else None
+            if not (cand and os.path.isfile(cand)) and rp:
+                cand = os.path.join(self.job_dir, "RESULTS", "AD", os.path.basename(rp))
+            if not (cand and os.path.isfile(cand)):
+                ext_base = os.path.splitext(f_ext)[0]
+                found = glob.glob(os.path.join(self.job_dir, "RESULTS", "AD", f"AD_{ext_base}_*.csv"))
+                cand = max(found, key=os.path.getmtime) if found else None
+            if not (cand and os.path.isfile(cand)):
+                return
+
+            df_res = self._read_selected_table_file(cand)
+            # A tabela salva tem de corresponder linha a linha ao Externo atual.
+            if df_res.empty or "ad_verdict" not in df_res.columns or len(df_res) != len(df_new):
+                return
+
+            self.df_ad_result = df_res
+            for attr, col in (("h_star_ad", "leverage_cut"), ("chi2_cut_ad", "mahal_cut"), ("knn_cut_ad", "knn_cut")):
+                if col in df_res.columns and len(df_res):
+                    try:
+                        setattr(self, attr, float(df_res[col].iloc[0]))
+                    except Exception:
+                        pass
+            self._ad_result_path  = cand
+            self._ad_ext_basename = os.path.splitext(f_ext)[0]
+            m = re.search(r"_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2})", os.path.basename(cand))
+            self._ad_timestamp = m.group(1) if m else datetime.now().strftime("%Y-%m-%d_%H-%M")
+            # Matrizes / fingerprint / combo: adiados (ver _ad_ensure_exploration_ready).
+            self.X_train_ad_z = self.X_new_ad_z = None
+            self._ad_fp_tr_bin = self._ad_fp_nw_bin = None
+        except Exception:
+            import traceback; traceback.print_exc()
+
+    def _ad_ensure_exploration_ready(self):
+        """(sob demanda) Reconstrói X_train_ad_z / X_new_ad_z / _ad_fp_*_bin e popula a lista de
+        compostos a partir de df_int/df_ext, quando um Compute AD salvo foi carregado sem essas
+        matrizes (ver _ad_try_load_previous_result). Chamado no início de _ad_expl_build_context.
+        O cálculo dos 4 critérios NÃO é refeito — só a padronização."""
+        import numpy as np, pandas as pd
+        from sklearn.preprocessing import StandardScaler
+        if getattr(self, "df_ad_result", None) is None:
+            return
+        if getattr(self, "X_train_ad_z", None) is not None and getattr(self, "X_new_ad_z", None) is not None:
+            return
+        df_tr = getattr(self, "df_int", None)
+        df_new = getattr(self, "df_ext", None)
+        if df_tr is None or df_new is None or df_tr.empty or df_new.empty:
+            return
+        try:
+            def _bin_fp_cols(df):
+                # Detecção vetorizada (numpy) de colunas 0/1: ~500x mais rápida que iterar
+                # coluna a coluna com .dropna().unique() (que levava ~25 s no load de projeto).
+                num = df.select_dtypes(include="number")
+                if num.shape[1] == 0:
+                    return []
+                M = num.to_numpy(dtype="float64", copy=False)
+                is01 = (M == 0) | (M == 1)
+                ok = (is01 | np.isnan(M)).all(axis=0) & is01.any(axis=0)
+                return list(num.columns[np.where(ok)[0]])
+            fp_common = [c for c in _bin_fp_cols(df_tr) if c in set(_bin_fp_cols(df_new))]
+            if fp_common:
+                self._ad_fp_tr_bin = np.asarray(df_tr[fp_common].values)
+                self._ad_fp_nw_bin = np.asarray(df_new[fp_common].values)
+            else:
+                self._ad_fp_tr_bin = self._ad_fp_nw_bin = None
+            num_new = set(df_new.select_dtypes(include="number").columns)
+            common = [c for c in df_tr.select_dtypes(include="number").columns if c in num_new]
+            if not common:
+                return
+            sc = StandardScaler().fit(df_tr[common].values)
+            self.X_train_ad_z = sc.transform(df_tr[common].values)
+            self.X_new_ad_z   = sc.transform(df_new[common].values)
+            self._ad_expl_ctx = None   # matrizes novas -> contexto cacheado da AD Exploration fica obsoleto
+            if hasattr(self, "_populate_ad_expl_compound_combo"):
+                self._populate_ad_expl_compound_combo()
+        except Exception:
+            import traceback; traceback.print_exc()
 
     # ------------------------------------------------------------------
     # STEP 8 - Consensus Analysis
@@ -13419,16 +13815,15 @@ class MainWindow(QMainWindow):
                 return None
 
             def _binary_fp_cols(df):
-                """Retorna lista de colunas que são exclusivamente 0/1 (fingerprint binário)."""
-                candidates = []
-                for c in df.columns:
-                    s = df[c]
-                    if not pd.api.types.is_numeric_dtype(s):
-                        continue
-                    uniq = s.dropna().unique()
-                    if len(uniq) > 0 and set(uniq.astype(int)).issubset({0, 1}):
-                        candidates.append(c)
-                return candidates
+                """Colunas exclusivamente 0/1 (fingerprint binário). Detecção vetorizada em numpy —
+                iterar coluna a coluna com .dropna().unique() custava ~25 s em ~880 colunas."""
+                num = df.select_dtypes(include="number")
+                if num.shape[1] == 0:
+                    return []
+                M = num.to_numpy(dtype="float64", copy=False)
+                is01 = (M == 0) | (M == 1)
+                ok = (is01 | np.isnan(M)).all(axis=0) & is01.any(axis=0)
+                return list(num.columns[np.where(ok)[0]])
 
             # ── detecta colunas binárias de fingerprint ──────────────────────
             fp_cols_tr  = _binary_fp_cols(df_tr)
@@ -13439,12 +13834,15 @@ class MainWindow(QMainWindow):
 
             if has_precomputed_fp:
                 # Fingerprints pré-calculados encontrados em ambos → usa diretamente
-                self.cb_ad_fp.setEnabled(False)
                 fp_cols_for_tanimoto_tr  = df_tr[fp_common].values
                 fp_cols_for_tanimoto_new = df_new[fp_common].values
+                # Guarda as matrizes binárias p/ o grupo "AD Exploration" (Tanimoto treino×treino)
+                self._ad_fp_tr_bin = np.asarray(fp_cols_for_tanimoto_tr)
+                self._ad_fp_nw_bin = np.asarray(fp_cols_for_tanimoto_new)
             else:
-                # Sem fingerprints pré-calculados → precisa de SMILES + RDKit
-                self.cb_ad_fp.setEnabled(True)
+                # Sem fingerprints pré-calculados → fallback: gera Morgan ECFP4 dos SMILES via RDKit
+                self._ad_fp_tr_bin = None
+                self._ad_fp_nw_bin = None
 
             # ── interseção de colunas numéricas para Leverage / Mahal / kNN ──
             num_tr  = [c for c in df_tr.columns  if pd.api.types.is_numeric_dtype(df_tr[c])]
@@ -13468,48 +13866,85 @@ class MainWindow(QMainWindow):
             X_nwz = scaler.transform(X_nw)
             self.X_train_ad_z = X_trz
             self.X_new_ad_z   = X_nwz
-            self.pb_ad.setValue(25)
 
-            # leverage
-            h_new, h_star = self.compute_leverage(X_trz, X_nwz)
-            self.h_star_ad = h_star
+            fp_kind = "Morgan ECFP4"   # fallback fixo p/ o caminho SMILES (o campo de UI foi removido)
+            smi_tr = smi_nw = None
+            if not has_precomputed_fp:
+                sct, scn = _smiles_col(df_tr), _smiles_col(df_new)
+                if sct and scn:
+                    smi_tr = df_tr[sct].astype(str).fillna("")
+                    smi_nw = df_new[scn].astype(str).fillna("")
 
-            # mahalanobis
-            d_tr, d_new, chi2_cut = self.mahalanobis_distance(X_trz, X_nwz, use_shrink=True)
+            workers_val = int(self.spn_ad_workers.value()) if hasattr(self, "spn_ad_workers") else 0
+            payload = dict(
+                X_trz=X_trz, X_nwz=X_nwz,
+                k=int(self.spn_ad_k.value()),
+                alpha=float(self.dspn_ad_alpha.value()),
+                percentile=float(self.dspn_ad_percentile.value()) if hasattr(self, "dspn_ad_percentile") else 95.0,
+                knn_agg=(self.cb_ad_knn_agg.currentData() or "mean") if hasattr(self, "cb_ad_knn_agg") else "mean",
+                mahal_cutoff=(self.cb_ad_mahal_cutoff.currentData() or "empirical") if hasattr(self, "cb_ad_mahal_cutoff") else "empirical",
+                lev_cutoff=(self.cb_ad_lev_cutoff.currentData() or "theoretical") if hasattr(self, "cb_ad_lev_cutoff") else "theoretical",
+                lev_mult=float(self.cb_ad_lev_mult.currentData()) if hasattr(self, "cb_ad_lev_mult") else 3.0,
+                tani_cutoff=(self.cb_ad_tani_cutoff.currentData() or "fixed") if hasattr(self, "cb_ad_tani_cutoff") else "fixed",
+                tani_threshold=float(self.dspn_ad_tani_thr.value()) if hasattr(self, "dspn_ad_tani_thr") else 0.5,
+                workers=workers_val,
+                has_fp=has_precomputed_fp,
+                fp_tr=self._ad_fp_tr_bin, fp_nw=self._ad_fp_nw_bin,
+                smi_tr=smi_tr, smi_nw=smi_nw,
+                fp_kind=fp_kind,
+            )
+            # Guarda o que o slot de conclusão precisa para montar a tabela de veredito
+            self._ad_df_new_ref   = df_new
+            self._ad_p_ext_ref    = p_ext
+            self._ad_ext_basename = os.path.splitext(os.path.basename(p_ext))[0]
+
+            self.pb_ad.setValue(10); self.pb_ad.setFormat("AD: %p%")
+            self.btn_ad_compute.setEnabled(False)
+            self._ad_worker = AdComputeWorker(payload)
+            self._ad_worker.progress.connect(self._on_ad_worker_progress)
+            self._ad_worker.finished_ok.connect(self._on_ad_worker_done)
+            self._ad_worker.failed.connect(self._on_ad_worker_failed)
+            self._ad_worker.finished.connect(lambda: self.btn_ad_compute.setEnabled(True))
+            self._ad_worker.start()
+
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            if hasattr(self, "btn_ad_compute"):
+                self.btn_ad_compute.setEnabled(True)
+            QMessageBox.critical(self, "AD - Erro", f"{e}")
+
+    def _on_ad_worker_progress(self, pct, msg):
+        try:
+            self.pb_ad.setValue(int(pct))
+            self.pb_ad.setFormat(f"AD ({msg}): %p%")
+        except Exception:
+            pass
+
+    def _on_ad_worker_failed(self, msg):
+        try:
+            self.pb_ad.setValue(0); self.pb_ad.setFormat("AD: %p%")
+        except Exception:
+            pass
+        QMessageBox.critical(self, "AD - Erro", f"{msg}")
+
+    def _on_ad_worker_done(self, res):
+        """Monta a tabela de veredito com o resultado dos 4 critérios (calculados no worker),
+        salva o CSV e dispara os gráficos/estado — tudo na thread da UI."""
+        import os, numpy as np, pandas as pd
+        try:
+            df_new = getattr(self, "_ad_df_new_ref", None)
+            p_ext  = getattr(self, "_ad_p_ext_ref", None)
+            if df_new is None or p_ext is None:
+                return
+
+            h_new   = np.asarray(res["h_new"]); h_star = float(res["h_star"])
+            d_new   = np.asarray(res["d_new"]); chi2_cut = float(res["chi2_cut"])
+            dist_k_new = np.asarray(res["dist_k_new"]); cutoff_knn = float(res["knn_cut"])
+            sim     = list(res["sim"]); sim_cut = float(res["sim_cut"])
+            self.h_star_ad   = h_star
             self.chi2_cut_ad = chi2_cut
-            self.pb_ad.setValue(55)
+            self.knn_cut_ad  = cutoff_knn
 
-            # kNN
-            k = int(self.spn_ad_k.value())
-            dist_k_train, cutoff_knn, dist_k_new = self.knn_distance_cutoffs(X_trz, X_nwz, k=k, percentile=95.0)
-            self.knn_cut_ad = cutoff_knn
-            self.pb_ad.setValue(75)
-
-            # ── similaridade Tanimoto ────────────────────────────────────────
-            fp_kind = (self.cb_ad_fp.currentText() or "").lower()
-            if has_precomputed_fp:
-                # Usa colunas binárias pré-calculadas para Tanimoto via numpy
-                from scipy.spatial.distance import cdist
-                # Tanimoto entre vetores binários = Jaccard = 1 - distância Jaccard
-                dist_mat = cdist(fp_cols_for_tanimoto_new.astype(float),
-                                 fp_cols_for_tanimoto_tr.astype(float),
-                                 metric="jaccard")
-                sim = (1.0 - dist_mat.min(axis=1)).tolist()
-                sim_cut = 0.5
-            else:
-                smiles_col_tr  = _smiles_col(df_tr)
-                smiles_col_new = _smiles_col(df_new)
-                if smiles_col_tr and smiles_col_new:
-                    sim = self.tanimoto_max_to_train(
-                        df_tr[smiles_col_tr].astype(str).fillna(""),
-                        df_new[smiles_col_new].astype(str).fillna(""),
-                        self.cb_ad_fp.currentText().strip()
-                    )
-                else:
-                    sim = [np.nan] * len(X_nwz)
-                sim_cut = 0.6 if "maccs" in fp_kind else 0.5
-                
-            # flags e score
             flag_h   = (h_new <= h_star)
             flag_md  = (d_new <= chi2_cut)
             flag_knn = (dist_k_new <= cutoff_knn)
@@ -13517,9 +13952,8 @@ class MainWindow(QMainWindow):
 
             score = (flag_h.astype(int) + flag_md.astype(int) + flag_knn.astype(int) + flag_sim.astype(int)) * 25
             verdict = np.where(score >= 75, "Within AD",
-                    np.where(score >= 50, "Borderline", "Outside AD"))
+                     np.where(score >= 50, "Borderline", "Outside AD"))
 
-            # Busca coluna de nome no External (preferência: Name, depois molecule_chembl_id, compound_name, id)
             _name_candidates = ["Name", "name", "molecule_chembl_id", "compound_name", "compound_id", "id"]
             _name_col = next((c for c in _name_candidates if c in df_new.columns), None)
             _id_values = df_new[_name_col].values if _name_col else df_new.index
@@ -13530,122 +13964,55 @@ class MainWindow(QMainWindow):
                 "mahal": d_new,    "mahal_cut": chi2_cut,  "mahal_ok": flag_md,
                 "knn_mean_dist": dist_k_new, "knn_cut": cutoff_knn, "knn_ok": flag_knn,
                 "tanimoto_max": sim, "tanimoto_cut": sim_cut, "tanimoto_ok": flag_sim,
-                "ad_score": score, "ad_verdict": verdict
+                "ad_score": score, "ad_verdict": verdict,
             })
             self.df_ad_result = out
-            self.pb_ad.setValue(100)
+            self.pb_ad.setValue(100); self.pb_ad.setFormat("AD: %p%")
 
-            # salva e mostra
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
             save_dir = os.path.join(self.job_dir, "RESULTS", "AD")
             os.makedirs(save_dir, exist_ok=True)
-            base_out = f"AD_{os.path.splitext(os.path.basename(p_ext))[0]}_{timestamp}.csv"
-            out_path = os.path.join(save_dir, base_out)
+            out_path = os.path.join(save_dir, f"AD_{self._ad_ext_basename}_{timestamp}.csv")
             out.to_csv(out_path, index=False)
             self.show_dataframe(out)
-            # Guarda referência para uso nos plots
-            self._ad_ext_basename = os.path.splitext(os.path.basename(p_ext))[0]
-            self._ad_timestamp    = timestamp
-            self._ad_result_path  = out_path
+            self._ad_timestamp   = timestamp
+            self._ad_result_path = out_path
+            self._ad_expl_ctx = None   # novo Compute AD -> invalida o contexto cacheado da AD Exploration
+            self._populate_ad_expl_compound_combo()
             self._ad_autosave_report_plots()
             self._save_step7_state()
             QMessageBox.information(self, i18n.t("msg_title_ad", self._idioma), f"Done. Result saved to:\n{out_path}")
-
         except Exception as e:
             import traceback; traceback.print_exc()
             QMessageBox.critical(self, "AD - Erro", f"{e}")
 
-    def compute_leverage(self, X_train_z, X_new_z):
-        
-        XtX_inv = np.linalg.pinv(X_train_z.T @ X_train_z)
-        h_new = np.einsum("ij,jk,ik->i", X_new_z, XtX_inv, X_new_z)
-        n, p = X_train_z.shape
-        h_star = 3.0 * (p + 1) / max(n, 1)
-        return h_new, h_star
+    # NOTA: os 4 métodos abaixo são wrappers finos sobre as funções de módulo _ad_leverage /
+    # _ad_mahalanobis / _ad_knn / _ad_tanimoto_* (definidas perto de AdComputeWorker). O worker
+    # chama as funções de módulo diretamente; estes wrappers preservam a API usada por
+    # _ad_autosave_report_plots e _ad_expl_build_context.
 
-    def mahalanobis_distance(self, X_train_z, X_new_z, use_shrink=True):
-        
-        from scipy.stats import chi2
-        if use_shrink:
-            from sklearn.covariance import LedoitWolf
-            lw = LedoitWolf().fit(X_train_z)
-            cov, mean = lw.covariance_, lw.location_
-        else:
-            mean = X_train_z.mean(axis=0)
-            cov = np.cov(X_train_z, rowvar=False)
-        cov_inv = np.linalg.pinv(cov)
-        Xt = X_train_z - mean
-        Xn = X_new_z - mean
-        d_train = np.sqrt(np.einsum("ij,jk,ik->i", Xt, cov_inv, Xt))
-        d_new   = np.sqrt(np.einsum("ij,jk,ik->i", Xn, cov_inv, Xn))
-        p = X_train_z.shape[1]
+    def compute_leverage(self, X_train_z, X_new_z):
+        mult = float(self.cb_ad_lev_mult.currentData()) if hasattr(self, "cb_ad_lev_mult") else 3.0
+        mode = (self.cb_ad_lev_cutoff.currentData() or "theoretical") if hasattr(self, "cb_ad_lev_cutoff") else "theoretical"
         alpha = float(self.dspn_ad_alpha.value()) if hasattr(self, "dspn_ad_alpha") else 0.95
-        chi2_cut = np.sqrt(chi2.ppf(alpha, df=p))
-        return d_train, d_new, chi2_cut
+        return _ad_leverage(X_train_z, X_new_z, multiplier=mult, alpha=alpha, cutoff_mode=mode)
+
+    def mahalanobis_distance(self, X_train_z, X_new_z, use_shrink=True, alpha=None, cutoff_mode=None):
+        if alpha is None:
+            alpha = float(self.dspn_ad_alpha.value()) if hasattr(self, "dspn_ad_alpha") else 0.95
+        if cutoff_mode is None:
+            cutoff_mode = (self.cb_ad_mahal_cutoff.currentData() or "empirical") if hasattr(self, "cb_ad_mahal_cutoff") else "empirical"
+        return _ad_mahalanobis(X_train_z, X_new_z, alpha=alpha, use_shrink=use_shrink, cutoff_mode=cutoff_mode)
 
     def knn_distance_cutoffs(self, X_train_z, X_new_z, k=5, percentile=95.0):
-        
-        from sklearn.neighbors import NearestNeighbors
-        k = int(k)
-        k_eff = min(k + 1, max(2, X_train_z.shape[0]))
-        nbrs = NearestNeighbors(n_neighbors=k_eff, metric="euclidean").fit(X_train_z)
-        dist_train, _ = nbrs.kneighbors(X_train_z, n_neighbors=k_eff, return_distance=True)
-        idx_k = min(k, dist_train.shape[1]-1)
-        dist_k_train = dist_train[:, idx_k]
-        cutoff = float(np.percentile(dist_k_train, percentile))
-        k_new = min(k, max(1, X_train_z.shape[0]))
-        dist_new, _ = nbrs.kneighbors(X_new_z, n_neighbors=k_new, return_distance=True)
-        dist_k_new = dist_new.mean(axis=1) if dist_new.ndim == 2 else dist_new
-        return dist_k_train, cutoff, dist_k_new
+        n_jobs = (int(self.spn_ad_workers.value()) or -1) if hasattr(self, "spn_ad_workers") else -1
+        agg = (self.cb_ad_knn_agg.currentData() or "mean") if hasattr(self, "cb_ad_knn_agg") else "mean"
+        pct = float(self.dspn_ad_percentile.value()) if hasattr(self, "dspn_ad_percentile") else percentile
+        return _ad_knn(X_train_z, X_new_z, k=k, percentile=pct, agg=agg, n_jobs=n_jobs)
 
     def tanimoto_max_to_train(self, smiles_train, smiles_new, fp_kind="Morgan ECFP4"):
-        from rdkit import Chem
-        from rdkit.Chem import AllChem, rdMolDescriptors, MACCSkeys
-        from rdkit import DataStructs
-
-        def _mol(s):
-            m = Chem.MolFromSmiles(s or "")
-            if m is None: return None
-            Chem.SanitizeMol(m, catchErrors=True)
-            return m
-
-        def _fp(m):
-                    kind = (fp_kind or "").lower()
-                    if m is None: return None
-                    if "morgan" in kind or "ecfp" in kind:
-                        radius = 2 if "4" in kind else (3 if "6" in kind else 2)
-                        return AllChem.GetMorganFingerprintAsBitVect(m, radius=radius, nBits=2048)
-                    if "maccs" in kind:
-                        return MACCSkeys.GenMACCSKeys(m)
-                    if "pubchem" in kind:
-                        try:
-                            from rdkit.Chem import MolToSmiles
-                            from rdkit.Chem.rdMolDescriptors import GetMACCSKeysFingerprint
-                            # PubChem usa 881 bits; aproximação via MorganFP nBits=881
-                            return AllChem.GetMorganFingerprintAsBitVect(m, radius=2, nBits=881)
-                        except Exception:
-                            return AllChem.GetMorganFingerprintAsBitVect(m, radius=2, nBits=2048)
-                    return rdMolDescriptors.GetHashedTopologicalTorsionFingerprintAsBitVect(m, nBits=2048)
-
-        train_fps = []
-        for s in smiles_train:
-            m = _mol(s)
-            if m is not None:
-                fp = _fp(m)
-                if fp is not None:
-                    train_fps.append(fp)
-
-        out = []
-        for s in smiles_new:
-            m = _mol(s); 
-            if m is None or not train_fps:
-                out.append(0.0); continue
-            fp = _fp(m)
-            if fp is None:
-                out.append(0.0); continue
-            sims = DataStructs.BulkTanimotoSimilarity(fp, train_fps)
-            out.append(max(sims) if sims else 0.0)
-        return out
+        workers = (int(self.spn_ad_workers.value()) or None) if hasattr(self, "spn_ad_workers") else None
+        return _ad_tanimoto_smiles(smiles_train, smiles_new, fp_kind=fp_kind, workers=workers)
 
     def _ad_save_dialog(self, fig, plot_prefix):
         """Abre diálogo de salvamento com nome e diretório pré-preenchidos para plots do AD."""
@@ -13669,11 +14036,10 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, i18n.t("msg_title_ad", self._idioma), f"Chart saved to:\n{file_path}")
 
     def _ad_autosave_report_plots(self):
-        """Silently (re)generates the 4 canonical AD plots the final report needs (Williams,
-        Mahalanobis, PCA scatter, Tanimoto), saved as PNG under RESULTS/MIDIA with the same
-        naming the interactive Plot buttons use. Does not open any dialog or figure window -
-        independent of plot_ad_williams/_mahal_hist/_pca_scatter/_similarity_dist, which stay
-        untouched for interactive/manual use."""
+        """Silently (re)generates the canonical AD plots the final report needs (Leverage,
+        Mahalanobis, Tanimoto histograms), saved as PNG under RESULTS/MIDIA. Self-contained (its
+        own inline plotting) and opens no dialog/window - runs at the end of every Compute AD.
+        Interactive versions of these live in the "AD Exploration" group ('Count' axis)."""
         Xz_tr = getattr(self, "X_train_ad_z", None)
         Xz_nw = getattr(self, "X_new_ad_z", None)
         df_res = getattr(self, "df_ad_result", None)
@@ -13713,30 +14079,10 @@ class MainWindow(QMainWindow):
                 fig, ax = plt.subplots(figsize=(8, 5))
                 ax.hist(d_tr, bins=30, alpha=0.6, label="Train")
                 ax.hist(d_nw, bins=30, alpha=0.6, label="New")
-                ax.axvline(chi2_cut, linestyle="--", label=f"χ cut = {chi2_cut:.3g}")
+                ax.axvline(chi2_cut, linestyle="--", label=f"cutoff = {chi2_cut:.3g}")
                 ax.set_xlabel("Mahalanobis distance"); ax.set_ylabel("Count"); ax.set_title("Mahalanobis (Train vs New)")
                 ax.legend(); ax.grid(False); fig.tight_layout()
                 _save(fig, "Plot_mahalanobis")
-        except Exception:
-            pass
-
-        try:
-            if getattr(self, "chk_ad_use_pca", None) is not None and self.chk_ad_use_pca.isChecked():
-                pca = PCA(n_components=2).fit(Xz_tr)
-                Z_tr = pca.transform(Xz_tr)
-                Z_nw = pca.transform(Xz_nw)
-                verdict = df_res["ad_verdict"].astype(str).values
-                mask_w = verdict == "Within AD"
-                mask_b = verdict == "Borderline"
-                mask_o = verdict == "Outside AD"
-                fig, ax = plt.subplots(figsize=(8, 6))
-                ax.scatter(Z_tr[:, 0], Z_tr[:, 1], s=10, alpha=0.45, label="Train")
-                if mask_w.any(): ax.scatter(Z_nw[mask_w, 0], Z_nw[mask_w, 1], s=30, alpha=0.9, label="New - Within")
-                if mask_b.any(): ax.scatter(Z_nw[mask_b, 0], Z_nw[mask_b, 1], s=30, alpha=0.9, label="New - Borderline")
-                if mask_o.any(): ax.scatter(Z_nw[mask_o, 0], Z_nw[mask_o, 1], s=30, alpha=0.9, label="New - Outside")
-                ax.set_xlabel("PC1"); ax.set_ylabel("PC2"); ax.set_title("PCA Scatter with AD verdict")
-                ax.legend(); ax.grid(False); fig.tight_layout()
-                _save(fig, "Plot_pca_scatter")
         except Exception:
             pass
 
@@ -13758,100 +14104,534 @@ class MainWindow(QMainWindow):
 
         return saved
 
-    def plot_ad_williams(self):
+    # ------------------------------------------------------------------ AD Exploration
+    AD_EXPL_AXES = [
+        "Leverage", "Mahalanobis", "kNN mean dist", "Tanimoto max", "1 - Tanimoto max",
+        "PC1", "PC2", "t-SNE 1", "t-SNE 2", "UMAP 1", "UMAP 2", "Predicted value", "Count",
+    ]
+
+    def _ad_expl_confidence_ellipse(self, x, y, ax, level=0.95, **kw):
+        """Desenha a elipse de confiança (Hotelling T² ~ χ² com 2 g.l.) da nuvem (x, y) no eixo ax."""
+        from scipy.stats import chi2
+        x = np.asarray(x, float); y = np.asarray(y, float)
+        m = np.isfinite(x) & np.isfinite(y)
+        if m.sum() < 3:
+            return
+        cov = np.cov(x[m], y[m])
+        vals, vecs = np.linalg.eigh(cov)
+        order = vals.argsort()[::-1]
+        vals, vecs = vals[order], vecs[:, order]
+        theta = np.degrees(np.arctan2(vecs[1, 0], vecs[0, 0]))
+        scale = float(np.sqrt(chi2.ppf(level, df=2)))
+        w, h = 2 * scale * np.sqrt(np.maximum(vals, 0))
+        from matplotlib.patches import Ellipse
+        ax.add_patch(Ellipse((x[m].mean(), y[m].mean()), width=w, height=h, angle=theta,
+                             fill=False, ls="--", lw=1.4, ec=kw.get("ec", "#444"),
+                             label=kw.get("label", f"{int(level*100)}% ellipse")))
+
+    def _ad_expl_predicted_ext(self, df_res):
+        """Vetor de valores previstos alinhado ao Externo (eixo 'Predicted value' / Insubria).
+        Depende dos widgets de previsão -> recalculado a cada plot (barato)."""
+        import pandas as pd
+        dfp = getattr(self, "df_ad_expl_pred", None)
+        if dfp is None or not hasattr(self, "cb_ad_expl_pred_col") or "Name" not in df_res.columns:
+            return None
+        pcol = self.cb_ad_expl_pred_col.currentText().strip()
+        ncol = next((c for c in ("Name", "name", "molecule_chembl_id", "compound_id", "id")
+                     if c in dfp.columns), None)
+        if pcol not in dfp.columns or ncol is None:
+            return None
+        mp = dict(zip(dfp[ncol].astype(str), pd.to_numeric(dfp[pcol], errors="coerce")))
+        return df_res["Name"].astype(str).map(mp).to_numpy(float)
+
+    def _ad_expl_build_context(self):
+        """Contexto (arrays treino/externo/corte de cada eixo) para a AD Exploration.
+        As partes caras — leverage / Mahalanobis / kNN / Tanimoto-NN / PCA no lado do TREINO —
+        são calculadas EM PARALELO (ThreadPoolExecutor, backend joblib=threading) e CACHEADAS por
+        resultado de Compute AD, de modo que o 2º plot em diante é praticamente instantâneo.
+        Embeddings t-SNE/UMAP ficam no mesmo cache (calculados uma vez)."""
+        self._ad_ensure_exploration_ready()
+        df_res = getattr(self, "df_ad_result", None)
+        Xz_tr  = getattr(self, "X_train_ad_z", None)
+        Xz_nw  = getattr(self, "X_new_ad_z",   None)
+        if df_res is None or Xz_tr is None or Xz_nw is None:
+            return None
+
+        cached = getattr(self, "_ad_expl_ctx", None)
+        if cached is not None and cached.get("_df_res_id") == id(df_res):
+            ctx = cached
+        else:
+            ctx = self._ad_expl_build_context_heavy(df_res, Xz_tr, Xz_nw)
+            self._ad_expl_ctx = ctx
+
+        # Parte variável (widgets de previsão) — sempre recalculada.
+        ctx["Predicted value"] = (None, self._ad_expl_predicted_ext(df_res), None)
+        return ctx
+
+    def _ad_expl_build_context_heavy(self, df_res, Xz_tr, Xz_nw):
+        import numpy as np
+        from concurrent.futures import ThreadPoolExecutor
+        # Lê os parâmetros dos widgets AQUI (thread da UI) e passa por valor às threads — nada de
+        # tocar em widget Qt fora da thread principal.
+        k        = int(self.spn_ad_k.value()) if hasattr(self, "spn_ad_k") else 5
+        workers  = int(self.spn_ad_workers.value()) if hasattr(self, "spn_ad_workers") else 0
+        n_jobs   = workers or -1
+        mult     = float(self.cb_ad_lev_mult.currentData()) if hasattr(self, "cb_ad_lev_mult") else 3.0
+        lev_mode = (self.cb_ad_lev_cutoff.currentData() or "theoretical") if hasattr(self, "cb_ad_lev_cutoff") else "theoretical"
+        alpha    = float(self.dspn_ad_alpha.value()) if hasattr(self, "dspn_ad_alpha") else 0.95
+        mah_mode = (self.cb_ad_mahal_cutoff.currentData() or "empirical") if hasattr(self, "cb_ad_mahal_cutoff") else "empirical"
+        knn_agg  = (self.cb_ad_knn_agg.currentData() or "mean") if hasattr(self, "cb_ad_knn_agg") else "mean"
+        knn_pct  = float(self.dspn_ad_percentile.value()) if hasattr(self, "dspn_ad_percentile") else 95.0
+        fp_tr    = getattr(self, "_ad_fp_tr_bin", None)
+
+        def _lev():
+            try:
+                return _ad_leverage(Xz_tr, Xz_tr, multiplier=mult, alpha=alpha, cutoff_mode=lev_mode)[0]
+            except Exception:
+                return None
+
+        def _mah():
+            try:
+                return _ad_mahalanobis(Xz_tr, Xz_tr, alpha=alpha, use_shrink=True, cutoff_mode=mah_mode)[0]
+            except Exception:
+                return None
+
+        def _knn():
+            try:
+                return _ad_knn(Xz_tr, Xz_tr, k=k, percentile=knn_pct, agg=knn_agg, n_jobs=n_jobs)[0]
+            except Exception:
+                return None
+
+        def _tani():
+            # dist. jaccard ao vizinho de treino mais próximo (self excl.) = 1 - simmax.
+            # Via matmul BLAS em blocos (_ad_tanimoto_maxsim_train_fp): ~0.7 s p/ 12k compostos,
+            # contra ~11 s do NearestNeighbors(metric="jaccard") — que scipy roda em 1 núcleo.
+            if fp_tr is None or fp_tr.shape[0] > 60000:
+                return None
+            try:
+                return 1.0 - _ad_tanimoto_maxsim_train_fp(fp_tr)
+            except Exception:
+                return None
+
+        def _pca():
+            try:
+                p = PCA(n_components=2).fit(Xz_tr)
+                return p.transform(Xz_tr), p.transform(Xz_nw)
+            except Exception:
+                return None, None
+
+        backend = joblib.parallel_backend("threading")
+        backend.__enter__()
         try:
-            Xz = getattr(self, "X_train_ad_z", None)
-            if Xz is None:
-                QMessageBox.warning(self, i18n.t("msg_title_ad", self._idioma), "Run 'Compute AD' first.")
-                return
-            h_tr, h_star = self.compute_leverage(Xz, Xz)
-            fig, ax = plt.subplots(figsize=(8, 5))
-            ax.hist(h_tr, bins=30, alpha=0.9)
-            ax.axvline(h_star, linestyle="--", label=f"h* = {h_star:.3g}")
-            ax.set_xlabel("Leverage (h)"); ax.set_ylabel("Count"); ax.set_title("Leverage distribution (Train)")
-            ax.legend(); ax.grid(False); fig.tight_layout()
-            self._ad_save_dialog(fig, "Plot_williams")
-            plt.show()
+            with ThreadPoolExecutor(max_workers=5) as ex:
+                f_lev, f_mah, f_knn = ex.submit(_lev), ex.submit(_mah), ex.submit(_knn)
+                f_tani, f_pca = ex.submit(_tani), ex.submit(_pca)
+                h_tr, d_tr, knn_tr = f_lev.result(), f_mah.result(), f_knn.result()
+                tani_tr = f_tani.result()
+                ztr, znw = f_pca.result()
+        finally:
+            try:
+                backend.__exit__(None, None, None)
+            except Exception:
+                pass
 
+        def col(name):
+            return df_res[name].to_numpy(float) if name in df_res.columns else None
+
+        cut0 = lambda name: (float(df_res[name].iloc[0]) if name in df_res.columns and len(df_res) else None)
+
+        ctx = {"df_res": df_res, "_df_res_id": id(df_res), "_Xz_tr": Xz_tr, "_Xz_nw": Xz_nw}
+        ctx["Leverage"]      = (h_tr,  col("leverage"),      cut0("leverage_cut"))
+        ctx["Mahalanobis"]   = (d_tr,  col("mahal"),         cut0("mahal_cut"))
+        ctx["kNN mean dist"] = (knn_tr, col("knn_mean_dist"), cut0("knn_cut"))
+        sim_ext = col("tanimoto_max")
+        sim_cut = cut0("tanimoto_cut")
+        ctx["1 - Tanimoto max"] = (
+            tani_tr,
+            (1.0 - sim_ext) if sim_ext is not None else None,
+            (1.0 - sim_cut) if sim_cut is not None else None,
+        )
+        ctx["Tanimoto max"] = (
+            (1.0 - tani_tr) if tani_tr is not None else None,
+            sim_ext, sim_cut,
+        )
+        if ztr is not None:
+            ctx["PC1"] = (ztr[:, 0], znw[:, 0], None)
+            ctx["PC2"] = (ztr[:, 1], znw[:, 1], None)
+        else:
+            ctx["PC1"] = ctx["PC2"] = (None, None, None)
+        return ctx
+
+    def _ad_expl_embed(self, ctx, method):
+        """Fit lazy de t-SNE/UMAP em treino (subamostrado) + externo, cacheado em ctx."""
+        key = f"_embed_{method}"
+        if key in ctx:
+            return ctx[key]
+        Xz_tr, Xz_nw = ctx["_Xz_tr"], ctx["_Xz_nw"]
+        rng = np.random.RandomState(self._get_skl_random_state() if hasattr(self, "_get_skl_random_state") else 42)
+        n_max = 3000
+        idx = (rng.choice(Xz_tr.shape[0], n_max, replace=False)
+               if Xz_tr.shape[0] > n_max else np.arange(Xz_tr.shape[0]))
+        Xcomb = np.vstack([Xz_tr[idx], Xz_nw])
+        try:
+            if method == "t-SNE":
+                from sklearn.manifold import TSNE
+                perp = max(5, min(30, (Xcomb.shape[0] - 1) // 3))
+                emb = TSNE(n_components=2, random_state=rng, perplexity=perp,
+                           init="pca").fit_transform(Xcomb)
+            else:
+                import umap
+                emb = umap.UMAP(n_components=2, random_state=42).fit_transform(Xcomb)
+        except Exception:
+            ctx[key] = (None, None)
+            return ctx[key]
+        n_tr = idx.shape[0]
+        # devolve treino esparso (só a subamostra) — suficiente para a densidade
+        ctx[key] = (emb[:n_tr], emb[n_tr:])
+        return ctx[key]
+
+    def _ad_expl_axis_series(self, choice, ctx):
+        """(train_array | None, ext_array, cut | None, label) para um eixo escolhido."""
+        if choice in ("t-SNE 1", "t-SNE 2", "UMAP 1", "UMAP 2"):
+            method = "t-SNE" if choice.startswith("t-SNE") else "UMAP"
+            dim = 0 if choice.endswith("1") else 1
+            tr_emb, nw_emb = self._ad_expl_embed(ctx, method)
+            tr = tr_emb[:, dim] if tr_emb is not None else None
+            nw = nw_emb[:, dim] if nw_emb is not None else None
+            return tr, nw, None, choice
+        tr, nw, cut = ctx.get(choice, (None, None, None))
+        return tr, nw, cut, choice
+
+    def select_ad_expl_predictions(self):
+        """Carrega um CSV/Excel de previsões (Name + coluna(s) previstas) para o modo Insubria
+        (eixo 'Predicted value') do grupo AD Exploration."""
+        base = os.path.join(self.job_dir, "RESULTS", "USI")
+        if not os.path.isdir(base):
+            base = os.path.join(self.job_dir, "DATA_BASES")
+        fp, _ = QFileDialog.getOpenFileName(
+            self, "Select Predictions CSV", base,
+            "Data Files (*.csv *.xlsx);;CSV Files (*.csv);;Excel Files (*.xlsx)")
+        if not fp:
+            return
+        try:
+            df = self._read_selected_table_file(fp)
         except Exception as e:
-            QMessageBox.critical(self, i18n.t("msg_title_ad", self._idioma), f"Error in Williams plot: {e}")
+            QMessageBox.critical(self, i18n.t("msg_title_error_opening_csv", self._idioma), str(e))
+            return
+        self.df_ad_expl_pred = df
+        if hasattr(self, "ed_ad_expl_pred"):
+            self.ed_ad_expl_pred.setText(os.path.basename(fp))
+        if hasattr(self, "cb_ad_expl_pred_col"):
+            num_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+            self.cb_ad_expl_pred_col.blockSignals(True)
+            self.cb_ad_expl_pred_col.clear()
+            self.cb_ad_expl_pred_col.addItems(num_cols or list(df.columns.astype(str)))
+            pref = next((c for c in (num_cols or []) if "pred" in c.lower() or "pic50" in c.lower()
+                         or "ic50" in c.lower()), None)
+            if pref:
+                self.cb_ad_expl_pred_col.setCurrentText(pref)
+            self.cb_ad_expl_pred_col.blockSignals(False)
 
-    def plot_ad_mahal_hist(self):
+    def _ad_invalidate_result(self):
+        """Descarta o Compute AD em memória (tabela + matrizes z-score + cortes + lista de
+        compostos). Usado ao trocar manualmente o DataFrame Interno/Externo, antes de tentar
+        recarregar um Compute AD salvo que corresponda aos novos arquivos."""
+        for a in ("df_ad_result", "X_train_ad_z", "X_new_ad_z", "_ad_fp_tr_bin", "_ad_fp_nw_bin",
+                  "_ad_result_path", "h_star_ad", "chi2_cut_ad", "knn_cut_ad", "_ad_expl_ctx"):
+            if hasattr(self, a):
+                setattr(self, a, None)
+        cb = getattr(self, "cb_ad_expl_compound", None)
+        if cb is not None:
+            cb.blockSignals(True); cb.clear(); cb.addItem("(none)"); cb.blockSignals(False)
+
+    def _populate_ad_expl_compound_combo(self):
+        cb = getattr(self, "cb_ad_expl_compound", None)
+        df_res = getattr(self, "df_ad_result", None)
+        if cb is None or df_res is None or "Name" not in df_res.columns:
+            return
+        cur = cb.currentText()
+        cb.blockSignals(True)
+        cb.clear()
+        cb.addItem("(none)")
+        cb.addItems(df_res["Name"].astype(str).tolist())
+        i = cb.findText(cur)
+        cb.setCurrentIndex(i if i >= 0 else 0)
+        cb.blockSignals(False)
+
+    def plot_ad_exploration(self):
         import matplotlib.pyplot as plt
         try:
-            Xz_tr   = getattr(self, "X_train_ad_z", None)
-            Xz_nw   = getattr(self, "X_new_ad_z",   None)
-            chi2_cut = getattr(self, "chi2_cut_ad",  None)
-            if Xz_tr is None or Xz_nw is None or chi2_cut is None:
+            ctx = self._ad_expl_build_context()
+            if ctx is None:
                 QMessageBox.warning(self, i18n.t("msg_title_ad", self._idioma), "Run 'Compute AD' first.")
                 return
-            d_tr, d_nw, _ = self.mahalanobis_distance(Xz_tr, Xz_nw, use_shrink=True)
-            fig, ax = plt.subplots(figsize=(8, 5))
-            ax.hist(d_tr, bins=30, alpha=0.6, label="Train")
-            ax.hist(d_nw, bins=30, alpha=0.6, label="New")
-            ax.axvline(chi2_cut, linestyle="--", label=f"χ cut = {chi2_cut:.3g}")
-            ax.set_xlabel("Mahalanobis distance"); ax.set_ylabel("Count"); ax.set_title("Mahalanobis (Train vs New)")
-            ax.legend(); ax.grid(False); fig.tight_layout()
-            self._ad_save_dialog(fig, "Plot_mahalanobis")
+            df_res = ctx["df_res"]
+            is3d = hasattr(self, "chk_ad_expl_3d") and self.chk_ad_expl_3d.isChecked()
+            use_kde = self.chk_ad_expl_kde.isChecked()
+            show_ext = self.chk_ad_expl_show_ext.isChecked()
+            show_cuts = self.chk_ad_expl_thresholds.isChecked()
+            show_marg = (not is3d) and self.chk_ad_expl_marginals.isChecked()
+            name = self.cb_ad_expl_compound.currentText().strip()
+            hi_pos = None
+            if name and name != "(none)" and "Name" in df_res.columns:
+                _hits = np.where(df_res["Name"].astype(str).to_numpy() == name)[0]
+                hi_pos = int(_hits[0]) if _hits.size else None
+            hi_row = df_res.iloc[hi_pos] if hi_pos is not None else None
+            want_profile = (not is3d) and self.chk_ad_expl_profile.isChecked() and hi_row is not None
+
+            xc = self.cb_ad_expl_x.currentText()
+            yc = self.cb_ad_expl_y.currentText()
+
+            # --- modo Count: histograma 1-D de um único eixo-valor (reproduz e enriquece os antigos
+            #     "Plot Williams" / "Hist Mahalanobis" / "Similarity Dist"). ---
+            if "Count" in (xc, yc):
+                if xc == yc:
+                    QMessageBox.warning(self, i18n.t("msg_title_ad", self._idioma),
+                                        "Pick a metric on the other axis when one axis is 'Count'.")
+                    return
+                self._ad_expl_histogram_mode(ctx, df_res, (yc if xc == "Count" else xc),
+                                             hi_pos, hi_row, name)
+                return
+
+            xtr, xnw, xcut, xlab = self._ad_expl_axis_series(xc, ctx)
+            ytr, ynw, ycut, ylab = self._ad_expl_axis_series(yc, ctx)
+            if xnw is None or ynw is None:
+                QMessageBox.warning(self, i18n.t("msg_title_ad", self._idioma),
+                                    f"No external data available for axis '{xc if xnw is None else yc}'.")
+                return
+
+            # O lado do TREINO de t-SNE/UMAP é uma subamostra (~3000) e não está alinhado, linha a
+            # linha, às métricas de treino em ntr completo. Se os eixos misturam embedding com
+            # não-embedding, a nuvem/KDE de treino ficaria com pares de compostos trocados → oculta
+            # a camada de treino nesse caso (pontos externos + cortes + destaque continuam).
+            _emb = {"t-SNE 1", "t-SNE 2", "UMAP 1", "UMAP 2"}
+            _axes_now = [xc, yc] + ([self.cb_ad_expl_z.currentText()] if is3d else [])
+            if 0 < sum(a in _emb for a in _axes_now) < len(_axes_now):
+                xtr = ytr = None
+
+            verdict = df_res["ad_verdict"].astype(str).to_numpy() if "ad_verdict" in df_res.columns else np.array(["?"] * len(df_res))
+            vcol = {"Within AD": "#59af59", "Borderline": "#e0a030", "Outside AD": "#bd5e5e", "?": "#888888"}
+
+            if is3d:
+                zc = self.cb_ad_expl_z.currentText()
+                ztr, znw, zcut, zlab = self._ad_expl_axis_series(zc, ctx)
+                if znw is None:
+                    QMessageBox.warning(self, i18n.t("msg_title_ad", self._idioma), f"No external data for axis '{zc}'.")
+                    return
+                if xtr is None or ytr is None:   # caso misto embedding/não-embedding (ver acima)
+                    ztr = None
+                fig = plt.figure(figsize=(9, 7))
+                ax = fig.add_subplot(111, projection="3d")
+                if xtr is not None and ytr is not None and ztr is not None:
+                    n = min(len(xtr), len(ytr), len(ztr))
+                    ax.scatter(xtr[:n], ytr[:n], ztr[:n], s=6, alpha=0.15, color="#7aa6c2", label="Train")
+                if show_ext:
+                    for v in ("Within AD", "Borderline", "Outside AD"):
+                        m = verdict == v
+                        if m.any():
+                            ax.scatter(xnw[m], ynw[m], znw[m], s=14, alpha=0.55, color=vcol[v], label=f"Ext · {v}")
+                if hi_pos is not None:
+                    hx, hy, hz = np.asarray(xnw)[hi_pos], np.asarray(ynw)[hi_pos], np.asarray(znw)[hi_pos]
+                    ax.scatter([hx], [hy], [hz], marker="*", s=260, color="#111", edgecolor="w", zorder=6)
+                    ax.text(hx, hy, hz, f"  {name}", fontsize=8)
+                ax.set_xlabel(xlab); ax.set_ylabel(ylab); ax.set_zlabel(zlab)
+                ax.set_title("AD Exploration (3D)")
+                ax.legend(fontsize=7, loc="upper left")
+                fig.tight_layout()
+                self._ad_save_dialog(fig, "Plot_ad_exploration")
+                plt.show()
+                return
+
+            # ---------------- 2D ----------------
+            if want_profile:
+                fig, (ax, axp) = plt.subplots(1, 2, figsize=(11, 6), gridspec_kw={"width_ratios": [3.2, 1.0]})
+            else:
+                fig, ax = plt.subplots(figsize=(8.5, 6.5)); axp = None
+
+            drew_train = False
+            if xtr is not None and ytr is not None:
+                n = min(len(xtr), len(ytr))
+                xt, yt = np.asarray(xtr[:n], float), np.asarray(ytr[:n], float)
+                mt = np.isfinite(xt) & np.isfinite(yt)
+                if use_kde and mt.sum() > 10:
+                    try:
+                        xk, yk = xt[mt], yt[mt]
+                        if xk.size > 6000:   # KDE 2-D (scipy, 1 núcleo): subamostra -> visualmente igual, bem mais rápido
+                            si = np.random.RandomState(0).choice(xk.size, 6000, replace=False)
+                            xk, yk = xk[si], yk[si]
+                        sns.kdeplot(x=xk, y=yk, fill=True, thresh=0.05, levels=12,
+                                    cmap="Blues", ax=ax)
+                        drew_train = True
+                    except Exception:
+                        pass
+                if not drew_train:
+                    ax.scatter(xt[mt], yt[mt], s=8, alpha=0.30, color="#7aa6c2", label="Train")
+                    drew_train = True
+                if xc in ("PC1", "PC2") and yc in ("PC1", "PC2") and xc != yc:
+                    self._ad_expl_confidence_ellipse(xt[mt], yt[mt], ax, level=0.95, ec="#333")
+
+            if show_ext:
+                for v in ("Within AD", "Borderline", "Outside AD"):
+                    m = verdict == v
+                    if m.any():
+                        ax.scatter(np.asarray(xnw)[m], np.asarray(ynw)[m], s=16, alpha=0.6,
+                                   color=vcol[v], label=f"Ext · {v}", linewidths=0)
+
+            if show_cuts:
+                if xcut is not None:
+                    ax.axvline(xcut, ls="--", color="0.35", lw=1.2)
+                if ycut is not None:
+                    ax.axhline(ycut, ls="--", color="0.35", lw=1.2)
+
+            if hi_pos is not None:
+                hx, hy = np.asarray(xnw)[hi_pos], np.asarray(ynw)[hi_pos]
+                ax.scatter([hx], [hy], marker="*", s=320, color="#111", edgecolor="white", zorder=6)
+                r = hi_row
+                txt = name
+                if {"leverage", "mahal", "knn_mean_dist", "tanimoto_max"} <= set(df_res.columns):
+                    txt += (f"\nh={r['leverage']:.2f} MD={r['mahal']:.1f}"
+                            f"\nkNN={r['knn_mean_dist']:.1f} Tc={r['tanimoto_max']:.2f}")
+                if "ad_verdict" in df_res.columns:
+                    txt += f"\n{r['ad_verdict']}"
+                ax.annotate(txt, (hx, hy), textcoords="offset points", xytext=(12, 12),
+                            fontsize=8, bbox=dict(boxstyle="round", fc="w", ec="0.5", alpha=0.92))
+
+            if show_marg and drew_train:
+                try:
+                    from mpl_toolkits.axes_grid1 import make_axes_locatable
+                    div = make_axes_locatable(ax)
+                    axt = div.append_axes("top", 1.0, pad=0.12, sharex=ax)
+                    axr = div.append_axes("right", 1.0, pad=0.12, sharey=ax)
+                    for a in (axt, axr):
+                        a.tick_params(labelbottom=False, labelleft=False)
+                    if xtr is not None:
+                        xt = np.asarray(xtr, float); xt = xt[np.isfinite(xt)]
+                        axt.hist(xt, bins=40, color="#7aa6c2", alpha=0.8, density=True)
+                    axt.hist(np.asarray(xnw, float)[np.isfinite(np.asarray(xnw, float))], bins=40,
+                             color="#bd5e5e", alpha=0.5, density=True)
+                    if ytr is not None:
+                        yt = np.asarray(ytr, float); yt = yt[np.isfinite(yt)]
+                        axr.hist(yt, bins=40, orientation="horizontal", color="#7aa6c2", alpha=0.8, density=True)
+                    axr.hist(np.asarray(ynw, float)[np.isfinite(np.asarray(ynw, float))], bins=40,
+                             orientation="horizontal", color="#bd5e5e", alpha=0.5, density=True)
+                except Exception:
+                    pass
+
+            ax.set_xlabel(xlab); ax.set_ylabel(ylab)
+            ax.set_title("AD Exploration — training density vs external set")
+            ax.legend(fontsize=8, loc="best")
+
+            if axp is not None and hi_row is not None:
+                self._ad_expl_draw_profile(axp, hi_row, df_res)
+            elif axp is not None:
+                axp.axis("off")
+
+            fig.tight_layout()
+            self._ad_save_dialog(fig, "Plot_ad_exploration")
             plt.show()
-
         except Exception as e:
-            QMessageBox.critical(self, i18n.t("msg_title_ad", self._idioma), f"Error in Mahalanobis plot: {e}")
+            import traceback; traceback.print_exc()
+            QMessageBox.critical(self, i18n.t("msg_title_ad", self._idioma), f"Error in AD Exploration: {e}")
 
-    def plot_ad_pca_scatter(self):
-        try:
-            if not self.chk_ad_use_pca.isChecked():
-                QMessageBox.information(self, i18n.t("msg_title_ad", self._idioma), "Enable 'Project PCA for plots' first.")
-                return
-            Xz_tr  = getattr(self, "X_train_ad_z", None)
-            Xz_nw  = getattr(self, "X_new_ad_z",   None)
-            df_res = getattr(self, "df_ad_result",  None)
-            if Xz_tr is None or Xz_nw is None or df_res is None:
-                QMessageBox.warning(self, i18n.t("msg_title_ad", self._idioma), "Run 'Compute AD' first.")
-                return
-            pca  = PCA(n_components=2).fit(Xz_tr)
-            Z_tr = pca.transform(Xz_tr)
-            Z_nw = pca.transform(Xz_nw)
-            verdict = df_res["ad_verdict"].astype(str).values
-            mask_w  = verdict == "Within AD"
-            mask_b  = verdict == "Borderline"
-            mask_o  = verdict == "Outside AD"
-            fig, ax = plt.subplots(figsize=(8, 6))
-            ax.scatter(Z_tr[:,0], Z_tr[:,1], s=10, alpha=0.45, label="Train")
-            if mask_w.any(): ax.scatter(Z_nw[mask_w,0], Z_nw[mask_w,1], s=30, alpha=0.9, label="New - Within")
-            if mask_b.any(): ax.scatter(Z_nw[mask_b,0], Z_nw[mask_b,1], s=30, alpha=0.9, label="New - Borderline")
-            if mask_o.any(): ax.scatter(Z_nw[mask_o,0], Z_nw[mask_o,1], s=30, alpha=0.9, label="New - Outside")
-            ax.set_xlabel("PC1"); ax.set_ylabel("PC2"); ax.set_title("PCA Scatter with AD verdict")
-            ax.legend(); ax.grid(False); fig.tight_layout()
-            self._ad_save_dialog(fig, "Plot_pca_scatter")
-            plt.show()
+    def _ad_expl_histogram_mode(self, ctx, df_res, value_axis, hi_pos, hi_row, name):
+        """Histograma 1-D de uma única métrica de DA (quando um dos eixos é 'Count'). Reproduz os
+        antigos botões: Leverage + só treino = Plot Williams; Mahalanobis + treino & externo = Hist
+        Mahalanobis; Tanimoto max + só externo = Similarity Dist. Os checkboxes 'Train as KDE
+        density' e 'Show external points' ligam/desligam cada série; 'Show cutoff lines' desenha o
+        corte; o composto destacado vira uma linha vertical."""
+        import matplotlib.pyplot as plt
+        vtr, vnw, vcut, vlab = self._ad_expl_axis_series(value_axis, ctx)
+        if vnw is None and vtr is None:
+            QMessageBox.warning(self, i18n.t("msg_title_ad", self._idioma),
+                                f"No data available for axis '{value_axis}'.")
+            return
+        show_train = self.chk_ad_expl_kde.isChecked() and vtr is not None
+        show_ext   = self.chk_ad_expl_show_ext.isChecked() and vnw is not None
+        if not show_train and not show_ext:      # config degenerada -> mostra ao menos uma série
+            show_ext = vnw is not None
+            show_train = vtr is not None and not show_ext
+        show_cuts  = self.chk_ad_expl_thresholds.isChecked()
+        want_profile = self.chk_ad_expl_profile.isChecked() and hi_row is not None
 
-        except Exception as e:
-            QMessageBox.critical(self, i18n.t("msg_title_ad", self._idioma), f"Error in PCA plot: {e}")
+        if want_profile:
+            fig, (ax, axp) = plt.subplots(1, 2, figsize=(11, 6), gridspec_kw={"width_ratios": [3.2, 1.0]})
+        else:
+            fig, ax = plt.subplots(figsize=(8.5, 6.0)); axp = None
 
-    def plot_ad_similarity_dist(self):
-        try:
-            df_res = getattr(self, "df_ad_result", None)
-            if df_res is None or "tanimoto_max" not in df_res.columns:
-                QMessageBox.warning(self, i18n.t("msg_title_ad", self._idioma), "Run 'Compute AD' first.")
-                return
-            sims = df_res["tanimoto_max"].values
-            sims = sims[np.isfinite(sims)]
-            if sims.size == 0:
-                QMessageBox.information(self, i18n.t("msg_title_ad", self._idioma), "No similarities computed (missing SMILES?).")
-                return
-            cut = float(df_res["tanimoto_cut"].iloc[0]) if "tanimoto_cut" in df_res.columns else 0.5
-            fig, ax = plt.subplots(figsize=(8, 5))
-            ax.hist(sims, bins=30, alpha=0.9)
-            ax.axvline(cut, linestyle="--", label=f"cut = {cut:.2f}")
-            ax.set_xlabel("Max Tanimoto similarity to Train"); ax.set_ylabel("Count")
-            ax.set_title("Tanimoto Similarity Distribution (New → Train)")
-            ax.legend(); ax.grid(False); fig.tight_layout()
-            self._ad_save_dialog(fig, "Plot_tanimoto")
-            plt.show()
+        series = []
+        if show_train and vtr is not None:
+            series.append(np.asarray(vtr, float))
+        if show_ext and vnw is not None:
+            series.append(np.asarray(vnw, float))
+        if not series:
+            series.append(np.asarray(vnw if vnw is not None else vtr, float))
+        allc = np.concatenate([a[np.isfinite(a)] for a in series]) if series else np.array([0.0, 1.0])
+        lo, hi = (float(allc.min()), float(allc.max())) if allc.size else (0.0, 1.0)
+        if lo == hi:
+            hi = lo + 1.0
+        bins = np.linspace(lo, hi, 41)
 
-        except Exception as e:
-            QMessageBox.critical(self, i18n.t("msg_title_ad", self._idioma), f"Error in similarity chart: {e}")
+        if show_train and vtr is not None:
+            t = np.asarray(vtr, float); t = t[np.isfinite(t)]
+            if t.size:
+                ax.hist(t, bins=bins, color="#7aa6c2", alpha=0.75, label=f"Train (n={t.size})")
+        if show_ext and vnw is not None:
+            e = np.asarray(vnw, float); e = e[np.isfinite(e)]
+            if e.size:
+                ax.hist(e, bins=bins, color="#bd5e5e", alpha=0.55, label=f"External (n={e.size})")
+
+        if show_cuts and vcut is not None:
+            ax.axvline(vcut, ls="--", color="0.25", lw=1.4, label=f"cutoff = {vcut:.3g}")
+
+        if hi_pos is not None and vnw is not None:
+            hv = np.asarray(vnw, float)[hi_pos]
+            if np.isfinite(hv):
+                ax.axvline(hv, color="#111", lw=2.0, zorder=6)
+                ax.annotate(f"{name} = {hv:.3g}", xy=(hv, 0.98), xycoords=("data", "axes fraction"),
+                            xytext=(6, -6), textcoords="offset points", fontsize=8, va="top",
+                            bbox=dict(boxstyle="round", fc="w", ec="0.5", alpha=0.92))
+
+        ax.set_xlabel(vlab); ax.set_ylabel("Count")
+        ax.set_title(f"AD Exploration - {vlab} distribution")
+        ax.legend(fontsize=8, loc="best")
+
+        if axp is not None:
+            self._ad_expl_draw_profile(axp, hi_row, df_res)
+
+        fig.tight_layout()
+        self._ad_save_dialog(fig, "Plot_ad_exploration")
+        plt.show()
+
+    def _ad_expl_draw_profile(self, ax, row, df_res):
+        """Painel de 4 barras value/cutoff (razão) do composto destacado, cor pelo *_ok."""
+        specs = [
+            ("Leverage",  "leverage",      "leverage_cut",  "leverage_ok",  False),
+            ("Mahalanob.", "mahal",        "mahal_cut",     "mahal_ok",     False),
+            ("kNN dist",  "knn_mean_dist", "knn_cut",       "knn_ok",       False),
+            ("Tanimoto",  "tanimoto_max",  "tanimoto_cut",  "tanimoto_ok",  True),
+        ]
+        labels, ratios, colors = [], [], []
+        for lab, vcol, ccol, okcol, inverted in specs:
+            if vcol not in df_res.columns or ccol not in df_res.columns:
+                continue
+            v = float(row[vcol]); c = float(row[ccol])
+            if inverted:                       # Tanimoto: ok = sim >= cut  → usa (1-sim)/(1-cut)
+                ratio = (1.0 - v) / (1.0 - c) if (1.0 - c) != 0 else np.nan
+            else:
+                ratio = v / c if c != 0 else np.nan
+            ok = bool(row[okcol]) if okcol in df_res.columns else (ratio <= 1)
+            labels.append(lab); ratios.append(ratio)
+            colors.append("#59af59" if ok else "#bd5e5e")
+        y = np.arange(len(labels))
+        ax.barh(y, ratios, color=colors, alpha=0.85)
+        ax.axvline(1.0, ls="--", color="0.3", lw=1.2)
+        ax.set_yticks(y); ax.set_yticklabels(labels, fontsize=8)
+        ax.set_xlabel("value / cutoff", fontsize=8)
+        nm = str(row["Name"]) if "Name" in df_res.columns else ""
+        vd = str(row["ad_verdict"]) if "ad_verdict" in df_res.columns else ""
+        sc = f" ({int(row['ad_score'])})" if "ad_score" in df_res.columns else ""
+        ax.set_title(f"{nm}\n{vd}{sc}", fontsize=8)
+        ax.spines[["top", "right"]].set_visible(False)
 
     def select_dataframe_ad_verdict(self):
         """Botão "Select AD DataFrame" do grupo Verdict Distribution (STEP 5): independente de
@@ -14094,6 +14874,10 @@ class MainWindow(QMainWindow):
         )
         if file_path:
             self._load_internal_dataframe(file_path, show_preview=True)
+            # Invalida o Compute AD em memória e, se Interno + Externo agora coincidirem com um
+            # Compute AD já salvo, recarrega-o (gráficos / AD Exploration prontos sem recomputar).
+            self._ad_invalidate_result()
+            self._ad_try_load_previous_result()
         return
 
     def _load_external_dataframe(self, file_path, show_preview=True):
@@ -14129,6 +14913,8 @@ class MainWindow(QMainWindow):
         )
         if file_path:
             self._load_external_dataframe(file_path, show_preview=True)
+            self._ad_invalidate_result()
+            self._ad_try_load_previous_result()
 
     def _get_external_columns_diff(self, df_ext):
         """Calcula a diferença de colunas entre o DataFrame Interno (referência de treino) e o
@@ -17650,41 +18436,69 @@ class MainWindow(QMainWindow):
             # --- Group: parâmetros ---
             gb5_params = QGroupBox(); self._tr("s7_grp_set_ad_params", gb5_params.setTitle)
             gp5 = QGridLayout(gb5_params)
-            gb5_params.setFixedSize(400, 200)
+            gb5_params.setFixedSize(470, 420)
+
+            def _pair(a, b):
+                _w = QWidget(); _h = QHBoxLayout(_w); _h.setContentsMargins(0, 0, 0, 0); _h.setSpacing(6)
+                _h.addWidget(a); _h.addWidget(b)
+                return _w
 
             self.spn_ad_k = QSpinBox(); self.spn_ad_k.setRange(1, 100); self.spn_ad_k.setValue(5)
+            self.cb_ad_knn_agg = QComboBox()
+            self.cb_ad_knn_agg.addItem("Mean of k", "mean")
+            self.cb_ad_knn_agg.addItem("k-th neighbour", "kth")
+            self._tr("s7_tooltip_ad_knn_agg", self.cb_ad_knn_agg.setToolTip)
+            self.dspn_ad_percentile = QDoubleSpinBox(); self.dspn_ad_percentile.setDecimals(1)
+            self.dspn_ad_percentile.setRange(50.0, 99.9); self.dspn_ad_percentile.setSingleStep(1.0); self.dspn_ad_percentile.setValue(95.0)
+            self._tr("s7_tooltip_ad_percentile", self.dspn_ad_percentile.setToolTip)
+
+            self.cb_ad_lev_cutoff = QComboBox()
+            self.cb_ad_lev_cutoff.addItem("Theoretical", "theoretical")
+            self.cb_ad_lev_cutoff.addItem("Empirical percentile", "empirical")
+            self._tr("s7_tooltip_ad_lev_cutoff", self.cb_ad_lev_cutoff.setToolTip)
+            self.cb_ad_lev_mult = QComboBox()
+            for _m in ("2", "2.5", "3"):
+                self.cb_ad_lev_mult.addItem("x" + _m, float(_m))
+            self.cb_ad_lev_mult.setCurrentIndex(2)   # x3 (convenção do Williams plot)
+            self._tr("s7_tooltip_ad_lev_mult", self.cb_ad_lev_mult.setToolTip)
+
+            self.cb_ad_mahal_cutoff = QComboBox()
+            self.cb_ad_mahal_cutoff.addItem("Empirical percentile", "empirical")
+            self.cb_ad_mahal_cutoff.addItem("Theoretical chi2", "theoretical")
+            self._tr("s7_tooltip_ad_mahal_cutoff", self.cb_ad_mahal_cutoff.setToolTip)
             self.dspn_ad_alpha = QDoubleSpinBox(); self.dspn_ad_alpha.setDecimals(3); self.dspn_ad_alpha.setRange(0.5, 0.999); self.dspn_ad_alpha.setSingleStep(0.01); self.dspn_ad_alpha.setValue(0.95)
-            self.cb_ad_fp = QComboBox(); self.cb_ad_fp.addItems(["Morgan ECFP4", "Morgan ECFP6", "MACCS", "RDKitFP", "PubChemFP"])
-            self.chk_ad_use_pca = QCheckBox(); self._tr("s7_chk_project_pca", self.chk_ad_use_pca.setText); self.chk_ad_use_pca.setChecked(True)
+            self._tr("s7_tooltip_ad_alpha", self.dspn_ad_alpha.setToolTip)
 
-            gp5.addWidget(self._trL("s7_lbl_k_knn"),              0, 0); gp5.addWidget(self.spn_ad_k,         0, 1)
-            gp5.addWidget(self._trL("s7_lbl_alpha_chi2"),    1, 0); gp5.addWidget(self.dspn_ad_alpha,    1, 1)
-            gp5.addWidget(self._trL("s7_lbl_fingerprint"),          2, 0); gp5.addWidget(self.cb_ad_fp,         2, 1)
-            gp5.addWidget(self.chk_ad_use_pca,             3, 0, 1, 2)
+            self.cb_ad_tani_cutoff = QComboBox()
+            self.cb_ad_tani_cutoff.addItem("Fixed threshold", "fixed")
+            self.cb_ad_tani_cutoff.addItem("Empirical percentile", "empirical")
+            self._tr("s7_tooltip_ad_tani_cutoff", self.cb_ad_tani_cutoff.setToolTip)
+            self.dspn_ad_tani_thr = QDoubleSpinBox(); self.dspn_ad_tani_thr.setDecimals(2)
+            self.dspn_ad_tani_thr.setRange(0.0, 1.0); self.dspn_ad_tani_thr.setSingleStep(0.05); self.dspn_ad_tani_thr.setValue(0.50)
+            self._tr("s7_tooltip_ad_tani_thr", self.dspn_ad_tani_thr.setToolTip)
 
-            # --- Ações ---
-            gb6_btn = QGroupBox("")
-            gp6 = QGridLayout(gb6_btn)
-            gb6_btn.setFixedSize(200, 200)
-            gp6.setColumnStretch(0, 1)
+            self.spn_ad_workers = QSpinBox(); self.spn_ad_workers.setRange(0, 128); self.spn_ad_workers.setValue(0)
+            self._tr("s7_tooltip_ad_workers", self.spn_ad_workers.setToolTip)
 
-            self.btn_ad_compute         = QPushButton(); self._tr("s7_btn_compute_ad", self.btn_ad_compute.setText); self.btn_ad_compute.setProperty("role", "primary"); self.btn_ad_compute.setFixedWidth(120)
-            self.btn_ad_plot_williams   = QPushButton(); self._tr("s7_btn_plot_williams", self.btn_ad_plot_williams.setText); self.btn_ad_plot_williams.setProperty("role", "secondary"); self.btn_ad_plot_williams.setFixedWidth(120)
-            self.btn_ad_plot_mahal_hist = QPushButton(); self._tr("s7_btn_hist_mahalanobis", self.btn_ad_plot_mahal_hist.setText); self.btn_ad_plot_mahal_hist.setProperty("role", "secondary"); self.btn_ad_plot_mahal_hist.setFixedWidth(120)
-            self.btn_ad_plot_pca        = QPushButton(); self._tr("s7_btn_pca_scatter_ad", self.btn_ad_plot_pca.setText); self.btn_ad_plot_pca.setProperty("role", "secondary"); self.btn_ad_plot_pca.setFixedWidth(120)
-            self.btn_ad_plot_similarity = QPushButton(); self._tr("s7_btn_similarity_dist", self.btn_ad_plot_similarity.setText); self.btn_ad_plot_similarity.setProperty("role", "secondary"); self.btn_ad_plot_similarity.setFixedWidth(120)
-            # Adiciona os botões ao layout:
-            gp6.addWidget(self.btn_ad_compute,         0, 0, alignment=Qt.AlignCenter)
-            gp6.addWidget(self.btn_ad_plot_williams,   1, 0, alignment=Qt.AlignCenter)
-            gp6.addWidget(self.btn_ad_plot_mahal_hist, 2, 0, alignment=Qt.AlignCenter)
-            gp6.addWidget(self.btn_ad_plot_pca,        3, 0, alignment=Qt.AlignCenter)
-            gp6.addWidget(self.btn_ad_plot_similarity, 4, 0, alignment=Qt.AlignCenter)
-            
+            gp5.addWidget(self._trL("s7_lbl_ad_lev_cutoff"),   0, 0); gp5.addWidget(_pair(self.cb_ad_lev_cutoff, self.cb_ad_lev_mult), 0, 1)
+            gp5.addWidget(self._trL("s7_lbl_ad_mahal_cutoff"), 1, 0); gp5.addWidget(self.cb_ad_mahal_cutoff,  1, 1)
+            gp5.addWidget(self._trL("s7_lbl_alpha_chi2"),      2, 0); gp5.addWidget(self.dspn_ad_alpha,       2, 1)
+            gp5.addWidget(self._trL("s7_lbl_k_knn"),           3, 0); gp5.addWidget(self.spn_ad_k,            3, 1)
+            gp5.addWidget(self._trL("s7_lbl_ad_knn_agg"),      4, 0); gp5.addWidget(self.cb_ad_knn_agg,       4, 1)
+            gp5.addWidget(self._trL("s7_lbl_ad_percentile"),   5, 0); gp5.addWidget(self.dspn_ad_percentile,  5, 1)
+            gp5.addWidget(self._trL("s7_lbl_ad_tani_cutoff"),  6, 0); gp5.addWidget(_pair(self.cb_ad_tani_cutoff, self.dspn_ad_tani_thr), 6, 1)
+            gp5.addWidget(self._trL("s7_lbl_ad_workers"),      7, 0); gp5.addWidget(self.spn_ad_workers,      7, 1)
+
+            # "Compute AD" — no final do grupo, centralizado (os gráficos ficam todos no grupo
+            # "AD Exploration").
+            self.btn_ad_compute = QPushButton(); self._tr("s7_btn_compute_ad", self.btn_ad_compute.setText)
+            self.btn_ad_compute.setProperty("role", "primary"); self.btn_ad_compute.setFixedWidth(140)
+            gp5.addWidget(self.btn_ad_compute, 8, 0, 1, 2, alignment=Qt.AlignCenter)
+
             # --- Adiciona grupos ao layout do corpo ---
             body_AD.addStretch()
-            body_AD.addWidget(gb5_params, alignment=Qt.AlignRight)
-            body_AD.addWidget(gb6_btn, alignment=Qt.AlignLeft)
-            body_AD.addStretch()            
+            body_AD.addWidget(gb5_params)
+            body_AD.addStretch()
 
             # --- Progress ---
             self.pb_ad = self._mk_progress()
@@ -17751,20 +18565,89 @@ class MainWindow(QMainWindow):
             verdict_row.addWidget(gb_ad_verdict)
             verdict_row.addStretch()
 
+            # --- Group: AD Exploration ---
+            gb_ad_expl = QGroupBox(); self._tr("s7_grp_ad_exploration", gb_ad_expl.setTitle)
+            gb_ad_expl.setStyleSheet("QGroupBox { font-weight: bold; }")
+            lay_ad_expl = QVBoxLayout(gb_ad_expl)
+
+            axopts = list(self.AD_EXPL_AXES)
+            expl_row1 = QHBoxLayout()
+            expl_row1.addWidget(self._trL("s7_lbl_ad_expl_x"))
+            self.cb_ad_expl_x = QComboBox(); self.cb_ad_expl_x.addItems(axopts); self.cb_ad_expl_x.setCurrentText("Leverage")
+            self.cb_ad_expl_x.setFixedWidth(150); expl_row1.addWidget(self.cb_ad_expl_x)
+            expl_row1.addSpacing(10)
+            expl_row1.addWidget(self._trL("s7_lbl_ad_expl_y"))
+            self.cb_ad_expl_y = QComboBox(); self.cb_ad_expl_y.addItems(axopts); self.cb_ad_expl_y.setCurrentText("Mahalanobis")
+            self.cb_ad_expl_y.setFixedWidth(150); expl_row1.addWidget(self.cb_ad_expl_y)
+            expl_row1.addSpacing(10)
+            expl_row1.addWidget(self._trL("s7_lbl_ad_expl_z"))
+            self.cb_ad_expl_z = QComboBox(); self.cb_ad_expl_z.addItems(axopts); self.cb_ad_expl_z.setCurrentText("kNN mean dist")
+            self.cb_ad_expl_z.setFixedWidth(150); expl_row1.addWidget(self.cb_ad_expl_z)
+            expl_row1.addStretch()
+            lay_ad_expl.addLayout(expl_row1)
+
+            expl_row2 = QHBoxLayout()
+            expl_row2.addWidget(self._trL("s7_lbl_ad_expl_compound"))
+            self.cb_ad_expl_compound = QComboBox()
+            self.cb_ad_expl_compound.setEditable(True)
+            self.cb_ad_expl_compound.setInsertPolicy(QComboBox.NoInsert)
+            self.cb_ad_expl_compound.addItem("(none)")
+            self.cb_ad_expl_compound.setFixedWidth(260)
+            expl_row2.addWidget(self.cb_ad_expl_compound)
+            expl_row2.addStretch()
+            lay_ad_expl.addLayout(expl_row2)
+
+            expl_row3 = QHBoxLayout()
+            self.chk_ad_expl_3d = QCheckBox(); self._tr("s7_chk_ad_expl_3d", self.chk_ad_expl_3d.setText)
+            self.chk_ad_expl_kde = QCheckBox(); self._tr("s7_chk_ad_expl_kde", self.chk_ad_expl_kde.setText); self.chk_ad_expl_kde.setChecked(True)
+            self.chk_ad_expl_marginals = QCheckBox(); self._tr("s7_chk_ad_expl_marginals", self.chk_ad_expl_marginals.setText)
+            self.chk_ad_expl_thresholds = QCheckBox(); self._tr("s7_chk_ad_expl_thresholds", self.chk_ad_expl_thresholds.setText); self.chk_ad_expl_thresholds.setChecked(True)
+            self.chk_ad_expl_show_ext = QCheckBox(); self._tr("s7_chk_ad_expl_show_ext", self.chk_ad_expl_show_ext.setText); self.chk_ad_expl_show_ext.setChecked(True)
+            self.chk_ad_expl_profile = QCheckBox(); self._tr("s7_chk_ad_expl_profile", self.chk_ad_expl_profile.setText); self.chk_ad_expl_profile.setChecked(True)
+            for w in (self.chk_ad_expl_3d, self.chk_ad_expl_kde, self.chk_ad_expl_marginals,
+                      self.chk_ad_expl_thresholds, self.chk_ad_expl_show_ext, self.chk_ad_expl_profile):
+                expl_row3.addWidget(w)
+            expl_row3.addStretch()
+            lay_ad_expl.addLayout(expl_row3)
+
+            expl_row4 = QHBoxLayout()
+            self.btn_ad_expl_pred = QPushButton(); self._tr("s7_btn_ad_expl_pred", self.btn_ad_expl_pred.setText)
+            self.btn_ad_expl_pred.setProperty("role", "select"); self.btn_ad_expl_pred.setFixedWidth(180)
+            expl_row4.addWidget(self.btn_ad_expl_pred)
+            self.ed_ad_expl_pred = QLineEdit(); self.ed_ad_expl_pred.setReadOnly(True); self.ed_ad_expl_pred.setFixedWidth(240)
+            self.ed_ad_expl_pred.setStyleSheet("background-color: #6E8CA8; color: #6E8CA8; border: 1px solid #ccc; border-radius: 4px; padding: 4px;")
+            expl_row4.addWidget(self.ed_ad_expl_pred)
+            expl_row4.addSpacing(8)
+            expl_row4.addWidget(self._trL("s7_lbl_ad_expl_pred_col"))
+            self.cb_ad_expl_pred_col = QComboBox(); self.cb_ad_expl_pred_col.setFixedWidth(180)
+            expl_row4.addWidget(self.cb_ad_expl_pred_col)
+            expl_row4.addStretch()
+            lay_ad_expl.addLayout(expl_row4)
+
+            expl_row5 = QHBoxLayout()
+            expl_row5.addStretch()
+            self.btn_ad_expl_plot = QPushButton(); self._tr("s7_btn_ad_expl_plot", self.btn_ad_expl_plot.setText)
+            self.btn_ad_expl_plot.setProperty("role", "primary"); self.btn_ad_expl_plot.setFixedWidth(200)
+            expl_row5.addWidget(self.btn_ad_expl_plot)
+            expl_row5.addStretch()
+            lay_ad_expl.addLayout(expl_row5)
+
+            expl_wrap = QHBoxLayout()
+            expl_wrap.addStretch(); expl_wrap.addWidget(gb_ad_expl); expl_wrap.addStretch()
+
             # Monta layout
             l7.addLayout(head_lay1)
             l7.addLayout(head_lay2)
             l7.addLayout(body_AD)
             l7.addWidget(self.pb_ad, alignment=Qt.AlignCenter)
             l7.addLayout(verdict_row)
+            l7.addLayout(expl_wrap)
             l7.addStretch()
 
             # Conexões
             self.btn_ad_compute.clicked.connect(self.run_ad_assessment)
-            self.btn_ad_plot_williams.clicked.connect(self.plot_ad_williams)
-            self.btn_ad_plot_mahal_hist.clicked.connect(self.plot_ad_mahal_hist)
-            self.btn_ad_plot_pca.clicked.connect(self.plot_ad_pca_scatter)
-            self.btn_ad_plot_similarity.clicked.connect(self.plot_ad_similarity_dist)
+            self.btn_ad_expl_pred.clicked.connect(self.select_ad_expl_predictions)
+            self.btn_ad_expl_plot.clicked.connect(self.plot_ad_exploration)
 
             # ============== ORGANIZAÇÃO DOS BOTÕES NEXT/BACK ==============
             # Botão para o próximo:
