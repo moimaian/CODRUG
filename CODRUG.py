@@ -4324,12 +4324,12 @@ class MainWindow(QMainWindow):
         ("ad_expl_x", "cb_ad_expl_x"),
         ("ad_expl_y", "cb_ad_expl_y"),
         ("ad_expl_z", "cb_ad_expl_z"),
-        ("ad_expl_3d", "chk_ad_expl_3d"),
-        ("ad_expl_kde", "chk_ad_expl_kde"),
-        ("ad_expl_marginals", "chk_ad_expl_marginals"),
+        ("ad_expl_plot_type", "list_ad_expl_plot_type"),
         ("ad_expl_thresholds", "chk_ad_expl_thresholds"),
         ("ad_expl_show_ext", "chk_ad_expl_show_ext"),
         ("ad_expl_profile", "chk_ad_expl_profile"),
+        ("ad_expl_hide_others", "chk_ad_expl_hide_others"),
+        ("ad_expl_desc_match", "cb_ad_expl_desc_match"),
     ]
     STEP7_PLAIN_SPEC = [
         ("internal_dataframe_path", "_df_int_path"),
@@ -4415,9 +4415,9 @@ class MainWindow(QMainWindow):
             self._ad_ext_basename = os.path.splitext(f_ext)[0]
             m = re.search(r"_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2})", os.path.basename(cand))
             self._ad_timestamp = m.group(1) if m else datetime.now().strftime("%Y-%m-%d_%H-%M")
-            # Matrizes / fingerprint / combo: adiados (ver _ad_ensure_exploration_ready).
+            # Matrizes / fingerprint / lista de compostos: adiados (ver _ad_ensure_exploration_ready).
             self.X_train_ad_z = self.X_new_ad_z = None
-            self._ad_fp_tr_bin = self._ad_fp_nw_bin = None
+            self._ad_fp_tr_bin = self._ad_fp_nw_bin = self._ad_fp_cols = None
         except Exception:
             import traceback; traceback.print_exc()
 
@@ -4451,8 +4451,10 @@ class MainWindow(QMainWindow):
             if fp_common:
                 self._ad_fp_tr_bin = np.asarray(df_tr[fp_common].values)
                 self._ad_fp_nw_bin = np.asarray(df_new[fp_common].values)
+                self._ad_fp_cols = fp_common
             else:
                 self._ad_fp_tr_bin = self._ad_fp_nw_bin = None
+                self._ad_fp_cols = None
             num_new = set(df_new.select_dtypes(include="number").columns)
             common = [c for c in df_tr.select_dtypes(include="number").columns if c in num_new]
             if not common:
@@ -4461,8 +4463,8 @@ class MainWindow(QMainWindow):
             self.X_train_ad_z = sc.transform(df_tr[common].values)
             self.X_new_ad_z   = sc.transform(df_new[common].values)
             self._ad_expl_ctx = None   # matrizes novas -> contexto cacheado da AD Exploration fica obsoleto
-            if hasattr(self, "_populate_ad_expl_compound_combo"):
-                self._populate_ad_expl_compound_combo()
+            # As listas "Highlight compound(s)"/"Highlight descriptor(s)" não são mais preenchidas
+            # automaticamente — usam o botão "LOAD" ao lado de "Plot AD Exploration".
         except Exception:
             import traceback; traceback.print_exc()
 
@@ -13839,10 +13841,12 @@ class MainWindow(QMainWindow):
                 # Guarda as matrizes binárias p/ o grupo "AD Exploration" (Tanimoto treino×treino)
                 self._ad_fp_tr_bin = np.asarray(fp_cols_for_tanimoto_tr)
                 self._ad_fp_nw_bin = np.asarray(fp_cols_for_tanimoto_new)
+                self._ad_fp_cols = fp_common
             else:
                 # Sem fingerprints pré-calculados → fallback: gera Morgan ECFP4 dos SMILES via RDKit
                 self._ad_fp_tr_bin = None
                 self._ad_fp_nw_bin = None
+                self._ad_fp_cols = None
 
             # ── interseção de colunas numéricas para Leverage / Mahal / kNN ──
             num_tr  = [c for c in df_tr.columns  if pd.api.types.is_numeric_dtype(df_tr[c])]
@@ -13978,7 +13982,8 @@ class MainWindow(QMainWindow):
             self._ad_timestamp   = timestamp
             self._ad_result_path = out_path
             self._ad_expl_ctx = None   # novo Compute AD -> invalida o contexto cacheado da AD Exploration
-            self._populate_ad_expl_compound_combo()
+            # As listas "Highlight compound(s)"/"Highlight descriptor(s)" não são mais preenchidas
+            # automaticamente — usam o botão "LOAD" ao lado de "Plot AD Exploration".
             self._ad_autosave_report_plots()
             self._save_step7_state()
             QMessageBox.information(self, i18n.t("msg_title_ad", self._idioma), f"Done. Result saved to:\n{out_path}")
@@ -14109,6 +14114,35 @@ class MainWindow(QMainWindow):
         "Leverage", "Mahalanobis", "kNN mean dist", "Tanimoto max", "1 - Tanimoto max",
         "PC1", "PC2", "t-SNE 1", "t-SNE 2", "UMAP 1", "UMAP 2", "Predicted value", "Count",
     ]
+    AD_EXPL_PLOT_TYPES = ["3D scatter", "Train as KDE density", "Marginal histograms (2D)"]
+    # Siglas incorporadas ao nome do arquivo proposto ao salvar um "Plot AD Exploration".
+    AD_EXPL_AXIS_ABBR = {
+        "Leverage": "Lev", "Mahalanobis": "Mah", "kNN mean dist": "kNN",
+        "Tanimoto max": "TaniMax", "1 - Tanimoto max": "1mTani",
+        "PC1": "PC1", "PC2": "PC2", "t-SNE 1": "tSNE1", "t-SNE 2": "tSNE2",
+        "UMAP 1": "UMAP1", "UMAP 2": "UMAP2", "Predicted value": "Pred", "Count": "Cnt",
+    }
+
+    def _ad_expl_axis_abbr(self, choice):
+        if choice in self.AD_EXPL_AXIS_ABBR:
+            return self.AD_EXPL_AXIS_ABBR[choice]
+        abbr = "".join(ch for ch in choice if ch.isalnum())[:6]
+        return abbr or "Ax"
+
+    def _ad_expl_type_tag(self, mode, is3d=False, use_kde=False, show_marg=False):
+        """Sigla do 'Plot Type' para o nome do arquivo (mode: 'scatter' | 'hist')."""
+        if mode == "hist":
+            return "Hist-KDE" if use_kde else "Hist"
+        tag = "3D" if is3d else "2D"
+        if not is3d and use_kde:
+            tag += "-KDE"
+        if not is3d and show_marg:
+            tag += "-Marg"
+        return tag
+
+    def _ad_expl_selected_plot_types(self):
+        lw = getattr(self, "list_ad_expl_plot_type", None)
+        return {it.text() for it in lw.selectedItems()} if lw is not None else set()
 
     def _ad_expl_confidence_ellipse(self, x, y, ax, level=0.95, **kw):
         """Desenha a elipse de confiança (Hotelling T² ~ χ² com 2 g.l.) da nuvem (x, y) no eixo ax."""
@@ -14333,30 +14367,102 @@ class MainWindow(QMainWindow):
             self.cb_ad_expl_pred_col.blockSignals(False)
 
     def _ad_invalidate_result(self):
-        """Descarta o Compute AD em memória (tabela + matrizes z-score + cortes + lista de
-        compostos). Usado ao trocar manualmente o DataFrame Interno/Externo, antes de tentar
-        recarregar um Compute AD salvo que corresponda aos novos arquivos."""
+        """Descarta o Compute AD em memória (tabela + matrizes z-score + cortes + listas de
+        compostos/descritores). Usado ao trocar manualmente o DataFrame Interno/Externo, antes de
+        tentar recarregar um Compute AD salvo que corresponda aos novos arquivos."""
         for a in ("df_ad_result", "X_train_ad_z", "X_new_ad_z", "_ad_fp_tr_bin", "_ad_fp_nw_bin",
-                  "_ad_result_path", "h_star_ad", "chi2_cut_ad", "knn_cut_ad", "_ad_expl_ctx"):
+                  "_ad_fp_cols", "_ad_result_path", "h_star_ad", "chi2_cut_ad", "knn_cut_ad",
+                  "_ad_expl_ctx"):
             if hasattr(self, a):
                 setattr(self, a, None)
-        cb = getattr(self, "cb_ad_expl_compound", None)
-        if cb is not None:
-            cb.blockSignals(True); cb.clear(); cb.addItem("(none)"); cb.blockSignals(False)
+        for lw in (getattr(self, "list_ad_expl_compound", None), getattr(self, "list_ad_expl_desc", None)):
+            if lw is not None:
+                lw.blockSignals(True); lw.clear(); lw.blockSignals(False)
 
-    def _populate_ad_expl_compound_combo(self):
-        cb = getattr(self, "cb_ad_expl_compound", None)
+    @staticmethod
+    def _ad_expl_filter_list_items(list_widget, text):
+        """Filtro de texto (contém, sem distinguir maiúsculas) para as listas multi-seleção de
+        composto/descritor destacados — não altera a seleção, só a visibilidade dos itens."""
+        needle = (text or "").strip().lower()
+        for i in range(list_widget.count()):
+            item = list_widget.item(i)
+            item.setHidden(bool(needle) and needle not in item.text().lower())
+
+    def _populate_ad_expl_compound_list(self):
+        """Preenche a lista multi-seleção 'Highlight compound(s)' com os Name do Externo."""
+        lw = getattr(self, "list_ad_expl_compound", None)
         df_res = getattr(self, "df_ad_result", None)
-        if cb is None or df_res is None or "Name" not in df_res.columns:
+        if lw is None or df_res is None or "Name" not in df_res.columns:
             return
-        cur = cb.currentText()
-        cb.blockSignals(True)
-        cb.clear()
-        cb.addItem("(none)")
-        cb.addItems(df_res["Name"].astype(str).tolist())
-        i = cb.findText(cur)
-        cb.setCurrentIndex(i if i >= 0 else 0)
-        cb.blockSignals(False)
+        selected = {it.text() for it in lw.selectedItems()}
+        lw.blockSignals(True)
+        lw.clear()
+        lw.addItems(df_res["Name"].astype(str).tolist())
+        if selected:
+            for i in range(lw.count()):
+                it = lw.item(i)
+                if it.text() in selected:
+                    it.setSelected(True)
+        lw.blockSignals(False)
+
+    def _populate_ad_expl_descriptor_list(self):
+        """Preenche a lista multi-seleção 'Highlight descriptors' com os fingerprints binários
+        comuns a Interno/Externo (self._ad_fp_cols, definida junto de _ad_fp_tr_bin/_ad_fp_nw_bin)."""
+        lw = getattr(self, "list_ad_expl_desc", None)
+        cols = getattr(self, "_ad_fp_cols", None)
+        if lw is None:
+            return
+        selected = {it.text() for it in lw.selectedItems()}
+        lw.blockSignals(True)
+        lw.clear()
+        if cols:
+            lw.addItems(list(cols))
+            if selected:
+                for i in range(lw.count()):
+                    it = lw.item(i)
+                    if it.text() in selected:
+                        it.setSelected(True)
+        lw.blockSignals(False)
+
+    def run_ad_expl_load(self):
+        """Botão "LOAD" ao lado de "Plot AD Exploration": preenche (ou atualiza) as listas
+        multi-seleção "Highlight compound(s)" e "Highlight descriptor(s)" a partir do Compute AD
+        atual. Não roda automaticamente — só quando clicado, para não pagar o custo de popular
+        milhares de itens toda vez que o resultado muda."""
+        self._ad_ensure_exploration_ready()
+        df_res = getattr(self, "df_ad_result", None)
+        if df_res is None:
+            QMessageBox.warning(self, i18n.t("msg_title_ad", self._idioma), "Run 'Compute AD' first.")
+            return
+        self._populate_ad_expl_compound_list()
+        self._populate_ad_expl_descriptor_list()
+
+    def _ad_expl_selected_positions(self, df_res):
+        """Índices posicionais (no Externo) dos compostos marcados em 'Highlight compound(s)'."""
+        lw = getattr(self, "list_ad_expl_compound", None)
+        if lw is None or "Name" not in df_res.columns:
+            return []
+        names = {it.text() for it in lw.selectedItems()}
+        if not names:
+            return []
+        arr = df_res["Name"].astype(str).to_numpy()
+        return list(np.where(np.isin(arr, list(names)))[0])
+
+    def _ad_expl_descriptor_mask(self, df_res):
+        """Bool array (len=Externo) marcando os compostos com o(s) descritor(es) selecionado(s) em
+        'Highlight descriptor(s)' = 1. 'Any selected' = OR entre os bits; 'All selected' = AND."""
+        lw = getattr(self, "list_ad_expl_desc", None)
+        fp_cols = getattr(self, "_ad_fp_cols", None)
+        fp_nw = getattr(self, "_ad_fp_nw_bin", None)
+        if lw is None or not fp_cols or fp_nw is None:
+            return None
+        names = [it.text() for it in lw.selectedItems()]
+        idx = [fp_cols.index(n) for n in names if n in fp_cols]
+        if not idx:
+            return None
+        sub = fp_nw[:, idx] > 0.5
+        mode = self.cb_ad_expl_desc_match.currentData() if hasattr(self, "cb_ad_expl_desc_match") else "any"
+        return sub.all(axis=1) if mode == "all" else sub.any(axis=1)
 
     def plot_ad_exploration(self):
         import matplotlib.pyplot as plt
@@ -14366,18 +14472,34 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, i18n.t("msg_title_ad", self._idioma), "Run 'Compute AD' first.")
                 return
             df_res = ctx["df_res"]
-            is3d = hasattr(self, "chk_ad_expl_3d") and self.chk_ad_expl_3d.isChecked()
-            use_kde = self.chk_ad_expl_kde.isChecked()
+            # "Plot Type": lista multi-seleção (3D scatter / Train as KDE density / Marginal
+            # histograms) substitui os 3 checkboxes antigos.
+            plot_types = self._ad_expl_selected_plot_types()
+            is3d = "3D scatter" in plot_types
+            use_kde = "Train as KDE density" in plot_types
+            show_marg = (not is3d) and ("Marginal histograms (2D)" in plot_types)
             show_ext = self.chk_ad_expl_show_ext.isChecked()
             show_cuts = self.chk_ad_expl_thresholds.isChecked()
-            show_marg = (not is3d) and self.chk_ad_expl_marginals.isChecked()
-            name = self.cb_ad_expl_compound.currentText().strip()
-            hi_pos = None
-            if name and name != "(none)" and "Name" in df_res.columns:
-                _hits = np.where(df_res["Name"].astype(str).to_numpy() == name)[0]
-                hi_pos = int(_hits[0]) if _hits.size else None
+            # "Highlight compound(s)": lista multi-seleção. O painel de perfil só faz sentido para
+            # 1 composto por vez; com 0 ou 2+ marcados, ele fica oculto (mas as estrelas continuam).
+            hi_positions = self._ad_expl_selected_positions(df_res)
+            single = len(hi_positions) == 1
+            hi_pos = hi_positions[0] if single else None
             hi_row = df_res.iloc[hi_pos] if hi_pos is not None else None
-            want_profile = (not is3d) and self.chk_ad_expl_profile.isChecked() and hi_row is not None
+            name = str(df_res.iloc[hi_pos]["Name"]) if (single and "Name" in df_res.columns) else ""
+            want_profile = (not is3d) and self.chk_ad_expl_profile.isChecked() and single
+            # "Highlight descriptor(s)": compostos do Externo com o(s) bit(s) selecionado(s) = 1.
+            desc_mask = self._ad_expl_descriptor_mask(df_res)
+            # "Hide non-highlighted": restringe a camada Externa à união dos destacados (composto e/ou
+            # descritor) — ignorado se nada estiver selecionado (não faz sentido ocultar tudo).
+            keep_ext = None
+            if hasattr(self, "chk_ad_expl_hide_others") and self.chk_ad_expl_hide_others.isChecked():
+                hi_set = set(hi_positions)
+                if desc_mask is not None:
+                    hi_set |= set(np.where(desc_mask)[0].tolist())
+                if hi_set:
+                    keep_ext = np.zeros(len(df_res), dtype=bool)
+                    keep_ext[list(hi_set)] = True
 
             xc = self.cb_ad_expl_x.currentText()
             yc = self.cb_ad_expl_y.currentText()
@@ -14390,7 +14512,7 @@ class MainWindow(QMainWindow):
                                         "Pick a metric on the other axis when one axis is 'Count'.")
                     return
                 self._ad_expl_histogram_mode(ctx, df_res, (yc if xc == "Count" else xc),
-                                             hi_pos, hi_row, name)
+                                             hi_positions, hi_row, name, desc_mask, keep_ext)
                 return
 
             xtr, xnw, xcut, xlab = self._ad_expl_axis_series(xc, ctx)
@@ -14428,17 +14550,29 @@ class MainWindow(QMainWindow):
                 if show_ext:
                     for v in ("Within AD", "Borderline", "Outside AD"):
                         m = verdict == v
+                        if keep_ext is not None:
+                            m = m & keep_ext
                         if m.any():
                             ax.scatter(xnw[m], ynw[m], znw[m], s=14, alpha=0.55, color=vcol[v], label=f"Ext · {v}")
-                if hi_pos is not None:
-                    hx, hy, hz = np.asarray(xnw)[hi_pos], np.asarray(ynw)[hi_pos], np.asarray(znw)[hi_pos]
-                    ax.scatter([hx], [hy], [hz], marker="*", s=260, color="#111", edgecolor="w", zorder=6)
-                    ax.text(hx, hy, hz, f"  {name}", fontsize=8)
+                if desc_mask is not None and desc_mask.any():
+                    ax.scatter(np.asarray(xnw)[desc_mask], np.asarray(ynw)[desc_mask], np.asarray(znw)[desc_mask],
+                               s=50, facecolors="none", edgecolors="#000000", linewidths=1.2, marker="o",
+                               zorder=5, label=f"Descriptor match (n={int(desc_mask.sum())})")
+                if hi_positions:
+                    hx = np.asarray(xnw)[hi_positions]; hy = np.asarray(ynw)[hi_positions]; hz = np.asarray(znw)[hi_positions]
+                    ax.scatter(hx, hy, hz, marker="o", s=28, color="darkviolet", edgecolor="white",
+                               linewidths=0.8, zorder=6, label=f"Highlighted (n={len(hi_positions)})")
+                    for i, p in enumerate(hi_positions):   # janela de info — um rótulo por composto destacado
+                        lbl = str(df_res.iloc[p]["Name"]) if "Name" in df_res.columns else ""
+                        ax.text(hx[i], hy[i], hz[i], f"  {lbl}", fontsize=8)
                 ax.set_xlabel(xlab); ax.set_ylabel(ylab); ax.set_zlabel(zlab)
                 ax.set_title("AD Exploration (3D)")
                 ax.legend(fontsize=7, loc="upper left")
                 fig.tight_layout()
-                self._ad_save_dialog(fig, "Plot_ad_exploration")
+                type_tag = self._ad_expl_type_tag("scatter", is3d=True)
+                prefix = (f"Plot_ad_exploration_{self._ad_expl_axis_abbr(xc)}-{self._ad_expl_axis_abbr(yc)}"
+                          f"-{self._ad_expl_axis_abbr(zc)}_{type_tag}")
+                self._ad_save_dialog(fig, prefix)
                 plt.show()
                 return
 
@@ -14473,6 +14607,8 @@ class MainWindow(QMainWindow):
             if show_ext:
                 for v in ("Within AD", "Borderline", "Outside AD"):
                     m = verdict == v
+                    if keep_ext is not None:
+                        m = m & keep_ext
                     if m.any():
                         ax.scatter(np.asarray(xnw)[m], np.asarray(ynw)[m], s=16, alpha=0.6,
                                    color=vcol[v], label=f"Ext · {v}", linewidths=0)
@@ -14483,18 +14619,28 @@ class MainWindow(QMainWindow):
                 if ycut is not None:
                     ax.axhline(ycut, ls="--", color="0.35", lw=1.2)
 
-            if hi_pos is not None:
-                hx, hy = np.asarray(xnw)[hi_pos], np.asarray(ynw)[hi_pos]
-                ax.scatter([hx], [hy], marker="*", s=320, color="#111", edgecolor="white", zorder=6)
-                r = hi_row
-                txt = name
-                if {"leverage", "mahal", "knn_mean_dist", "tanimoto_max"} <= set(df_res.columns):
-                    txt += (f"\nh={r['leverage']:.2f} MD={r['mahal']:.1f}"
-                            f"\nkNN={r['knn_mean_dist']:.1f} Tc={r['tanimoto_max']:.2f}")
-                if "ad_verdict" in df_res.columns:
-                    txt += f"\n{r['ad_verdict']}"
-                ax.annotate(txt, (hx, hy), textcoords="offset points", xytext=(12, 12),
-                            fontsize=8, bbox=dict(boxstyle="round", fc="w", ec="0.5", alpha=0.92))
+            if desc_mask is not None and desc_mask.any():
+                ax.scatter(np.asarray(xnw)[desc_mask], np.asarray(ynw)[desc_mask], s=70,
+                           facecolors="none", edgecolors="#000000", linewidths=1.3, marker="o",
+                           zorder=5, label=f"Descriptor match (n={int(desc_mask.sum())})")
+
+            if hi_positions:
+                hx = np.asarray(xnw)[hi_positions]; hy = np.asarray(ynw)[hi_positions]
+                ax.scatter(hx, hy, marker="o", s=32, color="darkviolet", edgecolor="white",
+                           linewidths=0.8, zorder=6, label=f"Highlighted (n={len(hi_positions)})")
+                # janela de info (nome + leverage/Mahalanobis/kNN/Tanimoto + veredito) — uma por
+                # composto destacado, não só quando exatamente 1 está marcado.
+                has_metrics = {"leverage", "mahal", "knn_mean_dist", "tanimoto_max"} <= set(df_res.columns)
+                for i, p in enumerate(hi_positions):
+                    r = df_res.iloc[p]
+                    txt = str(r["Name"]) if "Name" in df_res.columns else ""
+                    if has_metrics:
+                        txt += (f"\nh={r['leverage']:.2f} MD={r['mahal']:.1f}"
+                                f"\nkNN={r['knn_mean_dist']:.1f} Tc={r['tanimoto_max']:.2f}")
+                    if "ad_verdict" in df_res.columns:
+                        txt += f"\n{r['ad_verdict']}"
+                    ax.annotate(txt, (hx[i], hy[i]), textcoords="offset points", xytext=(12, 12),
+                                fontsize=8, bbox=dict(boxstyle="round", fc="w", ec="0.5", alpha=0.92))
 
             if show_marg and drew_train:
                 try:
@@ -14527,25 +14673,34 @@ class MainWindow(QMainWindow):
                 axp.axis("off")
 
             fig.tight_layout()
-            self._ad_save_dialog(fig, "Plot_ad_exploration")
+            type_tag = self._ad_expl_type_tag("scatter", is3d=False, use_kde=use_kde, show_marg=show_marg)
+            prefix = f"Plot_ad_exploration_{self._ad_expl_axis_abbr(xc)}-{self._ad_expl_axis_abbr(yc)}_{type_tag}"
+            self._ad_save_dialog(fig, prefix)
             plt.show()
         except Exception as e:
             import traceback; traceback.print_exc()
             QMessageBox.critical(self, i18n.t("msg_title_ad", self._idioma), f"Error in AD Exploration: {e}")
 
-    def _ad_expl_histogram_mode(self, ctx, df_res, value_axis, hi_pos, hi_row, name):
+    def _ad_expl_histogram_mode(self, ctx, df_res, value_axis, hi_positions, hi_row, name,
+                                desc_mask=None, keep_ext=None):
         """Histograma 1-D de uma única métrica de DA (quando um dos eixos é 'Count'). Reproduz os
         antigos botões: Leverage + só treino = Plot Williams; Mahalanobis + treino & externo = Hist
         Mahalanobis; Tanimoto max + só externo = Similarity Dist. Os checkboxes 'Train as KDE
         density' e 'Show external points' ligam/desligam cada série; 'Show cutoff lines' desenha o
-        corte; o composto destacado vira uma linha vertical."""
+        corte; cada composto destacado vira uma linha vertical violeta; os compostos com o(s)
+        descritor(es) selecionado(s) viram marcas em "rug" (tracinhos) rente ao eixo x; com 'Hide
+        non-highlighted' marcado, o histograma Externo só usa os compostos destacados/casados."""
         import matplotlib.pyplot as plt
         vtr, vnw, vcut, vlab = self._ad_expl_axis_series(value_axis, ctx)
         if vnw is None and vtr is None:
             QMessageBox.warning(self, i18n.t("msg_title_ad", self._idioma),
                                 f"No data available for axis '{value_axis}'.")
             return
-        show_train = self.chk_ad_expl_kde.isChecked() and vtr is not None
+        if keep_ext is not None and vnw is not None:
+            vnw = np.where(keep_ext, np.asarray(vnw, float), np.nan)
+        plot_types = self._ad_expl_selected_plot_types()
+        use_kde = "Train as KDE density" in plot_types
+        show_train = use_kde and vtr is not None
         show_ext   = self.chk_ad_expl_show_ext.isChecked() and vnw is not None
         if not show_train and not show_ext:      # config degenerada -> mostra ao menos uma série
             show_ext = vnw is not None
@@ -14583,11 +14738,27 @@ class MainWindow(QMainWindow):
         if show_cuts and vcut is not None:
             ax.axvline(vcut, ls="--", color="0.25", lw=1.4, label=f"cutoff = {vcut:.3g}")
 
-        if hi_pos is not None and vnw is not None:
-            hv = np.asarray(vnw, float)[hi_pos]
-            if np.isfinite(hv):
-                ax.axvline(hv, color="#111", lw=2.0, zorder=6)
-                ax.annotate(f"{name} = {hv:.3g}", xy=(hv, 0.98), xycoords=("data", "axes fraction"),
+        if desc_mask is not None and desc_mask.any() and vnw is not None:
+            dv = np.asarray(vnw, float)[desc_mask]
+            dv = dv[np.isfinite(dv)]
+            if dv.size:
+                # "rug": tracinhos rente ao eixo x (coordenada y em fração do eixo, não do dado)
+                ax.plot(dv, np.full(dv.size, 0.02), "|", color="#000000", markersize=10, mew=1.3,
+                        transform=ax.get_xaxis_transform(), zorder=5,
+                        label=f"Descriptor match (n={dv.size})")
+
+        if hi_positions and vnw is not None:
+            hv_all = np.asarray(vnw, float)[hi_positions]
+            for i, hv in enumerate(hv_all):
+                if np.isfinite(hv):
+                    ax.axvline(hv, color="darkviolet", lw=2.2, zorder=6,
+                               label=(f"Highlighted (n={len(hi_positions)})" if i == 0 else None))
+            # janela de info — um rótulo "Nome = valor" por composto destacado (não só quando é 1)
+            for i, (p, hv) in enumerate(zip(hi_positions, hv_all)):
+                if not np.isfinite(hv):
+                    continue
+                nm = str(df_res.iloc[p]["Name"]) if "Name" in df_res.columns else ""
+                ax.annotate(f"{nm} = {hv:.3g}", xy=(hv, 0.98 - 0.08 * (i % 6)), xycoords=("data", "axes fraction"),
                             xytext=(6, -6), textcoords="offset points", fontsize=8, va="top",
                             bbox=dict(boxstyle="round", fc="w", ec="0.5", alpha=0.92))
 
@@ -14599,7 +14770,9 @@ class MainWindow(QMainWindow):
             self._ad_expl_draw_profile(axp, hi_row, df_res)
 
         fig.tight_layout()
-        self._ad_save_dialog(fig, "Plot_ad_exploration")
+        type_tag = self._ad_expl_type_tag("hist", use_kde=show_train)
+        prefix = f"Plot_ad_exploration_{self._ad_expl_axis_abbr(value_axis)}-Cnt_{type_tag}"
+        self._ad_save_dialog(fig, prefix)
         plt.show()
 
     def _ad_expl_draw_profile(self, ax, row, df_res):
@@ -18571,41 +18744,95 @@ class MainWindow(QMainWindow):
             lay_ad_expl = QVBoxLayout(gb_ad_expl)
 
             axopts = list(self.AD_EXPL_AXES)
+
+            def _ad_expl_axis_col(label_key, default_text):
+                """Coluna label (centralizada) em cima do combo do eixo — usada nas 3 colunas X/Y/Z."""
+                col = QVBoxLayout()
+                lbl = self._trL(label_key); lbl.setAlignment(Qt.AlignCenter)
+                col.addWidget(lbl)
+                cb = QComboBox(); cb.addItems(axopts); cb.setCurrentText(default_text); cb.setFixedWidth(150)
+                col.addWidget(cb)
+                return col, cb
+
+            # --- Linha 1: eixos X/Y/Z, label acima do combo, tudo centralizado no grupo ---
             expl_row1 = QHBoxLayout()
-            expl_row1.addWidget(self._trL("s7_lbl_ad_expl_x"))
-            self.cb_ad_expl_x = QComboBox(); self.cb_ad_expl_x.addItems(axopts); self.cb_ad_expl_x.setCurrentText("Leverage")
-            self.cb_ad_expl_x.setFixedWidth(150); expl_row1.addWidget(self.cb_ad_expl_x)
-            expl_row1.addSpacing(10)
-            expl_row1.addWidget(self._trL("s7_lbl_ad_expl_y"))
-            self.cb_ad_expl_y = QComboBox(); self.cb_ad_expl_y.addItems(axopts); self.cb_ad_expl_y.setCurrentText("Mahalanobis")
-            self.cb_ad_expl_y.setFixedWidth(150); expl_row1.addWidget(self.cb_ad_expl_y)
-            expl_row1.addSpacing(10)
-            expl_row1.addWidget(self._trL("s7_lbl_ad_expl_z"))
-            self.cb_ad_expl_z = QComboBox(); self.cb_ad_expl_z.addItems(axopts); self.cb_ad_expl_z.setCurrentText("kNN mean dist")
-            self.cb_ad_expl_z.setFixedWidth(150); expl_row1.addWidget(self.cb_ad_expl_z)
+            expl_row1.addStretch()
+            col_x, self.cb_ad_expl_x = _ad_expl_axis_col("s7_lbl_ad_expl_x", "Leverage")
+            expl_row1.addLayout(col_x); expl_row1.addSpacing(14)
+            col_y, self.cb_ad_expl_y = _ad_expl_axis_col("s7_lbl_ad_expl_y", "Mahalanobis")
+            expl_row1.addLayout(col_y); expl_row1.addSpacing(14)
+            col_z, self.cb_ad_expl_z = _ad_expl_axis_col("s7_lbl_ad_expl_z", "kNN mean dist")
+            expl_row1.addLayout(col_z)
             expl_row1.addStretch()
             lay_ad_expl.addLayout(expl_row1)
 
+            # --- Linha 2 (grid de 3 colunas): Highlight compound(s) | Highlight descriptor(s) | Plot Type ---
             expl_row2 = QHBoxLayout()
-            expl_row2.addWidget(self._trL("s7_lbl_ad_expl_compound"))
-            self.cb_ad_expl_compound = QComboBox()
-            self.cb_ad_expl_compound.setEditable(True)
-            self.cb_ad_expl_compound.setInsertPolicy(QComboBox.NoInsert)
-            self.cb_ad_expl_compound.addItem("(none)")
-            self.cb_ad_expl_compound.setFixedWidth(260)
-            expl_row2.addWidget(self.cb_ad_expl_compound)
+
+            # Coluna 1 — Highlight compound(s): filtro + lista multi-seleção
+            compound_box = QVBoxLayout()
+            compound_box.addWidget(self._trL("s7_lbl_ad_expl_compound"))
+            self.ed_ad_expl_compound_filter = QLineEdit()
+            self._tr("s7_ph_ad_expl_filter", self.ed_ad_expl_compound_filter.setPlaceholderText)
+            self.ed_ad_expl_compound_filter.setFixedWidth(220)
+            compound_box.addWidget(self.ed_ad_expl_compound_filter)
+            self.list_ad_expl_compound = QListWidget()
+            self.list_ad_expl_compound.setSelectionMode(QAbstractItemView.MultiSelection)
+            self.list_ad_expl_compound.setFixedSize(220, 90)
+            self._tr("s7_tooltip_ad_expl_compound", self.list_ad_expl_compound.setToolTip)
+            compound_box.addWidget(self.list_ad_expl_compound)
+            expl_row2.addLayout(compound_box)
+
+            expl_row2.addSpacing(16)
+
+            # Coluna 2 — Highlight descriptor(s): filtro + lista multi-seleção + modo de correspondência
+            desc_box = QVBoxLayout()
+            desc_head = QHBoxLayout()
+            desc_head.addWidget(self._trL("s7_lbl_ad_expl_desc"))
+            self.cb_ad_expl_desc_match = QComboBox()
+            self.cb_ad_expl_desc_match.addItem("Any selected", "any")
+            self.cb_ad_expl_desc_match.addItem("All selected", "all")
+            self._tr("s7_tooltip_ad_expl_desc_match", self.cb_ad_expl_desc_match.setToolTip)
+            desc_head.addWidget(self.cb_ad_expl_desc_match)
+            desc_head.addStretch()
+            desc_box.addLayout(desc_head)
+            self.ed_ad_expl_desc_filter = QLineEdit()
+            self._tr("s7_ph_ad_expl_filter", self.ed_ad_expl_desc_filter.setPlaceholderText)
+            self.ed_ad_expl_desc_filter.setFixedWidth(260)
+            desc_box.addWidget(self.ed_ad_expl_desc_filter)
+            self.list_ad_expl_desc = QListWidget()
+            self.list_ad_expl_desc.setSelectionMode(QAbstractItemView.MultiSelection)
+            self.list_ad_expl_desc.setFixedSize(260, 90)
+            self._tr("s7_tooltip_ad_expl_desc", self.list_ad_expl_desc.setToolTip)
+            desc_box.addWidget(self.list_ad_expl_desc)
+            expl_row2.addLayout(desc_box)
+
+            expl_row2.addSpacing(16)
+
+            # Coluna 3 — Plot Type: lista multi-seleção (substitui os checkboxes 3D/KDE/Marginais)
+            type_box = QVBoxLayout()
+            type_box.addWidget(self._trL("s7_lbl_ad_expl_plot_type"))
+            self.list_ad_expl_plot_type = QListWidget()
+            self.list_ad_expl_plot_type.setSelectionMode(QAbstractItemView.MultiSelection)
+            self.list_ad_expl_plot_type.addItems(self.AD_EXPL_PLOT_TYPES)
+            self.list_ad_expl_plot_type.setFixedSize(260, 90)
+            self._tr("s7_tooltip_ad_expl_plot_type", self.list_ad_expl_plot_type.setToolTip)
+            self.list_ad_expl_plot_type.item(1).setSelected(True)   # "Train as KDE density" ligado por padrão
+            type_box.addWidget(self.list_ad_expl_plot_type)
+            expl_row2.addLayout(type_box)
+
             expl_row2.addStretch()
             lay_ad_expl.addLayout(expl_row2)
 
+            # --- Linha 3: checkboxes remanescentes, abaixo das caixas multi-seleção ---
             expl_row3 = QHBoxLayout()
-            self.chk_ad_expl_3d = QCheckBox(); self._tr("s7_chk_ad_expl_3d", self.chk_ad_expl_3d.setText)
-            self.chk_ad_expl_kde = QCheckBox(); self._tr("s7_chk_ad_expl_kde", self.chk_ad_expl_kde.setText); self.chk_ad_expl_kde.setChecked(True)
-            self.chk_ad_expl_marginals = QCheckBox(); self._tr("s7_chk_ad_expl_marginals", self.chk_ad_expl_marginals.setText)
+            self.chk_ad_expl_hide_others = QCheckBox(); self._tr("s7_chk_ad_expl_hide_others", self.chk_ad_expl_hide_others.setText)
+            self._tr("s7_tooltip_ad_expl_hide_others", self.chk_ad_expl_hide_others.setToolTip)
             self.chk_ad_expl_thresholds = QCheckBox(); self._tr("s7_chk_ad_expl_thresholds", self.chk_ad_expl_thresholds.setText); self.chk_ad_expl_thresholds.setChecked(True)
             self.chk_ad_expl_show_ext = QCheckBox(); self._tr("s7_chk_ad_expl_show_ext", self.chk_ad_expl_show_ext.setText); self.chk_ad_expl_show_ext.setChecked(True)
             self.chk_ad_expl_profile = QCheckBox(); self._tr("s7_chk_ad_expl_profile", self.chk_ad_expl_profile.setText); self.chk_ad_expl_profile.setChecked(True)
-            for w in (self.chk_ad_expl_3d, self.chk_ad_expl_kde, self.chk_ad_expl_marginals,
-                      self.chk_ad_expl_thresholds, self.chk_ad_expl_show_ext, self.chk_ad_expl_profile):
+            for w in (self.chk_ad_expl_hide_others, self.chk_ad_expl_thresholds,
+                      self.chk_ad_expl_show_ext, self.chk_ad_expl_profile):
                 expl_row3.addWidget(w)
             expl_row3.addStretch()
             lay_ad_expl.addLayout(expl_row3)
@@ -18626,6 +18853,11 @@ class MainWindow(QMainWindow):
 
             expl_row5 = QHBoxLayout()
             expl_row5.addStretch()
+            self.btn_ad_expl_load = QPushButton(); self._tr("s7_btn_ad_expl_load", self.btn_ad_expl_load.setText)
+            self.btn_ad_expl_load.setProperty("role", "secondary"); self.btn_ad_expl_load.setFixedWidth(140)
+            self._tr("s7_tooltip_ad_expl_load", self.btn_ad_expl_load.setToolTip)
+            expl_row5.addWidget(self.btn_ad_expl_load)
+            expl_row5.addSpacing(10)
             self.btn_ad_expl_plot = QPushButton(); self._tr("s7_btn_ad_expl_plot", self.btn_ad_expl_plot.setText)
             self.btn_ad_expl_plot.setProperty("role", "primary"); self.btn_ad_expl_plot.setFixedWidth(200)
             expl_row5.addWidget(self.btn_ad_expl_plot)
@@ -18647,7 +18879,12 @@ class MainWindow(QMainWindow):
             # Conexões
             self.btn_ad_compute.clicked.connect(self.run_ad_assessment)
             self.btn_ad_expl_pred.clicked.connect(self.select_ad_expl_predictions)
+            self.btn_ad_expl_load.clicked.connect(self.run_ad_expl_load)
             self.btn_ad_expl_plot.clicked.connect(self.plot_ad_exploration)
+            self.ed_ad_expl_compound_filter.textChanged.connect(
+                lambda t: self._ad_expl_filter_list_items(self.list_ad_expl_compound, t))
+            self.ed_ad_expl_desc_filter.textChanged.connect(
+                lambda t: self._ad_expl_filter_list_items(self.list_ad_expl_desc, t))
 
             # ============== ORGANIZAÇÃO DOS BOTÕES NEXT/BACK ==============
             # Botão para o próximo:
