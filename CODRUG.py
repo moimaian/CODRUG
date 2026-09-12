@@ -6716,7 +6716,17 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, i18n.t("msg_title_error_list_columns_csv", self._idioma), str(e))
         try:
             self.list_units.clear()
-            units_unique = [u for u in self.df_selecionado['units'].dropna().astype(str).map(str.strip).unique() if u]
+            # 'units' quando presente; na ausência dela, cai para standard_unit(s) - mesma lógica
+            # de fallback usada em "Convert type"/"Convert units" (run_convert_types/
+            # run_convert_units) para dataframes que só mantiveram as colunas standard_*.
+            units_col = "units" if "units" in self.df_selecionado.columns else next(
+                (c for c in self.df_selecionado.columns if str(c).strip().lower() in ("standard_unit", "standard_units")),
+                None
+            )
+            units_unique = (
+                [u for u in self.df_selecionado[units_col].dropna().astype(str).map(str.strip).unique() if u]
+                if units_col is not None else []
+            )
             self.list_units.addItems(units_unique)
         except Exception as e:
             self.list_units.clear()
@@ -6854,12 +6864,16 @@ class MainWindow(QMainWindow):
         if getattr(self, "df_selecionado", None) is None:
             return
         if not checked:
-            # Desmarca standard_value/standard_unit(s) em "1. Select columns of interest",
+            # Desmarca standard_value/standard_unit(s) em "1. Select columns of interest" e marca
+            # 'value'/'units' de volta (espelhando o que o ramo "checked" faz ao contrário),
             # deixando as demais seleções intocadas:
             for i in range(self.list_columns.count()):
                 item = self.list_columns.item(i)
-                if item.text().strip().lower() in ("standard_value", "standard_unit", "standard_units"):
+                text_lower = item.text().strip().lower()
+                if text_lower in ("standard_value", "standard_unit", "standard_units"):
                     item.setSelected(False)
+                elif text_lower in ("value", "units"):
+                    item.setSelected(True)
             return
         # Adiciona standard_value/standard_unit(s) à seleção de "1. Select columns of interest",
         # quando presentes, preservando as demais colunas já selecionadas - e retira 'value'/
@@ -7281,11 +7295,14 @@ class MainWindow(QMainWindow):
             df['type'] = 'IC50'
 
         elif tn == 'pic50':
-            # converter somente onde o dado atual está em IC50
-            # proteger contra valores <= 0
+            # converter somente onde o dado atual está em IC50 e é positivo (log indefinido para
+            # valores <= 0). Onde IC50 <= 0, o valor vira NaN em vez de ficar com o número bruto
+            # original rotulado como se fosse pIC50 (não faz sentido: pIC50 <= 0 não existe para
+            # um IC50 <= 0, e o valor cru mal rotulado passava despercebido nos dados finais).
             safe = is_ic50 & (vals > 0)
+            unsafe_ic50 = is_ic50 & ~safe
             df.loc[safe, value_col] = -np.log10(vals[safe])
-            # onde inválido, manter original
+            df.loc[unsafe_ic50, value_col] = np.nan
             df['type'] = 'pIC50'
 
         elif tn == 'mic':
@@ -7294,9 +7311,13 @@ class MainWindow(QMainWindow):
             df['type'] = 'MIC'
 
         elif tn == 'pmic':
-            # converter somente onde o dado atual está em MIC
+            # converter somente onde o dado atual está em MIC e é positivo (mesma proteção e
+            # mesmo motivo do ramo 'pic50' acima: MIC <= 0 vira NaN, não fica com o valor bruto
+            # rotulado como pMIC).
             safe = is_mic & (vals > 0)
+            unsafe_mic = is_mic & ~safe
             df.loc[safe, value_col] = -np.log10(vals[safe])
+            df.loc[unsafe_mic, value_col] = np.nan
             df['type'] = 'pMIC'
 
         else:
@@ -7316,9 +7337,14 @@ class MainWindow(QMainWindow):
         # Renomeia a coluna de valor (value ou standard_value) para o tipo de destino
         df = df.rename(columns={value_col: type_name})
 
-        # Feedback sobre conversões inválidas:
-        # ex.: quantos valores ficaram NaN após conversão
-        invalid_count = df[type_name].isna().sum()
+        # Feedback sobre conversões inválidas: quantos valores ficaram NaN após a conversão (ex.:
+        # IC50/MIC <= 0, para os quais -log10 não existe - ver ramos 'pic50'/'pmic' acima).
+        invalid_count = int(df[type_name].isna().sum())
+        if invalid_count:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma),
+                f"{invalid_count} value(s) could not be converted to '{type_name}' "
+                "(e.g., IC50/MIC <= 0, for which -log10 is undefined) and were set to NaN."
+            )
 
         df.to_csv(file_path, index=False)
         self._next_dataframe_save_path = file_path
@@ -7379,94 +7405,67 @@ class MainWindow(QMainWindow):
         • Se destino é dose por massa: só converte se origem também for dose por massa.
             Se origem for molar ou massa/volume, não converte → NaN + aviso.
 
-        Coluna de unidade de origem: usa 'units' quando presente; na ausência dela, cai
-        automaticamente para standard_unit(s) - nesse caso não há conversão a fazer (já é uma
-        única unidade padrão por linha, curada pelo ChEMBL), só a renomeia para 'units'.
+        Colunas de origem: usa 'value'/'units' quando presentes; na ausência delas (ou com o
+        checkbox "Use Standard values" marcado, que força o uso mesmo quando 'value'/'units'
+        também existem), usa standard_value/standard_unit(s) - em qualquer um dos casos o MESMO
+        pipeline de conversão acima roda normalmente: standard_unit(s) não é garantidamente uma
+        única unidade padrão (o ChEMBL só converte concentrações molares para nM; outras famílias
+        de unidade, ex. "ug mL-1", continuam como estavam), então ainda pode haver o que
+        converter - a conversão nunca é pulada.
         """
         # ---------------- Pré-checagens ----------------
         if getattr(self, "df_selecionado", None) is None or self.df_selecionado.empty:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "No DataFrame loaded.")
             return
 
-        # ---------------- "Use Standard values": pula todo o cálculo de conversão e apenas ----------------
-        # ---------------- copia standard_value/standard_unit(s), já padronizados pelo ChEMBL, linha a ----------------
-        # ---------------- linha. A coluna 'value' já foi renomeada pelo botão "Convert type" (row 2) ----------------
-        # ---------------- para o nome selecionado em "2. Select standard type" (ex.: IC50, MIC, ...); é ----------------
-        # ---------------- essa coluna (não mais 'value') que recebe os valores de standard_value. ----------------
-        if getattr(self, "chk_use_standard_values", None) is not None and self.chk_use_standard_values.isChecked():
-            standard_value_col = next(
-                (c for c in self.df_selecionado.columns if str(c).strip().lower() == "standard_value"), None
+        # ---------------- Resolve as colunas de origem (valor e unidade) ----------------
+        # "Use Standard values" marcado: força o uso de standard_value/standard_unit(s) como
+        # FONTE, mesmo que 'value'/'units' também existam (override explícito do usuário) -
+        # desmarcado (ou já resolvido por "Convert type"): usa 'value'/'units' quando presentes,
+        # caindo para standard_value/standard_unit(s) só na ausência deles.
+        # IMPORTANTE: em nenhum dos dois casos a conversão abaixo é pulada - standard_unit(s) NÃO
+        # é garantidamente uma única unidade padrão (o ChEMBL só converte concentrações molares
+        # para nM; outras famílias, ex. "ug mL-1", continuam como estavam), então o mesmo
+        # pipeline de conversão roda sempre, seja qual for a coluna de origem.
+        use_standard = getattr(self, "chk_use_standard_values", None) is not None and self.chk_use_standard_values.isChecked()
+
+        type_name = self.list_types.currentText().strip()
+        value_col_target = type_name if type_name else "value"
+
+        standard_value_col = next(
+            (c for c in self.df_selecionado.columns if str(c).strip().lower() == "standard_value"), None
+        )
+        # "Convert type" já pode ter rodado antes e renomeado 'value'/standard_value ->
+        # value_col_target (ver run_convert_types); nesse caso a coluna já está pronta.
+        already_named = value_col_target in self.df_selecionado.columns
+        if standard_value_col is not None and (use_standard or not already_named):
+            if use_standard and already_named and standard_value_col != value_col_target:
+                self.df_selecionado = self.df_selecionado.drop(columns=[value_col_target])
+            self.df_selecionado = self.df_selecionado.rename(columns={standard_value_col: value_col_target})
+            already_named = True
+
+        if not already_named:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma),
+                f"Column '{value_col_target}' (or 'value'/'standard_value') not found in the DataFrame."
             )
-            standard_unit_col = next(
-                (c for c in self.df_selecionado.columns if str(c).strip().lower() in ("standard_unit", "standard_units")), None
-            )
-            if standard_value_col is None or standard_unit_col is None:
-                QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma),
-                    "Columns 'standard_value' and 'standard_unit(s)' are required to use standard values."
-                )
-                return
-
-            type_name = self.list_types.currentText().strip()
-            value_col = type_name if type_name else "value"
-            self.df_selecionado[value_col] = pd.to_numeric(self.df_selecionado[standard_value_col], errors="coerce")
-            self.df_selecionado["units"] = self.df_selecionado[standard_unit_col]
-
-            target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
-            target_organism = self.ed_organism_name.text().strip() if hasattr(self, "ed_organism_name") else ""
-            job_dir = getattr(self, "job_dir", os.getcwd())
-            out_dir = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA")
-            os.makedirs(out_dir, exist_ok=True)
-            file_path = os.path.join(out_dir, f"df2_unit_{target_chembl_id}_{target_organism}.csv")
-
-            self.df_selecionado.to_csv(file_path, index=False)
-            self._next_dataframe_save_path = file_path
-            self.show_dataframe(self.df_selecionado)
-            self.df_name_view.setText(os.path.basename(file_path))
-            self._step2_df_path = self._to_job_relative_path(file_path)
-            self._refresh_step2_dataframe_widgets()
-            self._save_step2_state()
             return
+        self.type_name = value_col_target
 
-        # ---------------- 'units' ausente: cai para standard_unit(s) automaticamente ----------------
-        # (independe do checkbox acima - dispara sempre que 'units' não existir no dataframe, por
-        # exemplo depois de "Count and Filter Columns of interest" com 'units' desmarcada).
-        # standard_unit(s) já é uma única unidade padrão por linha (curadoria do próprio ChEMBL),
-        # então não há conversão a fazer aqui: só renomear standard_unit(s) para 'units'.
-        if "units" not in self.df_selecionado.columns:
-            standard_unit_col = next(
-                (c for c in self.df_selecionado.columns if str(c).strip().lower() in ("standard_unit", "standard_units")),
-                None
-            )
-            if standard_unit_col is None:
-                QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma),
-                    "Column 'units' (or 'standard_unit(s)') not found in the DataFrame."
-                )
-                return
-
+        standard_unit_col = next(
+            (c for c in self.df_selecionado.columns if str(c).strip().lower() in ("standard_unit", "standard_units")),
+            None
+        )
+        has_units = "units" in self.df_selecionado.columns
+        if standard_unit_col is not None and (use_standard or not has_units):
+            if use_standard and has_units and standard_unit_col != "units":
+                self.df_selecionado = self.df_selecionado.drop(columns=["units"])
             self.df_selecionado = self.df_selecionado.rename(columns={standard_unit_col: "units"})
+            has_units = True
 
-            target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
-            target_organism = self.ed_organism_name.text().strip() if hasattr(self, "ed_organism_name") else ""
-            job_dir = getattr(self, "job_dir", os.getcwd())
-            out_dir = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA")
-            os.makedirs(out_dir, exist_ok=True)
-            file_path = os.path.join(out_dir, f"df2_unit_{target_chembl_id}_{target_organism}.csv")
-
-            self.df_selecionado.to_csv(file_path, index=False)
-            self._next_dataframe_save_path = file_path
-            self.show_dataframe(self.df_selecionado)
-            self.df_name_view.setText(os.path.basename(file_path))
-            self._step2_df_path = self._to_job_relative_path(file_path)
-            self._refresh_step2_dataframe_widgets()
-            self._save_step2_state()
-            return
-
-        # coluna de valor a converter: o botão "Convert type" (row 2, "2. Select standard type")
-        # já renomeia 'value' para o tipo selecionado (ex.: IC50, MIC, ...) antes deste passo, por
-        # isso é essa coluna (já renomeada) que é lida/escrita aqui, não mais 'value'.
-        self.type_name = self.list_types.currentText()
-        if self.type_name not in self.df_selecionado.columns:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), f"Column '{self.type_name}' not found in the DataFrame.")
+        if not has_units:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma),
+                "Column 'units' (or 'standard_unit(s)') not found in the DataFrame."
+            )
             return
 
         # ---------------- 1) (Opcional) MW por SMILES para rota massa/volume→molar ----------------
@@ -7496,6 +7495,14 @@ class MainWindow(QMainWindow):
 
             # "per" -> "/"
             s = s.replace("per", "/")
+
+            # massa E volume/massa-corporal JUNTOS com expoente -1 (ex.: "ug.ml-1" -> "ug/ml",
+            # "mg.kg-1" -> "mg/kg") - PRECISA vir antes das regras de expoente isolado logo
+            # abaixo: senão a regra de volume/massa-corporal isolada consome o "-1" primeiro e a
+            # string vira algo como "ug./ml" (que nenhuma regra seguinte reconhece mais, caindo
+            # no fallback "s.upper()" sem nunca converter - era exatamente o caso de "ug.mL-1").
+            s = re.sub(r"^(ng|ug|mg|g)[\.\s]*(ul|ml|l)-?1$", r"\1/\2", s)
+            s = re.sub(r"^(ng|ug|mg|g)[\.\s]*(kg|g)-?1$", r"\1/\2", s)
 
             # expoentes de volume: ul-1, ml-1, l-1 -> "/ul", "/ml", "/l"
             s = re.sub(r"(ul|ml|l)[\.\s]*-?1\b", r"/\1", s)
