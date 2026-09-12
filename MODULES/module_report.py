@@ -931,39 +931,38 @@ def _add_step2_3_section(document: Any, job_dir: str, state: dict[str, Any], idi
             False,
         )
 
-    # 4b) Remove value repetitions (STEP 2 "Treat repetitions" - "Remove value repetitions").
-    value_rep_col = step2.get("value_rep_column", "")
-    value_rep_tolerance = step2.get("value_rep_tolerance", None)
-    value_rep_count = _row_count(_latest_glob(os.path.join(internal_dir, "df2_ValueRepetitions_*.csv")))
-    if value_rep_col:
+    # 4b) Remove by relation (STEP 2 "Treat repetitions" - "Remove value repetitions", repurposed
+    # to discard CENSORED measurements, e.g. "IC50 > 10000 nM" - the assay only bounds the true
+    # value at the highest dose tested, it is not an exact 10000 nM reading).
+    relation_rep = step2.get("relation_rep_column", "")
+    relation_values = step2.get("relation_rep_values")
+    relation_selected = relation_values.get("selected") if isinstance(relation_values, dict) else None
+    relation_count = _row_count(_latest_glob(os.path.join(internal_dir, "df2_ValueRepetitions_*.csv")))
+    if relation_rep and relation_selected:
         add_bi(
-            "Repetições de valor idêntico (dentro de uma tolerância) na coluna ",
-            "Repeated occurrences of an identical value (within a tolerance) in the ",
+            "Medidas censuradas pelo próprio ensaio também foram removidas: linhas cuja coluna ",
+            "Measurements censored by the assay itself were also removed: rows whose ",
             False,
         )
-        add(value_rep_col, True)
+        add(relation_rep, True)
+        add_bi(" estivesse entre ", " column was among ", False)
+        _join_bold_list_bi(add, relation_selected, lang)
         add_bi(
-            ", dentro de um mesmo ensaio (assay_chembl_id), também foram tratadas (Remove value "
-            "repetitions), mantendo até ",
-            " column, within the same assay (assay_chembl_id), were also treated (Remove value "
-            "repetitions), keeping up to ",
+            " foram excluídas",
+            " were excluded",
             False,
         )
-        add(f"{int(value_rep_tolerance) + 1}" if value_rep_tolerance not in (None, "") else "n/a", True)
-        add_bi(
-            " ocorrência(s) por grupo e removendo o excedente",
-            " occurrence(s) per group and removing the surplus",
-            False,
-        )
-        if value_rep_count is not None:
+        if relation_count is not None:
             add_bi(", reduzindo o dataframe para ", ", reducing the dataframe to ", False)
-            add(f"{value_rep_count:,}", True)
+            add(f"{relation_count:,}", True)
             add_bi(" compostos (df2_ValueRepetitions)", " compounds (df2_ValueRepetitions)", False)
         add_bi(
-            ", de modo a reduzir a redundância de medidas repetidas do mesmo composto no mesmo "
-            "ensaio antes da consolidação final. ",
-            ", in order to reduce the redundancy of repeated measurements of the same compound "
-            "within the same assay before the final consolidation. ",
+            ", já que um valor limitado por relação (ex.: '>', '>=', '<', '<=') não representa "
+            "uma medida exata e, se mantido, introduziria empates artificiais de bioatividade "
+            "entre compostos estruturalmente diferentes. ",
+            ", since a relation-bounded value does not represent an exact measurement and, if "
+            "kept, would introduce artificial bioactivity ties between structurally different "
+            "compounds. ",
             False,
         )
 

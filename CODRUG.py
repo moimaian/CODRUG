@@ -4028,8 +4028,8 @@ class MainWindow(QMainWindow):
         ("unit_column", "list_units"),
         ("rep_group_column", "list_columns_rep"),
         ("rep_method", "list_methods_rep"),
-        ("value_rep_column", "cb_value_column_rep"),
-        ("value_rep_tolerance", "sp_tolerance_rep"),
+        ("relation_rep_column", "cb_relation_column_rep"),
+        ("relation_rep_values", "list_relation_values_rep"),
         ("rep_check_column", "list_columns_rep_check"),
         ("transform_column", "list_columns_trans"),
         ("transform_type", "cb_transformation"),
@@ -4927,6 +4927,11 @@ class MainWindow(QMainWindow):
                         'target_organism', 'target_pref_name', 'type', 'units', 'standard_unit',
                         'standard_units', 'value', 'standard_value',
                         'data_validity_comment', 'data_validity_description',
+                        # '=', '>', '>=', '<', '<=' - distingue uma medida exata de uma medida
+                        # CENSURADA pelo próprio ensaio (ex.: "IC50 > 10000 nM" = "inativo até a
+                        # dose máxima testada", não um valor real de 10000 nM). Usado em STEP 2,
+                        # grupo "Treat repetitions", para excluir medidas censuradas do treino.
+                        'relation', 'standard_relation',
                     ]
 
                     stopped_by_user = False
@@ -6768,27 +6773,24 @@ class MainWindow(QMainWindow):
             self.list_columns_rep_check.clear()
             QMessageBox.critical(self, i18n.t("msg_title_error_list_columns_csv", self._idioma), str(e))
         try:
-            self.cb_value_column_rep.clear()
-            self.cb_value_column_rep.addItems(self.df_selecionado.columns.astype(str))
-            # Mesma preferência de "3. Select the value column:" usada em "Check Molecule":
-            # self.type_name (já escolhido em "Select standard type"), senão 'value', senão o
-            # primeiro valor de 'type'.
-            type_name = getattr(self, "type_name", None)
+            self.cb_relation_column_rep.clear()
+            self.cb_relation_column_rep.addItems(self.df_selecionado.columns.astype(str))
+            # "3. Select the relation column": usa 'relation' quando presente; na ausência dela,
+            # cai para 'standard_relation' (mesmo fallback já usado para value/units).
             cols = self.df_selecionado.columns
-            if type_name in cols:
-                search_value = type_name
-            elif 'value' in cols:
-                search_value = "value"
-            elif "type" in cols and not self.df_selecionado['type'].dropna().empty:
-                search_value = str(self.df_selecionado['type'].dropna().iloc[0])
+            if "relation" in cols:
+                search_value = "relation"
+            elif "standard_relation" in cols:
+                search_value = "standard_relation"
             else:
                 search_value = None
             if search_value:
-                idx = self.cb_value_column_rep.findText(search_value)
+                idx = self.cb_relation_column_rep.findText(search_value)
                 if idx >= 0:
-                    self.cb_value_column_rep.setCurrentIndex(idx)
+                    self.cb_relation_column_rep.setCurrentIndex(idx)
+            self._populate_relation_values_rep()
         except Exception as e:
-            self.cb_value_column_rep.clear()
+            self.cb_relation_column_rep.clear()
             QMessageBox.critical(self, i18n.t("msg_title_error_list_columns_csv", self._idioma), str(e))
         # Pré-seleciona a coluna de bioatividade (IC50, MIC, EC50, ED50, MIC50, MIC90,
         # pIC50... mesmo vocabulário usado para popular Assay Metric na STEP 1), se
@@ -6864,28 +6866,28 @@ class MainWindow(QMainWindow):
         if getattr(self, "df_selecionado", None) is None:
             return
         if not checked:
-            # Desmarca standard_value/standard_unit(s) em "1. Select columns of interest" e marca
-            # 'value'/'units' de volta (espelhando o que o ramo "checked" faz ao contrário),
-            # deixando as demais seleções intocadas:
+            # Desmarca standard_value/standard_unit(s)/standard_relation em "1. Select columns of
+            # interest" e marca 'value'/'units'/'relation' de volta (espelhando o que o ramo
+            # "checked" faz ao contrário), deixando as demais seleções intocadas:
             for i in range(self.list_columns.count()):
                 item = self.list_columns.item(i)
                 text_lower = item.text().strip().lower()
-                if text_lower in ("standard_value", "standard_unit", "standard_units"):
+                if text_lower in ("standard_value", "standard_unit", "standard_units", "standard_relation"):
                     item.setSelected(False)
-                elif text_lower in ("value", "units"):
+                elif text_lower in ("value", "units", "relation"):
                     item.setSelected(True)
             return
-        # Adiciona standard_value/standard_unit(s) à seleção de "1. Select columns of interest",
-        # quando presentes, preservando as demais colunas já selecionadas - e retira 'value'/
-        # 'units' dessa seleção, já que com "Use Standard values" marcado é standard_value/
-        # standard_unit(s) que alimenta o restante do pipeline (ver run_convert_units), não mais
-        # essas duas colunas originais do ChEMBL.
+        # Adiciona standard_value/standard_unit(s)/standard_relation à seleção de "1. Select
+        # columns of interest", quando presentes, preservando as demais colunas já selecionadas -
+        # e retira 'value'/'units'/'relation' dessa seleção, já que com "Use Standard values"
+        # marcado são as colunas standard_* que alimentam o restante do pipeline (ver
+        # run_convert_units), não mais essas três colunas originais do ChEMBL.
         for i in range(self.list_columns.count()):
             item = self.list_columns.item(i)
             text_lower = item.text().strip().lower()
-            if text_lower in ("standard_value", "standard_unit", "standard_units"):
+            if text_lower in ("standard_value", "standard_unit", "standard_units", "standard_relation"):
                 item.setSelected(True)
-            elif text_lower in ("value", "units"):
+            elif text_lower in ("value", "units", "relation"):
                 item.setSelected(False)
         # Preenche "3. Select standard unit" com o valor já presente na coluna standard_unit(s):
         standard_unit_col = next(
@@ -7355,31 +7357,52 @@ class MainWindow(QMainWindow):
         self._refresh_step2_dataframe_widgets()
         self._save_step2_state()
 
+    def _populate_relation_values_rep(self, *_args):
+        """Repopula a lista múltipla de valores de relação (STEP 2, "Treat repetitions") com os
+        valores únicos presentes na coluna escolhida em "3. Select the relation column" (ex.: '=',
+        '>', '>=', '<', '<=') - chamada tanto ao trocar de coluna quanto ao carregar um novo
+        DataFrame (_refresh_step2_dataframe_widgets)."""
+        if not hasattr(self, "list_relation_values_rep"):
+            return
+        self.list_relation_values_rep.clear()
+        col = self.cb_relation_column_rep.currentText().strip() if hasattr(self, "cb_relation_column_rep") else ""
+        if not col or getattr(self, "df_selecionado", None) is None or col not in self.df_selecionado.columns:
+            return
+        values = sorted(
+            {v for v in self.df_selecionado[col].dropna().astype(str).str.strip().tolist() if v}
+        )
+        self.list_relation_values_rep.addItems(values)
+
     def run_remove_value_repetitions(self):
+        """"Remove value repetitions" (STEP 2, "Treat repetitions"): remove do dataframe toda
+        linha cuja coluna de relação ('relation', ou 'standard_relation' na ausência dela)
+        esteja entre os valores marcados em "Select the relation column"'s multi-select list
+        (ex.: '>', '>=', '<', '<='). Serve para descartar medidas CENSURADAS pelo próprio ensaio
+        (ex.: "IC50 > 10000 nM" = inativo até a dose máxima testada, não um valor exato de
+        10000) antes de usar os dados no treino - misturadas com medidas exatas ('='), elas
+        criam empates artificiais de bioatividade entre compostos estruturalmente diferentes."""
         target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
         target_organism = self.ed_organism_name.text().strip() if hasattr(self, "ed_organism_name") else ""
         job_dir = self.job_dir
         if getattr(self, "df_selecionado", None) is None:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "No filtered DataFrame available.")
             return
-        if "assay_chembl_id" not in self.df_selecionado.columns:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Column 'assay_chembl_id' not found in the DataFrame.")
+
+        relation_col = self.cb_relation_column_rep.currentText().strip() if hasattr(self, "cb_relation_column_rep") else ""
+        if not relation_col or relation_col not in self.df_selecionado.columns:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid relation column.")
             return
 
-        value_col = self.cb_value_column_rep.currentText()
-        if not value_col or value_col not in self.df_selecionado.columns:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid value column.")
+        selected_relations = [item.text() for item in self.list_relation_values_rep.selectedItems()]
+        if not selected_relations:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select at least one relation value to remove.")
             return
-
-        tolerance = self.sp_tolerance_rep.value()
 
         df = self.df_selecionado.copy()
-        # Repetições: linhas que compartilham o mesmo valor na coluna selecionada dentro do
-        # mesmo grupo de assay_chembl_id. Mantém até (tolerance + 1) ocorrências por grupo
-        # (assay_chembl_id, value_col) e remove o excedente.
-        group_rank = df.groupby(["assay_chembl_id", value_col]).cumcount()
-        keep_mask = group_rank <= tolerance
-        df_result = df.loc[keep_mask].reset_index(drop=True)
+        col_values = df[relation_col].astype(str).str.strip()
+        remove_mask = col_values.isin(selected_relations)
+        df_result = df.loc[~remove_mask].reset_index(drop=True)
+        removed_count = int(remove_mask.sum())
 
         file_path = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA", f'df2_ValueRepetitions_{target_chembl_id}_{target_organism}.csv')
         df_result.to_csv(file_path, index=False)
@@ -7389,6 +7412,10 @@ class MainWindow(QMainWindow):
         self._step2_df_path = self._to_job_relative_path(file_path)
         self._refresh_step2_dataframe_widgets()
         self._save_step2_state()
+        QMessageBox.information(self, i18n.t("msg_title_info", self._idioma),
+            f"{removed_count} row(s) removed (relation in {', '.join(selected_relations)}). "
+            f"{len(df_result)} row(s) remaining."
+        )
 
     def run_convert_units(self):
         """
@@ -17205,15 +17232,21 @@ class MainWindow(QMainWindow):
             gL10.addWidget(label_select_method_rep,0,0); gL10.addWidget(self.list_methods_rep,0,1); gL10.addWidget(btn_method_rep,0,2)
             gL10.setColumnStretch(0, 1); gL10.setColumnStretch(1, 1); gL10.setColumnStretch(2, 1)
 
-            # Segundo grid B (valor + tolerância + remoção de repetições de valor):
+            # Segundo grid B (coluna de relação + valores de relação a remover, ex.: medidas
+            # CENSURADAS pelo ensaio - "IC50 > 10000 nM" não é um valor exato de 10000, é só o
+            # limite testado; misturado ao treino como se fosse "=" gera empates artificiais):
             gL10b_widget = QWidget()
             gL10b = QGridLayout(gL10b_widget)
-            label_select_value_column_rep = self._trL("s2_lbl_select_value_column_rep"); label_select_value_column_rep.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;");
-            self.cb_value_column_rep = QComboBox(); self.cb_value_column_rep.addItems([]); self.cb_value_column_rep.setFixedWidth(200)
-            self.sp_tolerance_rep = QSpinBox(); self.sp_tolerance_rep.setRange(0, 1000000); self.sp_tolerance_rep.setValue(5); self.sp_tolerance_rep.setFixedWidth(70); self.sp_tolerance_rep.setToolTip("tolerance")
+            label_select_relation_column_rep = self._trL("s2_lbl_select_relation_column_rep"); label_select_relation_column_rep.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;");
+            self.cb_relation_column_rep = QComboBox(); self.cb_relation_column_rep.addItems([]); self.cb_relation_column_rep.setFixedWidth(200)
+            self.list_relation_values_rep = QListWidget()
+            self.list_relation_values_rep.setSelectionMode(QAbstractItemView.MultiSelection)
+            self.list_relation_values_rep.setFixedSize(140, 70)
+            self._tr("s2_tooltip_relation_values_rep", self.list_relation_values_rep.setToolTip)
             btn_remove_value_rep = QPushButton(); self._tr("s2_btn_remove_value_rep", btn_remove_value_rep.setText); btn_remove_value_rep.setProperty("role", "primary"); btn_remove_value_rep.setFixedWidth(150); btn_remove_value_rep.clicked.connect(self.run_remove_value_repetitions)
-            gL10b.addWidget(label_select_value_column_rep,0,0); gL10b.addWidget(self.cb_value_column_rep,0,1); gL10b.addWidget(self.sp_tolerance_rep,0,2); gL10b.addWidget(btn_remove_value_rep,0,3)
+            gL10b.addWidget(label_select_relation_column_rep,0,0); gL10b.addWidget(self.cb_relation_column_rep,0,1); gL10b.addWidget(self.list_relation_values_rep,0,2); gL10b.addWidget(btn_remove_value_rep,0,3)
             gL10b.setColumnStretch(0, 1); gL10b.setColumnStretch(1, 1); gL10b.setColumnStretch(2, 1); gL10b.setColumnStretch(3, 1)
+            self.cb_relation_column_rep.currentTextChanged.connect(self._populate_relation_values_rep)
 
             # Terceiro grid:
             gL11_widget = QWidget()
