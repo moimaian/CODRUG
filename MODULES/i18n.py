@@ -245,6 +245,14 @@ _TEXTOS = {
     "s1_grp_validity_filter": {"en": "Validity Filter", "pt": "Filtro de Validade"},
     "s1_chk_validity_comment": {"en": "Validity Comment", "pt": "Comentário de Validade"},
     "s1_chk_validity_description": {"en": "Validity Description", "pt": "Descrição de Validade"},
+    "s1_tooltip_validity_comment": {
+        "en": "Select data_validity_comment value(s) that flag a problem with the data. Compounds whose data_validity_comment matches one of the selected values are REMOVED from the dataset when 'Generate Base Dataset' runs - everything else (including empty/blank) is kept.",
+        "pt": "Selecione o(s) valor(es) de data_validity_comment que sinalizam problema no dado. Os compostos cujo data_validity_comment corresponder a um dos valores selecionados são REMOVIDOS do dataset ao rodar 'Generate Base Dataset' - todo o resto (inclusive vazio) é mantido.",
+    },
+    "s1_tooltip_validity_description": {
+        "en": "Select data_validity_description value(s) that flag a problem with the data. Compounds whose data_validity_description matches one of the selected values are REMOVED from the dataset when 'Generate Base Dataset' runs - everything else (including empty/blank) is kept.",
+        "pt": "Selecione o(s) valor(es) de data_validity_description que sinalizam problema no dado. Os compostos cujo data_validity_description corresponder a um dos valores selecionados são REMOVIDOS do dataset ao rodar 'Generate Base Dataset' - todo o resto (inclusive vazio) é mantido.",
+    },
     "s1_grp_explore_molecules": {"en": "Explore Molecules", "pt": "Explorar Moléculas"},
     "s1_btn_generate_base_dataset": {"en": "Generate \nBase Dataset", "pt": "Gerar \nDataset Base"},
     "s1_lbl_request_time": {"en": "Request time (s)", "pt": "Tempo de requisição (s)"},

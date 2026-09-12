@@ -5667,8 +5667,11 @@ class MainWindow(QMainWindow):
             target_pref_name = self.ed_target_pref_name.text().strip()
             assay_metric = [item.text() for item in self.list_assay_metric.selectedItems()]
             assay_units = [item.text() for item in self.list_assay_units.selectedItems()]
-            # Só filtra por data_validity_comment quando o checkbox "Validity Comment" está marcado
-            # (desmarcado = comportamento anterior, sem filtro por essa coluna):
+            # Só exclui por data_validity_comment quando o checkbox "Validity Comment" está marcado
+            # (desmarcado = comportamento anterior, sem filtro por essa coluna). Os termos
+            # marcados aqui são os valores de data_validity_comment que sinalizam problema no
+            # dado (segundo o próprio ChEMBL) - as linhas que os contêm são REMOVIDAS do
+            # dataframe, e não mantidas (ver bloco "Validity Filter" mais abaixo).
             validity_comment = (
                 [item.text() for item in self.list_validity_comment.selectedItems()]
                 if getattr(self, "chk_validity_comment", None) is not None and self.chk_validity_comment.isChecked()
@@ -5697,10 +5700,9 @@ class MainWindow(QMainWindow):
                 filter_kwargs['type'] = assay_metric
             if assay_units:
                 filter_kwargs['units'] = assay_units
-            if validity_comment:
-                filter_kwargs['data_validity_comment'] = validity_comment
-            if validity_description:
-                filter_kwargs['data_validity_description'] = validity_description
+            # data_validity_comment/data_validity_description NÃO entram em filter_kwargs (que é
+            # tratado como INCLUSÃO logo abaixo) - o grupo "Validity Filter" é uma EXCLUSÃO, ver
+            # bloco dedicado após o loop de filter_kwargs.
             if target_organism:
                 filter_kwargs['target_organism'] = target_organism
             if target_pref_name:
@@ -5751,7 +5753,23 @@ class MainWindow(QMainWindow):
                     df_selecionado = df_selecionado[~df_selecionado['assay_description'].astype(str).str.contains(
                         pattern_ex, case=False, na=False
                     )]
-                
+
+            # -------------------- exclusão por Validity Filter (comment/description) --------------------
+            # Ao contrário dos demais filtros deste grupo, aqui os termos marcados NÃO são o que
+            # deve ser mantido: são valores de data_validity_comment/data_validity_description que
+            # sinalizam problema no dado (segundo o próprio ChEMBL), então as linhas que os
+            # contêm são REMOVIDAS - as demais (inclusive as com valor vazio/NaN) são mantidas.
+            if validity_comment and "data_validity_comment" in df_selecionado.columns:
+                terms_lower = [t.lower() for t in _split_terms(validity_comment)]
+                if terms_lower:
+                    col_series = df_selecionado["data_validity_comment"].astype(str).str.strip().str.lower()
+                    df_selecionado = df_selecionado[~col_series.isin(terms_lower)]
+            if validity_description and "data_validity_description" in df_selecionado.columns:
+                terms_lower = [t.lower() for t in _split_terms(validity_description)]
+                if terms_lower:
+                    col_series = df_selecionado["data_validity_description"].astype(str).str.strip().str.lower()
+                    df_selecionado = df_selecionado[~col_series.isin(terms_lower)]
+
             # Salvando o dataframe na pasta de trabalho atual:
             file_path = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA", f'df1_base_{target_chembl_id}_{target_organism}_{assay_type_name}_{assay_metric}.csv')
             df_selecionado.to_csv(file_path, index=False)
@@ -6844,11 +6862,17 @@ class MainWindow(QMainWindow):
                     item.setSelected(False)
             return
         # Adiciona standard_value/standard_unit(s) à seleção de "1. Select columns of interest",
-        # quando presentes, preservando as demais colunas já selecionadas:
+        # quando presentes, preservando as demais colunas já selecionadas - e retira 'value'/
+        # 'units' dessa seleção, já que com "Use Standard values" marcado é standard_value/
+        # standard_unit(s) que alimenta o restante do pipeline (ver run_convert_units), não mais
+        # essas duas colunas originais do ChEMBL.
         for i in range(self.list_columns.count()):
             item = self.list_columns.item(i)
-            if item.text().strip().lower() in ("standard_value", "standard_unit", "standard_units"):
+            text_lower = item.text().strip().lower()
+            if text_lower in ("standard_value", "standard_unit", "standard_units"):
                 item.setSelected(True)
+            elif text_lower in ("value", "units"):
+                item.setSelected(False)
         # Preenche "3. Select standard unit" com o valor já presente na coluna standard_unit(s):
         standard_unit_col = next(
             (c for c in self.df_selecionado.columns if str(c).strip().lower() in ("standard_unit", "standard_units")),
@@ -7192,6 +7216,11 @@ class MainWindow(QMainWindow):
         self._save_step2_state()
 
     def run_convert_types(self):
+        """"Convert type" (STEP 2, row 2 "2. Select standard type"): converts IC50<->pIC50 /
+        MIC<->pMIC and renames the value column to the chosen type name. Reads/writes 'value'
+        when present; falls back to 'standard_value' automatically when 'value' is absent (e.g.
+        after "Count and Filter Columns of interest" with 'value' left unchecked in favor of
+        standard_value/standard_unit(s))."""
 
         def _norm_type(x: str) -> str:
             # normaliza rótulos do tipo ('pIC50', '-logIC50', 'MIC', etc.)
@@ -7217,16 +7246,25 @@ class MainWindow(QMainWindow):
 
         df = df.copy()
 
-        # Garantir colunas esperadas
-        if 'value' not in df.columns or 'type' not in df.columns:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "DataFrame must have 'value' and 'type' columns.")
+        # Garantir colunas esperadas - usa 'value' quando presente; na ausência dela, cai
+        # automaticamente para 'standard_value' (ex.: depois de "Count and Filter Columns of
+        # interest" com 'value' desmarcada em favor de standard_value/standard_unit(s)).
+        if 'value' in df.columns:
+            value_col = 'value'
+        elif 'standard_value' in df.columns:
+            value_col = 'standard_value'
+        else:
+            value_col = None
+        if value_col is None or 'type' not in df.columns:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma),
+                                 "DataFrame must have a 'value' (or 'standard_value') column, and a 'type' column.")
             return
 
         # Normaliza rótulos
         norm = df['type'].map(_norm_type)
 
         # Vetores numéricos
-        vals = pd.to_numeric(df['value'], errors='coerce')
+        vals = pd.to_numeric(df[value_col], errors='coerce')
 
         # Conjuntos de máscaras
         is_ic50  = norm.eq('ic50')
@@ -7239,32 +7277,32 @@ class MainWindow(QMainWindow):
 
         if tn == 'ic50':
             # converter somente onde o dado atual está em pIC50
-            df.loc[is_pic50, 'value'] = np.power(10.0, -vals[is_pic50])
+            df.loc[is_pic50, value_col] = np.power(10.0, -vals[is_pic50])
             df['type'] = 'IC50'
 
         elif tn == 'pic50':
             # converter somente onde o dado atual está em IC50
             # proteger contra valores <= 0
             safe = is_ic50 & (vals > 0)
-            df.loc[safe, 'value'] = -np.log10(vals[safe])
+            df.loc[safe, value_col] = -np.log10(vals[safe])
             # onde inválido, manter original
             df['type'] = 'pIC50'
 
         elif tn == 'mic':
             # converter somente onde o dado atual está em pMIC
-            df.loc[is_pmic, 'value'] = np.power(10.0, -vals[is_pmic])
+            df.loc[is_pmic, value_col] = np.power(10.0, -vals[is_pmic])
             df['type'] = 'MIC'
 
         elif tn == 'pmic':
             # converter somente onde o dado atual está em MIC
             safe = is_mic & (vals > 0)
-            df.loc[safe, 'value'] = -np.log10(vals[safe])
+            df.loc[safe, value_col] = -np.log10(vals[safe])
             df['type'] = 'pMIC'
 
         else:
             QMessageBox.information(self, i18n.t("msg_title_info", self._idioma), f"Target type '{type_name}' does not require conversion.")
             # ainda assim renomeia a coluna para manter consistência
-            df = df.rename(columns={'value': type_name})
+            df = df.rename(columns={value_col: type_name})
             df.to_csv(file_path, index=False)
             self._next_dataframe_save_path = file_path
             self.show_dataframe(df)
@@ -7275,8 +7313,8 @@ class MainWindow(QMainWindow):
             self._save_step2_state()
             return
 
-        # Renomeia a coluna 'value' para o tipo de destino
-        df = df.rename(columns={'value': type_name})
+        # Renomeia a coluna de valor (value ou standard_value) para o tipo de destino
+        df = df.rename(columns={value_col: type_name})
 
         # Feedback sobre conversões inválidas:
         # ex.: quantos valores ficaram NaN após conversão
@@ -7340,13 +7378,14 @@ class MainWindow(QMainWindow):
             Se origem for dose por massa (ex.: mg/kg), não converte → NaN + aviso.
         • Se destino é dose por massa: só converte se origem também for dose por massa.
             Se origem for molar ou massa/volume, não converte → NaN + aviso.
+
+        Coluna de unidade de origem: usa 'units' quando presente; na ausência dela, cai
+        automaticamente para standard_unit(s) - nesse caso não há conversão a fazer (já é uma
+        única unidade padrão por linha, curada pelo ChEMBL), só a renomeia para 'units'.
         """
         # ---------------- Pré-checagens ----------------
         if getattr(self, "df_selecionado", None) is None or self.df_selecionado.empty:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "No DataFrame loaded.")
-            return
-        if "units" not in self.df_selecionado.columns:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Column 'units' not found in the DataFrame.")
             return
 
         # ---------------- "Use Standard values": pula todo o cálculo de conversão e apenas ----------------
@@ -7371,6 +7410,40 @@ class MainWindow(QMainWindow):
             value_col = type_name if type_name else "value"
             self.df_selecionado[value_col] = pd.to_numeric(self.df_selecionado[standard_value_col], errors="coerce")
             self.df_selecionado["units"] = self.df_selecionado[standard_unit_col]
+
+            target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
+            target_organism = self.ed_organism_name.text().strip() if hasattr(self, "ed_organism_name") else ""
+            job_dir = getattr(self, "job_dir", os.getcwd())
+            out_dir = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA")
+            os.makedirs(out_dir, exist_ok=True)
+            file_path = os.path.join(out_dir, f"df2_unit_{target_chembl_id}_{target_organism}.csv")
+
+            self.df_selecionado.to_csv(file_path, index=False)
+            self._next_dataframe_save_path = file_path
+            self.show_dataframe(self.df_selecionado)
+            self.df_name_view.setText(os.path.basename(file_path))
+            self._step2_df_path = self._to_job_relative_path(file_path)
+            self._refresh_step2_dataframe_widgets()
+            self._save_step2_state()
+            return
+
+        # ---------------- 'units' ausente: cai para standard_unit(s) automaticamente ----------------
+        # (independe do checkbox acima - dispara sempre que 'units' não existir no dataframe, por
+        # exemplo depois de "Count and Filter Columns of interest" com 'units' desmarcada).
+        # standard_unit(s) já é uma única unidade padrão por linha (curadoria do próprio ChEMBL),
+        # então não há conversão a fazer aqui: só renomear standard_unit(s) para 'units'.
+        if "units" not in self.df_selecionado.columns:
+            standard_unit_col = next(
+                (c for c in self.df_selecionado.columns if str(c).strip().lower() in ("standard_unit", "standard_units")),
+                None
+            )
+            if standard_unit_col is None:
+                QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma),
+                    "Column 'units' (or 'standard_unit(s)') not found in the DataFrame."
+                )
+                return
+
+            self.df_selecionado = self.df_selecionado.rename(columns={standard_unit_col: "units"})
 
             target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
             target_organism = self.ed_organism_name.text().strip() if hasattr(self, "ed_organism_name") else ""
@@ -7504,6 +7577,23 @@ class MainWindow(QMainWindow):
         VOL_TO_L  = {"uL": 1e-6, "mL": 1e-3, "L": 1.0}
         BODYMASS_TO_G = {"g": 1.0, "kg": 1000.0}
 
+        def _clean_float_noise(x, sig=12):
+            """Arredonda para `sig` algarismos significativos, só para eliminar ruído de ponto
+            flutuante binário (ex.: 5309.999999999999 -> 5310.0, 0.4499999999999999 -> 0.45)
+            introduzido pelas multiplicações/divisões em cadeia por 1e-3/1e-6/1e-9/MW - 12
+            algarismos significativos preserva qualquer precisão real do dado (que nunca chega
+            perto disso) e ainda assim limpa o ruído, que tipicamente só aparece a partir do
+            13º-15º algarismo (limite do float64)."""
+            try:
+                if pd.isna(x):
+                    return x
+                x = float(x)
+                if x == 0.0 or not np.isfinite(x):
+                    return x
+                return float(f"{x:.{sig}g}")
+            except Exception:
+                return x
+
         # Classificação rápida de unidade normalizada
         def _class_unit(u_norm: str) -> str:
             if u_norm in {"M", "mM", "uM", "nM"}:
@@ -7629,7 +7719,7 @@ class MainWindow(QMainWindow):
                 return
 
             try:
-                self.df_selecionado[self.type_name] = self.df_selecionado.apply(conv, axis=1)
+                self.df_selecionado[self.type_name] = self.df_selecionado.apply(conv, axis=1).map(_clean_float_noise)
             except Exception as e:
                 QMessageBox.critical(self, i18n.t("msg_title_error_during_unit_conversion", self._idioma), str(e))
                 return
@@ -7663,7 +7753,7 @@ class MainWindow(QMainWindow):
                     out.append(_per_body_convert(x, u_src, tgt))
                 else:
                     out.append(np.nan)  # incompatível, conforme regra definida
-            self.df_selecionado[self.type_name] = pd.to_numeric(out, errors="coerce")
+            self.df_selecionado[self.type_name] = pd.to_numeric(out, errors="coerce").map(_clean_float_noise)
             self.df_selecionado["units"] = target_norm
 
         # (C) destino MASS_PER_VOLUME -> converte via M usando MW
@@ -7684,7 +7774,7 @@ class MainWindow(QMainWindow):
                 return _from_M_to_mass_per_volume(value_M, target_norm, row["MW"])
 
             try:
-                self.df_selecionado[self.type_name] = self.df_selecionado.apply(converter_para_mass_per_volume, axis=1)
+                self.df_selecionado[self.type_name] = self.df_selecionado.apply(converter_para_mass_per_volume, axis=1).map(_clean_float_noise)
             except Exception as e:
                 QMessageBox.critical(self, i18n.t("msg_title_error_during_unit_conversion", self._idioma), str(e))
                 return
@@ -16805,14 +16895,19 @@ class MainWindow(QMainWindow):
             g1_validity_layout = QVBoxLayout(g1_validity)
 
             # Checkbox + lista múltipla de "data_validity_comment": quando marcado, "Generate
-            # Base Dataset" filtra mantendo apenas as linhas cujo data_validity_comment esteja
-            # entre os valores selecionados (mesmo padrão de filtragem exata usado por Assay
-            # Metric/Assay Unit). Desmarcado = sem filtro por essa coluna.
+            # Base Dataset" REMOVE as linhas cujo data_validity_comment esteja entre os valores
+            # selecionados (ao contrário de Assay Metric/Assay Unit, que mantêm só o que
+            # corresponde - aqui os valores marcados sinalizam problema no dado, então são as
+            # linhas com esses valores que saem). Desmarcado = sem filtro por essa coluna.
             self.chk_validity_comment = QCheckBox(); self._tr("s1_chk_validity_comment", self.chk_validity_comment.setText)
+            self._tr("s1_tooltip_validity_comment", self.chk_validity_comment.setToolTip)
             self.list_validity_comment = QListWidget(); self.list_validity_comment.setSelectionMode(QAbstractItemView.MultiSelection); self.list_validity_comment.setFixedHeight(60)
-            # Checkbox + lista múltipla de "data_validity_description", mesmo padrão de filtro:
+            self._tr("s1_tooltip_validity_comment", self.list_validity_comment.setToolTip)
+            # Checkbox + lista múltipla de "data_validity_description", mesmo padrão de exclusão:
             self.chk_validity_description = QCheckBox(); self._tr("s1_chk_validity_description", self.chk_validity_description.setText)
+            self._tr("s1_tooltip_validity_description", self.chk_validity_description.setToolTip)
             self.list_validity_description = QListWidget(); self.list_validity_description.setSelectionMode(QAbstractItemView.MultiSelection); self.list_validity_description.setFixedHeight(60)
+            self._tr("s1_tooltip_validity_description", self.list_validity_description.setToolTip)
 
             # Sem addStretch nas pontas e com stretch factor nas duas listas: elas se expandem
             # para preencher toda a largura disponível do grupo, em vez de ficarem com largura

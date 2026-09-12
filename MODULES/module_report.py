@@ -693,24 +693,25 @@ def _add_step1_section(document: Any, job_dir: str, state: dict[str, Any], idiom
         )
     if validity_comment_sel or validity_description_sel:
         add_bi(
-            "Um filtro de validade (Validity Filter) também foi aplicado, mantendo apenas os "
+            "Um filtro de validade (Validity Filter) também foi aplicado, removendo os "
             "compostos cujo ",
-            "A validity filter was also applied, keeping only compounds whose ",
+            "A validity filter was also applied, removing compounds whose ",
         )
         if validity_comment_sel:
             add("data_validity_comment", True)
             add_bi(" estivesse entre ", " was among ")
             _join_bold_list_bi(add, validity_comment_sel, lang)
         if validity_comment_sel and validity_description_sel:
-            add_bi(" e cujo ", ", and whose ")
+            add_bi(" ou cujo ", ", or whose ")
         if validity_description_sel:
             add("data_validity_description", True)
             add_bi(" estivesse entre ", " was among ")
             _join_bold_list_bi(add, validity_description_sel, lang)
         add_bi(
-            ", excluindo registros sinalizados pelo ChEMBL como potencialmente inválidos ou "
-            "duvidosos. ",
-            ", excluding records flagged by ChEMBL as potentially invalid or dubious. ",
+            ", valores esses que sinalizam registros potencialmente inválidos ou duvidosos "
+            "segundo o próprio ChEMBL. ",
+            ", values that flag records as potentially invalid or dubious according to ChEMBL "
+            "itself. ",
         )
     else:
         add_bi(
