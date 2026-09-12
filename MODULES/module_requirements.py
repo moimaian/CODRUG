@@ -575,6 +575,7 @@ def recommend_installer_defaults(hw: Optional[dict] = None) -> dict:
         "chembl_version": "0.10.9",
         "padelpy_version": "0.1.13",
         "rdkit_version": "2022.9.5",
+        "openbabel_version": "",
         "matplotlib_version": "3.7.5",
         "seaborn_version": "0.13.2",
         "joblib_version": "1.3.2",
@@ -635,6 +636,7 @@ class RequirementsInstaller(cast(Any, QWidget)):
         self.chembl_version = self._defaults["chembl_version"]
         self.padelpy_version = self._defaults["padelpy_version"]
         self.rdkit_version = self._defaults["rdkit_version"]
+        self.openbabel_version = self._defaults["openbabel_version"]
         self.matplotlib_version = self._defaults["matplotlib_version"]
         self.seaborn_version = self._defaults["seaborn_version"]
         self.joblib_version = self._defaults["joblib_version"]
@@ -696,6 +698,11 @@ class RequirementsInstaller(cast(Any, QWidget)):
         rdkit_box, self.rb_rdkit_latest, self.rb_rdkit_version, self.ed_rdkit_version = \
             self._make_version_row(self.rdkit_version)
 
+        self.check_openbabel = QCheckBox(i18n.t("req_chk_openbabel", self._idioma))
+        self.check_openbabel.setToolTip(i18n.t("req_tooltip_openbabel", self._idioma))
+        openbabel_box, self.rb_openbabel_latest, self.rb_openbabel_version, self.ed_openbabel_version = \
+            self._make_version_row(self.openbabel_version)
+
         self.check_matplotlib = QCheckBox(i18n.t("req_chk_matplotlib", self._idioma))
         matplotlib_box, self.rb_matplotlib_latest, self.rb_matplotlib_version, self.ed_matplotlib_version = \
             self._make_version_row(self.matplotlib_version)
@@ -740,6 +747,7 @@ class RequirementsInstaller(cast(Any, QWidget)):
         gL.addWidget(self.check_chembl, r, 0); gL.addWidget(chembl_box, r, 1); r += 1
         gL.addWidget(self.check_padelpy, r, 0); gL.addWidget(padelpy_box, r, 1); r += 1
         gL.addWidget(self.check_rdkit, r, 0); gL.addWidget(rdkit_box, r, 1); r += 1
+        gL.addWidget(self.check_openbabel, r, 0); gL.addWidget(openbabel_box, r, 1); r += 1
         gL.addWidget(self.check_matplotlib, r, 0); gL.addWidget(matplotlib_box, r, 1); r += 1
         gL.addWidget(self.check_seaborn, r, 0); gL.addWidget(seaborn_box, r, 1); r += 1
         gL.addWidget(self.check_joblib, r, 0); gL.addWidget(joblib_box, r, 1); r += 1
@@ -834,6 +842,7 @@ class RequirementsInstaller(cast(Any, QWidget)):
         checkboxes = [
             self.check_venv, self.check_java, self.check_scikitlearn,
             self.check_cuml, self.check_chembl, self.check_padelpy, self.check_rdkit,
+            self.check_openbabel,
             self.check_matplotlib, self.check_seaborn, self.check_joblib, self.check_pandas,
             self.check_numpy, self.check_pytorch, self.check_tensorflow, self.check_libs,
         ]
@@ -852,6 +861,7 @@ class RequirementsInstaller(cast(Any, QWidget)):
         self.chembl_version      = self.ed_chembl_version.text().strip()
         self.padelpy_version     = self.ed_padelpy_version.text().strip()
         self.rdkit_version       = self.ed_rdkit_version.text().strip()
+        self.openbabel_version   = self.ed_openbabel_version.text().strip()
         self.matplotlib_version  = self.ed_matplotlib_version.text().strip()
         self.seaborn_version     = self.ed_seaborn_version.text().strip()
         self.joblib_version      = self.ed_joblib_version.text().strip()
@@ -872,6 +882,7 @@ class RequirementsInstaller(cast(Any, QWidget)):
             self.check_chembl.isChecked(),
             self.check_padelpy.isChecked(),
             self.check_rdkit.isChecked(),
+            self.check_openbabel.isChecked(),
             self.check_matplotlib.isChecked(),
             self.check_seaborn.isChecked(),
             self.check_joblib.isChecked(),
@@ -948,6 +959,13 @@ class RequirementsInstaller(cast(Any, QWidget)):
                 ok = self.install_pkg(pybin, spec)
                 step += 1; self.progress_signal.emit(step)
                 if not ok: return self._abort("rdkit-pypi")
+
+            if self.check_openbabel.isChecked():
+                self.log_signal.emit(i18n.t("req_log_installing", self._idioma, name="OpenBabel (openbabel-wheel)"))
+                spec = self._version_spec("openbabel-wheel", self.rb_openbabel_latest, self.openbabel_version)
+                ok = self.install_pkg(pybin, spec)
+                step += 1; self.progress_signal.emit(step)
+                if not ok: return self._abort("openbabel-wheel")
 
             if self.check_matplotlib.isChecked():
                 self.log_signal.emit(i18n.t("req_log_installing", self._idioma, name="Matplotlib"))

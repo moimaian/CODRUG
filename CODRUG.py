@@ -573,6 +573,14 @@ except Exception as e:
     def _generate_final_report_docx(*args, **kwargs):
         raise RuntimeError("python-docx is not installed. Use 'Install requirements' at home menu.")
 
+try:
+    import MODULES.module_compound_names as module_compound_names
+    print("✅ module_compound_names imported successfully.")
+except Exception as e:
+    print("⚠️ module_compound_names not available - Hits tables will show compound IDs without names.")
+    print(f"Details: {e}")
+    module_compound_names = None
+
 # ==========================================================================================================================================
 # ================================================== DESIGN CONFIG - DARK MODE =============================================================
 # ========================================================================================================================================== 
@@ -3145,6 +3153,7 @@ class MainWindow(QMainWindow):
             ("scikit-learn", "sklearn", "__version__"),
             ("RDKit", "rdkit", "__version__"),
             ("PaDELPy", "padelpy", "__version__"),
+            ("OpenBabel", "openbabel", "__version__"),
             ("LightGBM", "lightgbm", "__version__"),
             ("ChEMBL_Webresource_Client", "chembl_webresource_client", "__version__"),
             ("joblib", "joblib", "__version__"),
@@ -4361,6 +4370,7 @@ class MainWindow(QMainWindow):
         if external_path and os.path.isfile(external_path):
             self._load_external_dataframe(external_path, show_preview=False)
         self._apply_state_from_spec(self.STEP7_FIELD_SPEC, state)
+        self._ad_expl_update_pred_enabled()
         self._ad_try_load_previous_result(state)
         return True
 
@@ -10088,14 +10098,20 @@ class MainWindow(QMainWindow):
 
     def run_select_structures(self):
         """
-        Lê uma pasta com estruturas (.smi ou .sdf), faz split (multiligante),
-        detecta 2D/3D (amostrando uma mol válida no caso de SDF),
-        converte para 3D se chk_3dconvert estiver marcado, caso contrário gera/copia 1D (.smi).
-        Gera um DataFrame [name, canonical_smiles] e salva em INTERNAL_DATA.
+        Lê uma pasta com estruturas (.smi, .sdf, .mol nativos do RDKit; .mol2, .pdb, .pdbqt,
+        .xyz via OpenBabel), faz split (multiligante), detecta 2D/3D (amostrando uma mol válida
+        no caso de arquivos multi-composto), converte para 3D se chk_3dconvert estiver marcado
+        (quando a fonte já é 2D), caso contrário gera/copia 1D (.smi).
+        Gera um DataFrame [name, canonical_smiles, native_3d_sdf] e salva em INTERNAL_DATA -
+        native_3d_sdf aponta para a geometria 3D ORIGINAL do arquivo de origem (não uma gerada
+        por embedding), uma por composto, usada depois por "Generate Descriptors" para calcular
+        descritores 3D a partir da conformação real em vez de reconstruí-la a partir do SMILES.
         """
         try:
             # ---------- Seleção de pasta ----------
-            directory = QFileDialog.getExistingDirectory(self, "Selecione a pasta com .smi/.sdf")
+            directory = QFileDialog.getExistingDirectory(
+                self, "Selecione a pasta com estruturas (.smi, .sdf, .mol, .mol2, .pdb, .pdbqt, .xyz)"
+            )
             if not directory:
                 return
 
@@ -10174,20 +10190,59 @@ class MainWindow(QMainWindow):
                 return Chem.RemoveHs(m)
 
             # ---------- Varredura de arquivos ----------
-            sdf_files = []
-            smi_files = []
+            # Formatos lidos nativamente pelo RDKit (sem dependência extra).
+            RDKIT_EXTS = {".sdf", ".mol"}
+            # Formatos que dependem do OpenBabel (pacote opcional "openbabel-wheel", instalável em
+            # HOME > Installation Requirements) para leitura robusta - inclusive .pdbqt, que o
+            # RDKit não lê de forma alguma. mol2/pdb/pdbqt/xyz carregam coordenadas 3D reais.
+            OB_EXTS = {".mol2": "mol2", ".pdb": "pdb", ".pdbqt": "pdbqt", ".xyz": "xyz"}
+
+            found_files = []
             for fn in os.listdir(directory):
-                low = fn.lower()
-                if low.endswith(".sdf"):
-                    sdf_files.append(os.path.join(directory, fn))
-                elif low.endswith(".smi"):
-                    smi_files.append(os.path.join(directory, fn))
+                ext = Path(fn).suffix.lower()
+                if ext == ".smi" or ext in RDKIT_EXTS or ext in OB_EXTS:
+                    found_files.append((os.path.join(directory, fn), ext))
 
-            names, smiles_list = [], []
+            if not found_files:
+                QMessageBox.information(
+                    self, i18n.t("msg_title_info", self._idioma),
+                    "No supported structure file found (.smi, .sdf, .mol, .mol2, .pdb, .pdbqt, .xyz)."
+                )
+                return
 
-            # ---------- Processa .smi ----------
-            # Regra: copiar para 1D e padronizar canonical SMILES (um por linha).
-            for smi_path in smi_files:
+            # OpenBabel só é importado se pelo menos um arquivo realmente precisar dele.
+            _pybel = None
+            ob_missing_files = []
+            if any(ext in OB_EXTS for _, ext in found_files):
+                try:
+                    from openbabel import pybel as _pybel
+                except Exception:
+                    _pybel = None
+
+            names, smiles_list, native_3d_rel = [], [], []
+
+            def _register(nm, can, native_sdf_path=None):
+                if not can:
+                    return
+                names.append(nm)
+                smiles_list.append(can)
+                native_3d_rel.append(self._to_job_relative_path(native_sdf_path) if native_sdf_path else "")
+
+            def _save_native_3d(mol, nm):
+                """Copia a geometria 3D ORIGINAL (não gerada por embedding) para a pasta 3D, um
+                arquivo por composto - é isso que "Generate Descriptors" usa depois para calcular
+                descritores 3D a partir da conformação real, em vez de reconstruí-la do SMILES."""
+                out_file = os.path.join(out_3d_dir, f"{nm}.sdf")
+                try:
+                    w = Chem.SDWriter(out_file)
+                    w.write(mol)
+                    w.close()
+                    return out_file
+                except Exception:
+                    return None
+
+            # ---------- Processa .smi (nunca tem geometria 3D nativa) ----------
+            for smi_path, _ext in ((p, e) for p, e in found_files if e == ".smi"):
                 try:
                     # Copia o arquivo original para 1D (mantém um registro do bruto)
                     shutil.copy2(smi_path, os.path.join(out_1d_dir, os.path.basename(smi_path)))
@@ -10204,64 +10259,42 @@ class MainWindow(QMainWindow):
                         parts = re.split(r"\s+", line, maxsplit=1)
                         raw_smi = parts[0]
                         nm = parts[1].strip() if len(parts) > 1 else f"{Path(smi_path).stem}_{i+1}"
-                        can = _canonical(raw_smi)
-                        if can:
-                            names.append(nm)
-                            smiles_list.append(can)
+                        _register(nm, _canonical(raw_smi))
 
-                # Também salva um .smi canonicalizado por arquivo
-                if names:
-                    out_smi_canon = os.path.join(out_1d_dir, f"{Path(smi_path).stem}_canonical.smi")
-                    with open(out_smi_canon, "w", encoding="utf-8") as fw:
-                        # revarre apenas as entradas que vieram daquele arquivo? Simplesmente escreva do pool atual
-                        # (opcional: poderia separar, mas não é obrigatório)
-                        pass  # já temos tudo agregado ao DF; arquivo agregado é opcional
-
-            # ---------- Processa .sdf ----------
-            for sdf_path in sdf_files:
-                # Carrega todas as mols (split automático RDKit)
-                suppl = Chem.SDMolSupplier(sdf_path, removeHs=False)
-                mols = [m for m in suppl if m is not None]
+            # ---------- Processa .sdf / .mol (RDKit nativo) ----------
+            for struct_path, ext in ((p, e) for p, e in found_files if e in RDKIT_EXTS):
+                if ext == ".sdf":
+                    suppl = Chem.SDMolSupplier(struct_path, removeHs=False)
+                    mols = [m for m in suppl if m is not None]
+                else:  # .mol - um único composto por arquivo
+                    m0 = Chem.MolFromMolFile(struct_path, removeHs=False)
+                    mols = [m0] if m0 is not None else []
                 if not mols:
                     continue
 
-                # Detecta 2D/3D amostrando a 1ª válida com conf
-                sample_is_3d = False
-                for m in mols:
-                    if m is None:
-                        continue
-                    if _is_3d_mol(m):
-                        sample_is_3d = True
-                    break
+                # Detecta 2D/3D amostrando a 1ª mol válida do arquivo
+                sample_is_3d = _is_3d_mol(mols[0])
 
                 if sample_is_3d:
-                    # 3D → apenas copia o SDF para a pasta 3D (mantém multiligante)
+                    # 3D → mantém uma cópia do arquivo original (registro bruto, multiligante) e
+                    # grava também uma geometria nativa por composto (usada por Generate Descriptors).
                     try:
-                        shutil.copy2(sdf_path, os.path.join(out_3d_dir, os.path.basename(sdf_path)))
+                        shutil.copy2(struct_path, os.path.join(out_3d_dir, os.path.basename(struct_path)))
                     except Exception:
                         pass
-
-                    # Extrai SMILES (canonical) e nomes para o DF
                     for idx, m in enumerate(mols, start=1):
-                        can = _canonical(Chem.Mol(m))
-                        if can:
-                            nm = _safe_name(m, f"{Path(sdf_path).stem}_{idx}")
-                            names.append(nm)
-                            smiles_list.append(can)
-
+                        nm = _safe_name(m, f"{Path(struct_path).stem}_{idx}")
+                        _register(nm, _canonical(Chem.Mol(m)), _save_native_3d(m, nm))
                 else:
                     # 2D
                     if convert_3d:
-                        # Converte cada molécula em 3D e salva como arquivos SDF individuais em 3D
+                        # Converte cada molécula em 3D (embedding) e salva como SDF individual em
+                        # 3D - geometria GERADA, não nativa, então native_3d_sdf fica vazio.
                         for idx, m in enumerate(mols, start=1):
                             if m is None:
                                 continue
-                            m3d = _embed_optimize_3d(m)
-                            if m3d is None:
-                                # fallback: tenta pelo menos salvar 2D como está
-                                m3d = m
-                            nm = _safe_name(m, f"{Path(sdf_path).stem}_{idx}")
-                            # salva 3D
+                            nm = _safe_name(m, f"{Path(struct_path).stem}_{idx}")
+                            m3d = _embed_optimize_3d(m) or m
                             out_file = os.path.join(out_3d_dir, f"{nm}.sdf")
                             try:
                                 w = Chem.SDWriter(out_file)
@@ -10269,32 +10302,77 @@ class MainWindow(QMainWindow):
                                 w.close()
                             except Exception:
                                 pass
-                            # coleta canonical smiles
-                            can = _canonical(Chem.Mol(m))
-                            if can:
-                                names.append(nm)
-                                smiles_list.append(can)
+                            _register(nm, _canonical(Chem.Mol(m)))
                     else:
                         # Não converter 3D → gerar canonical SMILES e salvar .smi individuais em 1D
-                        out_smi = os.path.join(out_1d_dir, f"{Path(sdf_path).stem}_canonical.smi")
+                        out_smi = os.path.join(out_1d_dir, f"{Path(struct_path).stem}_canonical.smi")
                         with open(out_smi, "w", encoding="utf-8") as fw:
                             for idx, m in enumerate(mols, start=1):
                                 if m is None:
                                     continue
-                                nm = _safe_name(m, f"{Path(sdf_path).stem}_{idx}")
+                                nm = _safe_name(m, f"{Path(struct_path).stem}_{idx}")
                                 can = _canonical(Chem.Mol(m))
                                 if not can:
                                     continue
                                 fw.write(f"{can}\t{nm}\n")
-                                names.append(nm)
-                                smiles_list.append(can)
+                                _register(nm, can)
+
+            # ---------- Processa .mol2 / .pdb / .pdbqt / .xyz (via OpenBabel) ----------
+            ob_paths = [(p, ext) for p, ext in found_files if ext in OB_EXTS]
+            if ob_paths and _pybel is None:
+                ob_missing_files = [os.path.basename(p) for p, _ in ob_paths]
+            else:
+                for struct_path, ext in ob_paths:
+                    fmt = OB_EXTS[ext]
+                    try:
+                        ob_mols = list(_pybel.readfile(fmt, struct_path))
+                    except Exception as e:
+                        QMessageBox.warning(self, i18n.t("msg_title_warning", self._idioma),
+                                             f"OpenBabel failed to read {os.path.basename(struct_path)}:\n{e}")
+                        continue
+                    for idx, obmol in enumerate(ob_mols, start=1):
+                        try:
+                            molblock = obmol.write("sdf")
+                        except Exception:
+                            continue
+                        m = Chem.MolFromMolBlock(molblock, sanitize=True, removeHs=False)
+                        if m is None:
+                            m = Chem.MolFromMolBlock(molblock, sanitize=False, removeHs=False)
+                            if m is not None:
+                                try:
+                                    Chem.SanitizeMol(m)
+                                except Exception:
+                                    m = None
+                        if m is None:
+                            continue
+                        title = (getattr(obmol, "title", "") or "").strip()
+                        nm = _safe_name(m, title or f"{Path(struct_path).stem}_{idx}")
+                        can = _canonical(Chem.Mol(m))
+                        if not can:
+                            continue
+                        native_path = _save_native_3d(m, nm) if _is_3d_mol(m) else None
+                        _register(nm, can, native_path)
+
+            if ob_missing_files:
+                preview = ", ".join(ob_missing_files[:5]) + ("..." if len(ob_missing_files) > 5 else "")
+                QMessageBox.warning(
+                    self, i18n.t("msg_title_attention", self._idioma),
+                    "OpenBabel is not installed - skipped "
+                    f"{len(ob_missing_files)} file(s) (.mol2/.pdb/.pdbqt/.xyz): {preview}\n\n"
+                    "Install it from HOME > Installation Requirements (OpenBabel / openbabel-wheel) "
+                    "to read these formats."
+                )
 
             # ---------- DataFrame final ----------
-            df = pd.DataFrame({"name": names, "canonical_smiles": smiles_list}).dropna().reset_index(drop=True)
+            df = pd.DataFrame({
+                "name": names,
+                "canonical_smiles": smiles_list,
+                "native_3d_sdf": native_3d_rel,
+            }).dropna(subset=["name", "canonical_smiles"]).reset_index(drop=True)
 
             # Se não encontrou nada, avisa
             if df.empty:
-                QMessageBox.information(self, i18n.t("msg_title_info", self._idioma), "No valid structure found in .smi/.sdf.")
+                QMessageBox.information(self, i18n.t("msg_title_info", self._idioma), "No valid structure found in the selected folder.")
                 return
 
             # Remove duplicatas exatas de SMILES mantendo primeira ocorrência (ordem de leitura)
@@ -10377,6 +10455,23 @@ class MainWindow(QMainWindow):
 
             def _normalize_name_key(series):
                 return series.fillna("").astype(str).str.strip()
+
+            # Mapa Name -> caminho absoluto da geometria 3D NATIVA (gravada por "Or Select
+            # Structures File" a partir de .sdf/.mol2/.pdb/.pdbqt/.xyz com coordenadas 3D reais -
+            # ausente para .smi ou fontes 2D). Usado mais abaixo, no grupo "3D", quando "Retain 3D
+            # coordinates" estiver marcado, para calcular descritores 3D a partir da conformação
+            # real em vez de reconstruí-la a partir do SMILES.
+            native_3d_map = {}
+            if "native_3d_sdf" in self.df_selecionado.columns:
+                nat = self.df_selecionado[[name_col, "native_3d_sdf"]].dropna(subset=[name_col])
+                nat_names = _normalize_name_key(nat[name_col].astype(str))
+                for nm, rel in zip(nat_names, nat["native_3d_sdf"].astype(str)):
+                    rel = rel.strip()
+                    if not nm or not rel:
+                        continue
+                    abs_path = self._from_job_relative_path(rel)
+                    if abs_path and os.path.isfile(abs_path):
+                        native_3d_map[nm] = abs_path
 
             def _safe_parse_smiles(smiles_text):
                 log_disabled = False
@@ -10488,6 +10583,78 @@ class MainWindow(QMainWindow):
                 smi_dir, f"multiligand_{self.ed_target_chembl_id.text().strip()}.smi"
             )
             smi_df[[structure_col, name_col]].to_csv(smi_path, sep="\t", header=False, index=False)
+
+            # ================== Geometria 3D real p/ o grupo "3D" (Retain 3D coordinates) ======
+            # Construído sob demanda (só se algum descritor 3D for de fato processado com "Retain
+            # 3D coordinates" marcado): um único SDF combinado, um composto por linha de
+            # source_pairs, usando a geometria NATIVA de native_3d_map quando existir; para quem
+            # não tem 3D nativo (ex.: veio de .smi, ou de um .sdf/.mol2/.pdb/.pdbqt 2D), gera um
+            # embedding 3D a partir do SMILES (mesma lógica de "Or Select Structures File"), para
+            # que nenhum composto seja perdido no merge final por falta de 3D nativo.
+            three_d_stats = {}
+
+            def _embed_3d_gd(mol):
+                try:
+                    m = Chem.AddHs(mol)
+                    params = AllChem.ETKDGv3()
+                    params.randomSeed = 0xC0D
+                    cid = AllChem.EmbedMolecule(m, params)
+                    if cid != 0:
+                        cid = AllChem.EmbedMolecule(m, AllChem.ETKDG())
+                    if cid != 0:
+                        return None
+                    try:
+                        if AllChem.MMFFHasAllMoleculeParams(m):
+                            AllChem.MMFFOptimizeMolecule(m, maxIters=500)
+                        else:
+                            AllChem.UFFOptimizeMolecule(m, maxIters=500)
+                    except Exception:
+                        pass
+                    return Chem.RemoveHs(m)
+                except Exception:
+                    return None
+
+            def _get_or_build_3d_mol_dir():
+                if "path" in three_d_stats:
+                    return three_d_stats["path"]
+                out_dir_3d = os.path.join(self.job_dir, "DATA_BASES", "STRUCTURES", "3D")
+                os.makedirs(out_dir_3d, exist_ok=True)
+                combined_path = os.path.join(
+                    out_dir_3d, f"multiligand_3d_{self.ed_target_chembl_id.text().strip()}.sdf"
+                )
+                native_count = embedded_count = failed_count = 0
+                writer = Chem.SDWriter(combined_path)
+                try:
+                    for _, row in source_pairs.iterrows():
+                        nm, smi = row["Name"], row["SMILES"]
+                        mol3d = None
+                        native_path = native_3d_map.get(nm)
+                        if native_path:
+                            try:
+                                supp = Chem.SDMolSupplier(native_path, removeHs=False)
+                                mol3d = next((mm for mm in supp if mm is not None), None)
+                            except Exception:
+                                mol3d = None
+                            if mol3d is not None:
+                                native_count += 1
+                        if mol3d is None:
+                            base = _safe_parse_smiles(smi)
+                            mol3d = _embed_3d_gd(base) if base is not None else None
+                            if mol3d is not None:
+                                embedded_count += 1
+                        if mol3d is None:
+                            failed_count += 1
+                            continue
+                        try:
+                            mol3d.SetProp("_Name", nm)
+                            writer.write(mol3d)
+                        except Exception:
+                            failed_count += 1
+                finally:
+                    writer.close()
+                three_d_stats.update(path=combined_path, native=native_count,
+                                      embedded=embedded_count, failed=failed_count)
+                return combined_path
 
             if repaired_count or invalid_count:
                 msg_lines = []
@@ -10643,8 +10810,16 @@ class MainWindow(QMainWindow):
                 retain3d    = bool(getattr(self, "chk_3dcoord", None)      and self.chk_3dcoord.isChecked())
                 convert3d   = bool(getattr(self, "chk_3dconvert", None)    and self.chk_3dconvert.isChecked())
 
+                # Grupo "3D" + "Retain 3D coordinates" marcado: usa a geometria 3D real (nativa
+                # de .sdf/.mol2/.pdb/.pdbqt/.xyz, com embedding só como reserva para quem não tem
+                # 3D nativo) em vez do .smi achatado - só nesse caso "retain3d" tem algo a reter.
+                use_native_3d = (group == "3D") and retain3d
+                mol_dir_group = smi_path
+                if use_native_3d:
+                    mol_dir_group = _get_or_build_3d_mol_dir()
+
                 kwargs = dict(
-                    mol_dir=smi_path,                  
+                    mol_dir=mol_dir_group,
                     d_file=csv_out,
                     descriptortypes=out_xml,
                     detectaromaticity=bool(aromaticity),
@@ -10652,12 +10827,12 @@ class MainWindow(QMainWindow):
                     standardizetautomers=bool(tautomers),
                     threads=os.cpu_count() or 8,
                     removesalt=bool(removesalt),
-                    log=True,                  
+                    log=True,
                     retainorder=True,
                     d_2d=False,
                     d_3d=False,
-                    retain3d=bool(retain3d),
-                    convert3d=bool(convert3d),
+                    retain3d=True if use_native_3d else bool(retain3d),
+                    convert3d=False if use_native_3d else bool(convert3d),
                     fingerprints=False
                 )
                 if group in ("1D2D", "2D"):
@@ -10837,6 +11012,14 @@ class MainWindow(QMainWindow):
                     report_lines.append(f"- {_name} | {_smiles}")
             else:
                 report_lines.append("All compounds sent to descriptor generation were preserved in the final result.")
+
+            if three_d_stats:
+                report_lines.append("")
+                report_lines.append("3D descriptors - geometry source (Retain 3D coordinates):")
+                report_lines.append(f"- Native 3D structure (from .sdf/.mol2/.pdb/.pdbqt/.xyz): {three_d_stats.get('native', 0)}")
+                report_lines.append(f"- Embedded from SMILES (no native 3D available): {three_d_stats.get('embedded', 0)}")
+                if three_d_stats.get("failed"):
+                    report_lines.append(f"- Failed to obtain a 3D conformer: {three_d_stats['failed']}")
 
             internal_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
             external_dir = os.path.join(self.job_dir, "DATA_BASES", "EXTERNAL_DATA")
@@ -11449,6 +11632,20 @@ class MainWindow(QMainWindow):
                 hit_count = len(eligible)
             hits_df = eligible.sort_values("consensus_rank").head(hit_count).reset_index(drop=True)
 
+            # Common name per hit (e.g. "ZINC000003875259" -> "Valsartan"), matched by structure
+            # via PubChem - see module_compound_names.py (ZINC15 itself is behind a bot-check, so
+            # this never talks to it). Saved as its own "compound_name" column (never mutates
+            # id_col_name) so the final report can reuse it without a second network round-trip.
+            hit_names = {}
+            if module_compound_names is not None and not hits_df.empty:
+                try:
+                    hit_names = module_compound_names.resolve_compound_names(
+                        list(hits_df[id_col_name].astype(str)), self.job_dir
+                    )
+                except Exception:
+                    hit_names = {}
+            hits_df["compound_name"] = hits_df[id_col_name].astype(str).map(hit_names).fillna("")
+
             target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
             target_organism = self.ed_organism_name.text().strip() if hasattr(self, "ed_organism_name") else ""
             suffix_parts = [part for part in [target_chembl_id, target_organism] if part]
@@ -11504,8 +11701,12 @@ class MainWindow(QMainWindow):
             ]
 
             for _, series in hits_df.head(20).iterrows():
+                compound_label = (
+                    module_compound_names.format_hit_label(series[id_col_name], series.get("compound_name") or None)
+                    if module_compound_names is not None else str(series[id_col_name])
+                )
                 report_lines.append(
-                    f"Rank {int(round(series['consensus_rank']))}: {series[id_col_name]} | score-mean = {series['consensus_score_mean']:.4f} | "
+                    f"Rank {int(round(series['consensus_rank']))}: {compound_label} | score-mean = {series['consensus_score_mean']:.4f} | "
                     f"median-rank = {series['median_rank_validation']:.2f} | mean +/- SD = {series['bioactivity_mean']:.6g} +/- {series['bioactivity_sd']:.6g} | "
                     f"CV% = {series['bioactivity_cv_percent']:.2f}"
                 )
@@ -14114,7 +14315,7 @@ class MainWindow(QMainWindow):
         "Leverage", "Mahalanobis", "kNN mean dist", "Tanimoto max", "1 - Tanimoto max",
         "PC1", "PC2", "t-SNE 1", "t-SNE 2", "UMAP 1", "UMAP 2", "Predicted value", "Count",
     ]
-    AD_EXPL_PLOT_TYPES = ["3D scatter", "Train as KDE density", "Marginal histograms (2D)"]
+    AD_EXPL_PLOT_TYPES = ["3D scatter", "Train as KDE density", "Marginal histograms (2D)", "Frequency"]
     # Siglas incorporadas ao nome do arquivo proposto ao salvar um "Plot AD Exploration".
     AD_EXPL_AXIS_ABBR = {
         "Leverage": "Lev", "Mahalanobis": "Mah", "kNN mean dist": "kNN",
@@ -14122,6 +14323,16 @@ class MainWindow(QMainWindow):
         "PC1": "PC1", "PC2": "PC2", "t-SNE 1": "tSNE1", "t-SNE 2": "tSNE2",
         "UMAP 1": "UMAP1", "UMAP 2": "UMAP2", "Predicted value": "Pred", "Count": "Cnt",
     }
+
+    @staticmethod
+    def _ad_expl_darken_hex(hex_color, factor=0.55):
+        """Escurece uma cor hex multiplicando cada canal RGB por `factor` (0-1; menor = mais
+        escuro). Usada para a borda do marcador de 'Highlight descriptor(s)': mesma cor de
+        preenchimento do veredito (Within/Borderline/Outside AD), só que mais escura."""
+        h = hex_color.lstrip("#")
+        r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+        r, g, b = (max(0, min(255, int(round(c * factor)))) for c in (r, g, b))
+        return f"#{r:02x}{g:02x}{b:02x}"
 
     def _ad_expl_axis_abbr(self, choice):
         if choice in self.AD_EXPL_AXIS_ABBR:
@@ -14162,6 +14373,23 @@ class MainWindow(QMainWindow):
         ax.add_patch(Ellipse((x[m].mean(), y[m].mean()), width=w, height=h, angle=theta,
                              fill=False, ls="--", lw=1.4, ec=kw.get("ec", "#444"),
                              label=kw.get("label", f"{int(level*100)}% ellipse")))
+
+    def _ad_expl_update_pred_enabled(self, *_args):
+        """Habilita 'Select Predictions CSV' e 'Predicted column' apenas quando algum eixo
+        (X, Y ou Z) do AD Exploration está definido como 'Predicted value'. Caso contrário
+        ficam desabilitados (cores cinza padrão do QSS)."""
+        if not all(hasattr(self, w) for w in
+                   ("cb_ad_expl_x", "cb_ad_expl_y", "cb_ad_expl_z",
+                    "btn_ad_expl_pred", "ed_ad_expl_pred", "cb_ad_expl_pred_col")):
+            return
+        needs_pred = "Predicted value" in (
+            self.cb_ad_expl_x.currentText(),
+            self.cb_ad_expl_y.currentText(),
+            self.cb_ad_expl_z.currentText(),
+        )
+        self.btn_ad_expl_pred.setEnabled(needs_pred)
+        self.ed_ad_expl_pred.setEnabled(needs_pred)
+        self.cb_ad_expl_pred_col.setEnabled(needs_pred)
 
     def _ad_expl_predicted_ext(self, df_res):
         """Vetor de valores previstos alinhado ao Externo (eixo 'Predicted value' / Insubria).
@@ -14467,6 +14695,12 @@ class MainWindow(QMainWindow):
     def plot_ad_exploration(self):
         import matplotlib.pyplot as plt
         try:
+            # Plot Type "Frequency" (antigo grupo Verdict Distribution, incorporado aqui): não usa
+            # eixos X/Y/Z nem depende de "Compute AD" — trabalha sobre "Select AD DataFrame" /
+            # "Select Column:" diretamente, então é despachado antes de exigir um contexto de AD.
+            if "Frequency" in self._ad_expl_selected_plot_types():
+                self._ad_expl_frequency_plot()
+                return
             ctx = self._ad_expl_build_context()
             if ctx is None:
                 QMessageBox.warning(self, i18n.t("msg_title_ad", self._idioma), "Run 'Compute AD' first.")
@@ -14533,6 +14767,9 @@ class MainWindow(QMainWindow):
 
             verdict = df_res["ad_verdict"].astype(str).to_numpy() if "ad_verdict" in df_res.columns else np.array(["?"] * len(df_res))
             vcol = {"Within AD": "#59af59", "Borderline": "#e0a030", "Outside AD": "#bd5e5e", "?": "#888888"}
+            # "Highlight descriptor(s)": mesma cor de preenchimento do veredito do composto, só que
+            # com a borda numa versão mais escura dessa cor (em vez do antigo anel preto neutro).
+            vcol_dark = {k: self._ad_expl_darken_hex(c) for k, c in vcol.items()}
 
             if is3d:
                 zc = self.cb_ad_expl_z.currentText()
@@ -14555,9 +14792,17 @@ class MainWindow(QMainWindow):
                         if m.any():
                             ax.scatter(xnw[m], ynw[m], znw[m], s=14, alpha=0.55, color=vcol[v], label=f"Ext · {v}")
                 if desc_mask is not None and desc_mask.any():
-                    ax.scatter(np.asarray(xnw)[desc_mask], np.asarray(ynw)[desc_mask], np.asarray(znw)[desc_mask],
-                               s=50, facecolors="none", edgecolors="#000000", linewidths=1.2, marker="o",
-                               zorder=5, label=f"Descriptor match (n={int(desc_mask.sum())})")
+                    desc_total = int(desc_mask.sum())
+                    desc_labeled = False
+                    for v in ("Within AD", "Borderline", "Outside AD"):
+                        dm = (verdict == v) & desc_mask
+                        if not dm.any():
+                            continue
+                        lbl = f"Descriptor match (n={desc_total})" if not desc_labeled else None
+                        desc_labeled = True
+                        ax.scatter(np.asarray(xnw)[dm], np.asarray(ynw)[dm], np.asarray(znw)[dm],
+                                   s=22, facecolor=vcol[v], edgecolor=vcol_dark[v], linewidths=1.4,
+                                   marker="o", zorder=5, label=lbl)
                 if hi_positions:
                     hx = np.asarray(xnw)[hi_positions]; hy = np.asarray(ynw)[hi_positions]; hz = np.asarray(znw)[hi_positions]
                     ax.scatter(hx, hy, hz, marker="o", s=28, color="darkviolet", edgecolor="white",
@@ -14620,9 +14865,17 @@ class MainWindow(QMainWindow):
                     ax.axhline(ycut, ls="--", color="0.35", lw=1.2)
 
             if desc_mask is not None and desc_mask.any():
-                ax.scatter(np.asarray(xnw)[desc_mask], np.asarray(ynw)[desc_mask], s=70,
-                           facecolors="none", edgecolors="#000000", linewidths=1.3, marker="o",
-                           zorder=5, label=f"Descriptor match (n={int(desc_mask.sum())})")
+                desc_total = int(desc_mask.sum())
+                desc_labeled = False
+                for v in ("Within AD", "Borderline", "Outside AD"):
+                    dm = (verdict == v) & desc_mask
+                    if not dm.any():
+                        continue
+                    lbl = f"Descriptor match (n={desc_total})" if not desc_labeled else None
+                    desc_labeled = True
+                    ax.scatter(np.asarray(xnw)[dm], np.asarray(ynw)[dm], s=26,
+                               facecolor=vcol[v], edgecolor=vcol_dark[v], linewidths=1.6,
+                               marker="o", zorder=4, label=lbl)
 
             if hi_positions:
                 hx = np.asarray(xnw)[hi_positions]; hy = np.asarray(ynw)[hi_positions]
@@ -14840,15 +15093,14 @@ class MainWindow(QMainWindow):
             self.cb_ad_verdict_column.setCurrentIndex(idx)
         self.cb_ad_verdict_column.blockSignals(False)
 
-    def run_view_ad_verdict_frequency(self):
-        """Botão "View Frequency" do grupo Verdict Distribution (STEP 5): gráfico de barras com a
-        contagem de cada classe presente na coluna selecionada, uma cor por classe - mesma paleta
-        do "View Frequency" da STEP 2 (run_view_class_frequency). Salva automaticamente em
-        RESULTS/MIDIA (mesma convenção de nome dos demais gráficos desta aba - Plot Williams/Hist.
-        Mahalanobis/etc.: "{prefixo}_{nome do DataFrame Externo selecionado}_{timestamp}.png") e
-        então exibe o gráfico numa janela com botões "Save Chart"/"Close" - mesmo método usado
-        pelo "View Frequency" da STEP 4/scikit-learn (_show_ad_plot_dialog, análogo a
-        _show_skl_plot_dialog)."""
+    def _ad_expl_frequency_plot(self):
+        """Plot Type "Frequency" do grupo AD Exploration (incorpora o antigo botão "View
+        Frequency" do grupo Verdict Distribution, agora fundido aqui): gráfico de barras com a
+        contagem de cada classe presente na coluna escolhida em "Select Column:", uma cor por
+        classe - mesma paleta do "View Frequency" da STEP 2 (run_view_class_frequency). Não usa
+        os eixos X/Y/Z nem depende de "Compute AD" — trabalha direto sobre o DataFrame carregado
+        em "Select AD DataFrame". Chamado por plot_ad_exploration() quando "Frequency" está
+        marcado em "Plot Type:"."""
         if getattr(self, "df_ad_verdict", None) is None:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "No AD DataFrame loaded.")
             return
@@ -14903,86 +15155,14 @@ class MainWindow(QMainWindow):
             fig.suptitle(f"Frequency by {col}", fontweight="bold")
             fig.tight_layout()
 
-            # Nome do DataFrame Externo selecionado nesta aba (mesma base usada por Plot Williams/
-            # Hist. Mahalanobis/PCA/Similarity via _ad_ext_basename, definida em run_ad_assessment
-            # / "Compute AD"; se Compute AD ainda não rodou nesta sessão, cai de volta para o nome
-            # atualmente exibido em "Select External DataFrame").
-            ext_base = getattr(self, "_ad_ext_basename", None)
-            if not ext_base:
-                ext_text = self.df_name_view_ext_AD.text().strip() if hasattr(self, "df_name_view_ext_AD") else ""
-                ext_base = os.path.splitext(ext_text)[0] if ext_text else "external"
-            timestamp = getattr(self, "_ad_timestamp", None) or datetime.now().strftime("%Y-%m-%d_%H-%M")
-            file_stem = f"Plot_verdict_freq_{ext_base}_{timestamp}"
-
-            midia_dir = os.path.join(self.job_dir, "RESULTS", "MIDIA")
-            os.makedirs(midia_dir, exist_ok=True)
-            auto_path = os.path.join(midia_dir, f"{file_stem}.png")
-            try:
-                fig.savefig(auto_path, dpi=300, bbox_inches="tight", facecolor="white")
-            except Exception as e:
-                QMessageBox.warning(self, i18n.t("msg_title_ad", self._idioma), f"Could not auto-save chart to MIDIA:\n{e}")
-
-            self._show_ad_plot_dialog(fig, file_stem)
+            # Mesma convenção de nome/diálogo de salvamento dos demais "Plot AD Exploration"
+            # (_ad_save_dialog: diálogo "Save Chart" pré-preenchido em RESULTS/MIDIA).
+            prefix = f"Plot_ad_exploration_Freq-{self._ad_expl_axis_abbr(col)}"
+            self._ad_save_dialog(fig, prefix)
+            plt.show()
         except Exception as e:
+            import traceback; traceback.print_exc()
             QMessageBox.critical(self, i18n.t("msg_title_ad", self._idioma), f"Error in verdict frequency chart: {e}")
-
-    def _show_ad_plot_dialog(self, fig, file_stem):
-        """Exibe um gráfico da STEP 5 (AD) numa janela com toolbar de navegação e botões "Save
-        Chart"/"Close" - mesmo método usado pelo "View Frequency" da STEP 4/scikit-learn
-        (_show_skl_plot_dialog), adaptado para salvar em RESULTS/MIDIA (pasta única desta aba, sem
-        subpasta por USI)."""
-        dialog = QDialog(self)
-        dialog.setWindowTitle(f"AD Plot: {file_stem}")
-        layout = QVBoxLayout(dialog)
-
-        canvas = FigureCanvas(fig)
-        toolbar = NavigationToolbar(canvas, dialog)
-        layout.addWidget(toolbar)
-        layout.addWidget(canvas)
-
-        btn_row = QHBoxLayout()
-        btn_save = QPushButton("Save Chart")
-        btn_close = QPushButton("Close")
-        _style_dialog_buttons(btn_save, btn_close)
-        btn_save.setFixedWidth(200)
-        btn_close.setFixedWidth(200)
-        btn_row.addWidget(btn_save)
-        btn_row.addWidget(btn_close)
-        layout.addLayout(btn_row)
-
-        midia_dir = os.path.join(self.job_dir, "RESULTS", "MIDIA")
-
-        def _apply_ext(path, selected_filter, default_ext=".png"):
-            root, ext = os.path.splitext(path)
-            if ext:
-                return path
-            if "SVG" in (selected_filter or ""):
-                return path + ".svg"
-            if "PNG" in (selected_filter or ""):
-                return path + ".png"
-            return path + default_ext
-
-        def save_figure():
-            file_path, selected_filter = QFileDialog.getSaveFileName(
-                dialog, "Save chart",
-                os.path.join(midia_dir, f"{file_stem}.png"),
-                "PNG Files (*.png);;SVG Files (*.svg);;All Files (*)"
-            )
-            if not file_path:
-                return
-            file_path = _apply_ext(file_path, selected_filter, default_ext=".png")
-            ext = os.path.splitext(file_path)[1].lower()
-            if ext == ".svg":
-                fig.savefig(file_path, format="svg", bbox_inches="tight")
-            else:
-                fig.savefig(file_path, dpi=300, bbox_inches="tight", facecolor="white")
-            QMessageBox.information(dialog, "Saved", f"Chart saved to:\n{file_path}")
-
-        btn_save.clicked.connect(save_figure)
-        btn_close.clicked.connect(dialog.close)
-        dialog.resize(1000, 750)
-        dialog.exec_()
-
 
 # STEP 5: MACHINE LEARNING MODELS
     def _load_internal_dataframe(self, file_path, show_preview=True):
@@ -17491,6 +17671,7 @@ class MainWindow(QMainWindow):
             self.cb_select_structure = QComboBox(); self.cb_select_structure.addItems([]); self.cb_select_structure.setEditable(True)
             btn_select_structures = QPushButton()
             self._tr("s4_btn_select_structures_file", btn_select_structures.setText)
+            self._tr("s4_tooltip_select_structures_file", btn_select_structures.setToolTip)
             btn_select_structures.setProperty("role", "secondary")
             btn_select_structures.setFixedWidth(100)
             btn_select_structures.clicked.connect(self.run_select_structures)
@@ -17532,6 +17713,7 @@ class MainWindow(QMainWindow):
             self.chk_tautomers = QCheckBox(); self._tr("s4_chk_standardize_tautomers", self.chk_tautomers.setText); self.chk_tautomers.setChecked(True)
             self.chk_nitro = QCheckBox(); self._tr("s4_chk_standardize_nitro", self.chk_nitro.setText); self.chk_nitro.setChecked(True)
             self.chk_3dcoord = QCheckBox(); self._tr("s4_chk_retain_3d", self.chk_3dcoord.setText); self.chk_3dcoord.setChecked(False)
+            self._tr("s4_tooltip_retain_3d", self.chk_3dcoord.setToolTip)
             self.chk_3dconvert = QCheckBox(); self._tr("s4_chk_convert_3d", self.chk_3dconvert.setText); self.chk_3dconvert.setChecked(False)
             # Duas colunas lado a lado (3 e 3) em vez de uma única coluna com 6 linhas:
             option_descriptor_layout = QGridLayout()
@@ -18677,15 +18859,22 @@ class MainWindow(QMainWindow):
             self.pb_ad = self._mk_progress()
             self.pb_ad.setMaximum(100); self.pb_ad.setValue(0); self._tr("s7_fmt_ad_progress", self.pb_ad.setFormat); self.pb_ad.setFixedWidth(700)
 
-            # --- Group: Verdict Distribution ---
-            gb_ad_verdict = QGroupBox(); self._tr("s7_grp_verdict_distribution", gb_ad_verdict.setTitle)
-            gb_ad_verdict.setStyleSheet("QGroupBox { font-weight: bold; }")
-            lay_ad_verdict = QVBoxLayout(gb_ad_verdict)
+            # --- Group: AD Exploration --- (incorpora o antigo grupo "Verdict Distribution":
+            # Select AD DataFrame + caixa de texto + Select Column viram a 1ª linha deste grupo;
+            # o botão "View Frequency" foi removido — o gráfico de frequência agora é gerado pelo
+            # Plot Type "Frequency" ao clicar em "Plot AD Exploration".)
+            gb_ad_expl = QGroupBox(); self._tr("s7_grp_ad_exploration", gb_ad_expl.setTitle)
+            gb_ad_expl.setStyleSheet("QGroupBox { font-weight: bold; }")
+            lay_ad_expl = QVBoxLayout(gb_ad_expl)
 
+            # --- Linha 1: Select AD DataFrame + caixa de texto + Select Column (alinhados à
+            # esquerda - addStretch() só no fim) ---
             verdict_df_row = QHBoxLayout()
             self.btn_select_df_ad_verdict = QPushButton(); self._tr("btn_select_ad_df", self.btn_select_df_ad_verdict.setText)
             self.btn_select_df_ad_verdict.setProperty("role", "select")
-            self.btn_select_df_ad_verdict.setFixedWidth(200)
+            # Mesma largura de "Select Predictions CSV" (linha 2) - suficiente para caber o texto
+            # do botão nos dois idiomas, sem sobrar espaço vazio.
+            self.btn_select_df_ad_verdict.setFixedWidth(235)
             self.btn_select_df_ad_verdict.setStyleSheet("""
                 QPushButton {
                     background: #B7E4C7;
@@ -18708,40 +18897,41 @@ class MainWindow(QMainWindow):
 
             self.df_name_view_ad_verdict = QLineEdit()
             self.df_name_view_ad_verdict.setReadOnly(True)
-            self.df_name_view_ad_verdict.setFixedWidth(500)
+            self.df_name_view_ad_verdict.setFixedWidth(240)   # mesma largura de "ed_ad_expl_pred" (linha 2)
             self.df_name_view_ad_verdict.setStyleSheet("background-color: #6E8CA8; color: #6E8CA8; border: 1px solid #ccc; border-radius: 4px; padding: 5px;")
 
-            verdict_df_row.addStretch()
-            verdict_df_row.addWidget(self.btn_select_df_ad_verdict, alignment=Qt.AlignRight)
-            verdict_df_row.addWidget(self.df_name_view_ad_verdict, alignment=Qt.AlignLeft)
-            verdict_df_row.addStretch()
-            lay_ad_verdict.addLayout(verdict_df_row)
-
-            verdict_col_row = QHBoxLayout()
-            verdict_col_row.addStretch()
-            verdict_col_row.addWidget(self._trL("lbl_select_column"))
+            verdict_df_row.addWidget(self.btn_select_df_ad_verdict)
+            verdict_df_row.addWidget(self.df_name_view_ad_verdict)
+            verdict_df_row.addSpacing(20)
+            verdict_df_row.addWidget(self._trL("lbl_select_column"))
             self.cb_ad_verdict_column = QComboBox()
             self.cb_ad_verdict_column.addItems([""])
-            self.cb_ad_verdict_column.setFixedWidth(200)
-            verdict_col_row.addWidget(self.cb_ad_verdict_column)
-            verdict_col_row.addSpacing(20)
-            self.btn_ad_verdict_view_freq = QPushButton(); self._tr("s3_btn_view_frequency", self.btn_ad_verdict_view_freq.setText)
-            self.btn_ad_verdict_view_freq.setProperty("role", "secondary")
-            self.btn_ad_verdict_view_freq.setFixedSize(150, 30)
-            self.btn_ad_verdict_view_freq.clicked.connect(self.run_view_ad_verdict_frequency)
-            verdict_col_row.addWidget(self.btn_ad_verdict_view_freq)
-            verdict_col_row.addStretch()
-            lay_ad_verdict.addLayout(verdict_col_row)
+            self.cb_ad_verdict_column.setFixedWidth(180)   # mesma largura de "cb_ad_expl_pred_col" (linha 2)
+            verdict_df_row.addWidget(self.cb_ad_verdict_column)
+            verdict_df_row.addStretch()
+            lay_ad_expl.addLayout(verdict_df_row)
 
-            verdict_row = QHBoxLayout()
-            verdict_row.addStretch()
-            verdict_row.addWidget(gb_ad_verdict)
-            verdict_row.addStretch()
-
-            # --- Group: AD Exploration ---
-            gb_ad_expl = QGroupBox(); self._tr("s7_grp_ad_exploration", gb_ad_expl.setTitle)
-            gb_ad_expl.setStyleSheet("QGroupBox { font-weight: bold; }")
-            lay_ad_expl = QVBoxLayout(gb_ad_expl)
+            # --- Linha 2: Select Predictions CSV + Predicted column (alinhados à esquerda -
+            # addStretch() só no fim) ---
+            expl_row4 = QHBoxLayout()
+            self.btn_ad_expl_pred = QPushButton(); self._tr("s7_btn_ad_expl_pred", self.btn_ad_expl_pred.setText)
+            # Mesma largura de "Select AD DataFrame" (linha 1) - suficiente para caber o texto do
+            # botão nos dois idiomas, sem sobrar espaço vazio.
+            self.btn_ad_expl_pred.setProperty("role", "select"); self.btn_ad_expl_pred.setFixedWidth(235)
+            expl_row4.addWidget(self.btn_ad_expl_pred)
+            self.ed_ad_expl_pred = QLineEdit(); self.ed_ad_expl_pred.setReadOnly(True); self.ed_ad_expl_pred.setFixedWidth(240)
+            expl_row4.addWidget(self.ed_ad_expl_pred)
+            expl_row4.addSpacing(8)
+            expl_row4.addWidget(self._trL("s7_lbl_ad_expl_pred_col"))
+            self.cb_ad_expl_pred_col = QComboBox(); self.cb_ad_expl_pred_col.setFixedWidth(180)
+            expl_row4.addWidget(self.cb_ad_expl_pred_col)
+            expl_row4.addStretch()
+            lay_ad_expl.addLayout(expl_row4)
+            # Select Predictions CSV / Predicted column só fazem sentido quando algum eixo
+            # (X, Y ou Z) usa "Predicted value" — ficam desabilitados (cinza padrão) até lá.
+            self.btn_ad_expl_pred.setEnabled(False)
+            self.ed_ad_expl_pred.setEnabled(False)
+            self.cb_ad_expl_pred_col.setEnabled(False)
 
             axopts = list(self.AD_EXPL_AXES)
 
@@ -18754,7 +18944,7 @@ class MainWindow(QMainWindow):
                 col.addWidget(cb)
                 return col, cb
 
-            # --- Linha 1: eixos X/Y/Z, label acima do combo, tudo centralizado no grupo ---
+            # --- Linha 3: eixos X/Y/Z, label acima do combo, tudo centralizado no grupo ---
             expl_row1 = QHBoxLayout()
             expl_row1.addStretch()
             col_x, self.cb_ad_expl_x = _ad_expl_axis_col("s7_lbl_ad_expl_x", "Leverage")
@@ -18766,12 +18956,15 @@ class MainWindow(QMainWindow):
             expl_row1.addStretch()
             lay_ad_expl.addLayout(expl_row1)
 
-            # --- Linha 2 (grid de 3 colunas): Highlight compound(s) | Highlight descriptor(s) | Plot Type ---
+            # --- Linha 4 (grid de 3 colunas): Highlight compound(s) | Highlight descriptor(s) | Plot Type ---
+            # addStretch() nas duas pontas centraliza o bloco das 3 colunas no grupo.
             expl_row2 = QHBoxLayout()
+            expl_row2.addStretch()
 
             # Coluna 1 — Highlight compound(s): filtro + lista multi-seleção
             compound_box = QVBoxLayout()
-            compound_box.addWidget(self._trL("s7_lbl_ad_expl_compound"))
+            lbl_compound = self._trL("s7_lbl_ad_expl_compound"); lbl_compound.setAlignment(Qt.AlignCenter)
+            compound_box.addWidget(lbl_compound)
             self.ed_ad_expl_compound_filter = QLineEdit()
             self._tr("s7_ph_ad_expl_filter", self.ed_ad_expl_compound_filter.setPlaceholderText)
             self.ed_ad_expl_compound_filter.setFixedWidth(220)
@@ -18788,6 +18981,7 @@ class MainWindow(QMainWindow):
             # Coluna 2 — Highlight descriptor(s): filtro + lista multi-seleção + modo de correspondência
             desc_box = QVBoxLayout()
             desc_head = QHBoxLayout()
+            desc_head.addStretch()
             desc_head.addWidget(self._trL("s7_lbl_ad_expl_desc"))
             self.cb_ad_expl_desc_match = QComboBox()
             self.cb_ad_expl_desc_match.addItem("Any selected", "any")
@@ -18811,11 +19005,12 @@ class MainWindow(QMainWindow):
 
             # Coluna 3 — Plot Type: lista multi-seleção (substitui os checkboxes 3D/KDE/Marginais)
             type_box = QVBoxLayout()
-            type_box.addWidget(self._trL("s7_lbl_ad_expl_plot_type"))
+            lbl_plot_type = self._trL("s7_lbl_ad_expl_plot_type"); lbl_plot_type.setAlignment(Qt.AlignCenter)
+            type_box.addWidget(lbl_plot_type)
             self.list_ad_expl_plot_type = QListWidget()
             self.list_ad_expl_plot_type.setSelectionMode(QAbstractItemView.MultiSelection)
             self.list_ad_expl_plot_type.addItems(self.AD_EXPL_PLOT_TYPES)
-            self.list_ad_expl_plot_type.setFixedSize(260, 90)
+            self.list_ad_expl_plot_type.setFixedSize(200, 110)   # largura reduzida para caber só o texto, sem scroll
             self._tr("s7_tooltip_ad_expl_plot_type", self.list_ad_expl_plot_type.setToolTip)
             self.list_ad_expl_plot_type.item(1).setSelected(True)   # "Train as KDE density" ligado por padrão
             type_box.addWidget(self.list_ad_expl_plot_type)
@@ -18824,8 +19019,10 @@ class MainWindow(QMainWindow):
             expl_row2.addStretch()
             lay_ad_expl.addLayout(expl_row2)
 
-            # --- Linha 3: checkboxes remanescentes, abaixo das caixas multi-seleção ---
+            # --- Linha 5: checkboxes remanescentes, abaixo das caixas multi-seleção ---
+            # addStretch() nas duas pontas centraliza o bloco de checkboxes no grupo.
             expl_row3 = QHBoxLayout()
+            expl_row3.addStretch()
             self.chk_ad_expl_hide_others = QCheckBox(); self._tr("s7_chk_ad_expl_hide_others", self.chk_ad_expl_hide_others.setText)
             self._tr("s7_tooltip_ad_expl_hide_others", self.chk_ad_expl_hide_others.setToolTip)
             self.chk_ad_expl_thresholds = QCheckBox(); self._tr("s7_chk_ad_expl_thresholds", self.chk_ad_expl_thresholds.setText); self.chk_ad_expl_thresholds.setChecked(True)
@@ -18837,20 +19034,7 @@ class MainWindow(QMainWindow):
             expl_row3.addStretch()
             lay_ad_expl.addLayout(expl_row3)
 
-            expl_row4 = QHBoxLayout()
-            self.btn_ad_expl_pred = QPushButton(); self._tr("s7_btn_ad_expl_pred", self.btn_ad_expl_pred.setText)
-            self.btn_ad_expl_pred.setProperty("role", "select"); self.btn_ad_expl_pred.setFixedWidth(180)
-            expl_row4.addWidget(self.btn_ad_expl_pred)
-            self.ed_ad_expl_pred = QLineEdit(); self.ed_ad_expl_pred.setReadOnly(True); self.ed_ad_expl_pred.setFixedWidth(240)
-            self.ed_ad_expl_pred.setStyleSheet("background-color: #6E8CA8; color: #6E8CA8; border: 1px solid #ccc; border-radius: 4px; padding: 4px;")
-            expl_row4.addWidget(self.ed_ad_expl_pred)
-            expl_row4.addSpacing(8)
-            expl_row4.addWidget(self._trL("s7_lbl_ad_expl_pred_col"))
-            self.cb_ad_expl_pred_col = QComboBox(); self.cb_ad_expl_pred_col.setFixedWidth(180)
-            expl_row4.addWidget(self.cb_ad_expl_pred_col)
-            expl_row4.addStretch()
-            lay_ad_expl.addLayout(expl_row4)
-
+            # --- Linha 6: LOAD (highlight lists) + Plot AD Exploration ---
             expl_row5 = QHBoxLayout()
             expl_row5.addStretch()
             self.btn_ad_expl_load = QPushButton(); self._tr("s7_btn_ad_expl_load", self.btn_ad_expl_load.setText)
@@ -18872,7 +19056,6 @@ class MainWindow(QMainWindow):
             l7.addLayout(head_lay2)
             l7.addLayout(body_AD)
             l7.addWidget(self.pb_ad, alignment=Qt.AlignCenter)
-            l7.addLayout(verdict_row)
             l7.addLayout(expl_wrap)
             l7.addStretch()
 
@@ -18885,6 +19068,10 @@ class MainWindow(QMainWindow):
                 lambda t: self._ad_expl_filter_list_items(self.list_ad_expl_compound, t))
             self.ed_ad_expl_desc_filter.textChanged.connect(
                 lambda t: self._ad_expl_filter_list_items(self.list_ad_expl_desc, t))
+            self.cb_ad_expl_x.currentTextChanged.connect(self._ad_expl_update_pred_enabled)
+            self.cb_ad_expl_y.currentTextChanged.connect(self._ad_expl_update_pred_enabled)
+            self.cb_ad_expl_z.currentTextChanged.connect(self._ad_expl_update_pred_enabled)
+            self._ad_expl_update_pred_enabled()
 
             # ============== ORGANIZAÇÃO DOS BOTÕES NEXT/BACK ==============
             # Botão para o próximo:

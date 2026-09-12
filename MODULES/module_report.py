@@ -602,6 +602,11 @@ def _add_step1_section(document: Any, job_dir: str, state: dict[str, Any], idiom
     units = step1.get("assay_unit_selected", [])
     included = step1.get("assay_description_included", "")
     excluded = step1.get("assay_description_excluded", "")
+    # "Validity Filter": só é de fato aplicado quando o checkbox correspondente está marcado E há
+    # itens selecionados na lista - mesma condição usada por generate_end_dataset (CODRUG.py) para
+    # decidir se data_validity_comment/data_validity_description entram no filtro do ChEMBL.
+    validity_comment_sel = step1.get("validity_comment_selected", []) if step1.get("validity_comment_checked") else []
+    validity_description_sel = step1.get("validity_description_selected", []) if step1.get("validity_description_checked") else []
 
     internal_dir = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA")
     initial_path = _latest_glob(os.path.join(internal_dir, f"df1_by_activity_{target_chembl_id}_{organism}*.csv"))
@@ -685,6 +690,33 @@ def _add_step1_section(document: Any, job_dir: str, state: dict[str, Any], idiom
             "No assay description filtering term (inclusion or exclusion) was applied, since it "
             "would imply a significant reduction in the data, which at this initial stage may "
             "already be considered scarce. ",
+        )
+    if validity_comment_sel or validity_description_sel:
+        add_bi(
+            "Um filtro de validade (Validity Filter) também foi aplicado, mantendo apenas os "
+            "compostos cujo ",
+            "A validity filter was also applied, keeping only compounds whose ",
+        )
+        if validity_comment_sel:
+            add("data_validity_comment", True)
+            add_bi(" estivesse entre ", " was among ")
+            _join_bold_list_bi(add, validity_comment_sel, lang)
+        if validity_comment_sel and validity_description_sel:
+            add_bi(" e cujo ", ", and whose ")
+        if validity_description_sel:
+            add("data_validity_description", True)
+            add_bi(" estivesse entre ", " was among ")
+            _join_bold_list_bi(add, validity_description_sel, lang)
+        add_bi(
+            ", excluindo registros sinalizados pelo ChEMBL como potencialmente inválidos ou "
+            "duvidosos. ",
+            ", excluding records flagged by ChEMBL as potentially invalid or dubious. ",
+        )
+    else:
+        add_bi(
+            "Nenhum filtro de validade (data_validity_comment/data_validity_description) foi "
+            "aplicado. ",
+            "No validity filter (data_validity_comment/data_validity_description) was applied. ",
         )
     if base_count is not None:
         add_bi(
@@ -895,6 +927,42 @@ def _add_step2_3_section(document: Any, job_dir: str, state: dict[str, Any], idi
             ", thus avoiding the same compound, with the same descriptors, showing highly discrepant "
             "bioactivity values, which could hinder the convergence of the ML models and worsen their "
             "metrics. ",
+            False,
+        )
+
+    # 4b) Remove value repetitions (STEP 2 "Treat repetitions" - "Remove value repetitions").
+    value_rep_col = step2.get("value_rep_column", "")
+    value_rep_tolerance = step2.get("value_rep_tolerance", None)
+    value_rep_count = _row_count(_latest_glob(os.path.join(internal_dir, "df2_ValueRepetitions_*.csv")))
+    if value_rep_col:
+        add_bi(
+            "Repetições de valor idêntico (dentro de uma tolerância) na coluna ",
+            "Repeated occurrences of an identical value (within a tolerance) in the ",
+            False,
+        )
+        add(value_rep_col, True)
+        add_bi(
+            ", dentro de um mesmo ensaio (assay_chembl_id), também foram tratadas (Remove value "
+            "repetitions), mantendo até ",
+            " column, within the same assay (assay_chembl_id), were also treated (Remove value "
+            "repetitions), keeping up to ",
+            False,
+        )
+        add(f"{int(value_rep_tolerance) + 1}" if value_rep_tolerance not in (None, "") else "n/a", True)
+        add_bi(
+            " ocorrência(s) por grupo e removendo o excedente",
+            " occurrence(s) per group and removing the surplus",
+            False,
+        )
+        if value_rep_count is not None:
+            add_bi(", reduzindo o dataframe para ", ", reducing the dataframe to ", False)
+            add(f"{value_rep_count:,}", True)
+            add_bi(" compostos (df2_ValueRepetitions)", " compounds (df2_ValueRepetitions)", False)
+        add_bi(
+            ", de modo a reduzir a redundância de medidas repetidas do mesmo composto no mesmo "
+            "ensaio antes da consolidação final. ",
+            ", in order to reduce the redundancy of repeated measurements of the same compound "
+            "within the same assay before the final consolidation. ",
             False,
         )
 
@@ -1816,28 +1884,12 @@ def _add_step7_section(document: Any, job_dir: str, state: dict[str, Any], idiom
 # STEP3 removal/renumbering)
 # --------------------------------------------------------------------------------------
 
-def _find_smiles_lookup(job_dir: str, ids: set[str]) -> dict[str, str]:
-    """Best-effort ID -> SMILES lookup, scanning prediction CSVs under RESULTS/USI/**/PREDICTIONS
-    (which carry Name/SMILES columns) for the small set of IDs the consensus hits table needs."""
-    lookup: dict[str, str] = {}
-    if not ids:
-        return lookup
-    pattern = os.path.join(job_dir, "RESULTS", "USI", "*", "PREDICTIONS", "*.csv")
-    for path in glob.glob(pattern):
-        if len(lookup) >= len(ids):
-            break
-        df = _read_csv(path)
-        if df is None:
-            continue
-        id_col = next((c for c in ("Name", "name", "molecule_chembl_id", "ID", "id") if c in df.columns), None)
-        smiles_col = next((c for c in ("SMILES", "smiles", "canonical_smiles") if c in df.columns), None)
-        if not id_col or not smiles_col:
-            continue
-        for _, row in df[[id_col, smiles_col]].iterrows():
-            key = str(row[id_col])
-            if key in ids and key not in lookup:
-                lookup[key] = str(row[smiles_col])
-    return lookup
+# ID -> SMILES lookup and ID -> common-name resolution (PubChem, by structure) now live in
+# module_compound_names.py, shared with CODRUG.run_consensus_generate (STEP 6) so both places
+# that show the Hits table use the exact same lookup/cache logic.
+from MODULES import module_compound_names as _mcn
+
+_find_smiles_lookup = _mcn.find_smiles_lookup
 
 
 _STEP6_TEXTS = {
@@ -1945,6 +1997,22 @@ def _add_step8_section(document: Any, job_dir: str, state: dict[str, Any], idiom
     score_col = "consensus_score_mean" if "consensus_score_mean" in hits.columns else "zscore_consensus_mean"
     smiles_lookup = _find_smiles_lookup(job_dir, set(hits[id_col].astype(str)))
 
+    # Common name per compound (e.g. "ZINC000003875259" -> "Valsartan"), matched by structure via
+    # PubChem - see module_compound_names.py. If STEP 6 already resolved+saved a "compound_name"
+    # column into this same hits CSV, reuse it (no network call here); otherwise resolve it now,
+    # reusing the SMILES already fetched above instead of re-scanning the prediction CSVs.
+    if "compound_name" in hits.columns:
+        import pandas as pd
+        name_lookup = {
+            str(cid): (str(name).strip() or None)
+            for cid, name in zip(hits[id_col].astype(str), hits["compound_name"])
+            if pd.notna(name)
+        }
+    else:
+        name_lookup = _mcn.resolve_compound_names(
+            list(hits[id_col].astype(str)), job_dir, id_to_smiles=smiles_lookup
+        )
+
     _add_caption(document, texts["table4_caption_pt"] if lang == "pt" else texts["table4_caption_en"])
 
     width = _content_width_cm(document)
@@ -1965,7 +2033,7 @@ def _add_step8_section(document: Any, job_dir: str, state: dict[str, Any], idiom
         cells = table.add_row().cells
         _set_cell_width(cells[0], col_widths[0])
         cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-        cells[0].paragraphs[0].add_run(compound_id)
+        cells[0].paragraphs[0].add_run(_mcn.format_hit_label(compound_id, name_lookup.get(compound_id)))
         _set_cell_width(cells[1], col_widths[1])
         cells[1].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
         smiles = smiles_lookup.get(compound_id, "")

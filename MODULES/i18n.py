@@ -81,8 +81,8 @@ _TEXTOS = {
     },
     "home_step2_name": {"en": "Step 2 — Data Preprocessing", "pt": "Etapa 2 — Pré-Processamento de dados"},
     "home_step2_desc": {
-        "en": "Cleaning, type conversion, handling of repetitions, Outliers Elimination, categorization and druggability",
-        "pt": "Limpeza, conversão de tipos, tratamento de repetições, Eliminação de Outliers, categorização e drogabilidade",
+        "en": "Cleaning, conversion, replicates, outliers, categorization and druggability.",
+        "pt": "Limpeza, conversão, repetições, outliers, categorização e drogabilidade.",
     },
     "home_step3_name": {"en": "Step 3 — Feature Engineering", "pt": "Etapa 3 — Engenharia de Atributos"},
     "home_step3_desc": {
@@ -422,6 +422,10 @@ _TEXTOS = {
     "s4_lbl_select_descriptors": {"en": "Select Descriptors:", "pt": "Selecione os Descritores:"},
     "s4_lbl_select_structure_column": {"en": "Structure \nColumn:", "pt": "Coluna \nde Estrutura:"},
     "s4_btn_select_structures_file": {"en": "Or Select \nStructures File", "pt": "Ou Selecione o \nArquivo de Estruturas"},
+    "s4_tooltip_select_structures_file": {
+        "en": "Select a folder with structure files: .smi, .sdf and .mol are read natively; .mol2, .pdb, .pdbqt and .xyz require OpenBabel (install it in HOME > Installation Requirements). Builds a [name, canonical_smiles] table - the original 3D geometry (when the file has one) is kept aside for 'Retain 3D coordinates' in Generate Descriptors.",
+        "pt": "Selecione uma pasta com arquivos de estrutura: .smi, .sdf e .mol são lidos nativamente; .mol2, .pdb, .pdbqt e .xyz precisam do OpenBabel (instale em HOME > Installation Requirements). Monta uma tabela [nome, canonical_smiles] - a geometria 3D original (quando o arquivo tiver uma) é guardada à parte para o 'Retain 3D coordinates' do Generate Descriptors.",
+    },
     "s4_lbl_select_bioactivity_column": {"en": "Bioactivity \nColumn:", "pt": "Coluna \nde Bioatividade:"},
     "s4_lbl_select_name_column": {"en": "Name \nColumn:", "pt": "Coluna \nde Nome:"},
     "s4_chk_remove_salt": {"en": "Remove salt", "pt": "Remover sal"},
@@ -429,6 +433,10 @@ _TEXTOS = {
     "s4_chk_standardize_tautomers": {"en": "Standardize Tautomers", "pt": "Padronizar Tautômeros"},
     "s4_chk_standardize_nitro": {"en": "Standardize Nitro Groups", "pt": "Padronizar Grupos Nitro"},
     "s4_chk_retain_3d": {"en": "Retain 3D coordinates", "pt": "Manter coordenadas 3D"},
+    "s4_tooltip_retain_3d": {
+        "en": "Only affects the '3D' descriptor group. When checked, compounds loaded via 'Or Select Structures File' from a real 3D source (.sdf/.mol2/.pdb/.pdbqt/.xyz with actual 3D coordinates) use that ORIGINAL geometry instead of one re-embedded from SMILES; compounds without a native 3D structure still get an embedded conformer so no row is lost. Unchecked (default): 3D descriptors are always computed from an embedding of the SMILES, like before.",
+        "pt": "Só afeta o grupo de descritores '3D'. Quando marcado, compostos carregados via 'Or Select Structures File' a partir de uma fonte 3D real (.sdf/.mol2/.pdb/.pdbqt/.xyz com coordenadas 3D de fato) usam essa geometria ORIGINAL em vez de uma reconstruída a partir do SMILES; compostos sem estrutura 3D nativa ainda recebem um embedding, para nenhuma linha ser perdida. Desmarcado (padrão): os descritores 3D continuam sempre calculados a partir de um embedding do SMILES, como antes.",
+    },
     "s4_chk_convert_3d": {"en": "Convert to 3D", "pt": "Converter para 3D"},
     "s4_btn_generate_descriptors": {"en": "Generate \nDescriptors", "pt": "Gerar \nDescritores"},
     "s4_grp_dimensionality_reduction": {"en": "Dimensionality Reduction", "pt": "Redução de Dimensionalidade"},
@@ -531,7 +539,6 @@ _TEXTOS = {
 
     # ---------------------------------------------------------------- STEP 6 (Applicability Domain)
     "s7_grp_set_ad_params": {"en": "Set AD Parameters", "pt": "Definir Parâmetros de DA"},
-    "s7_grp_verdict_distribution": {"en": "Verdict Distribution", "pt": "Distribuição de Veredito"},
     "s7_lbl_k_knn": {"en": "k (kNN):", "pt": "k (kNN):"},
     "s7_lbl_alpha_chi2": {"en": "Mahalanobis α (coverage):", "pt": "α da Mahalanobis (cobertura):"},
     "s7_tooltip_ad_alpha": {
@@ -604,8 +611,8 @@ _TEXTOS = {
     },
     "s7_lbl_ad_expl_plot_type": {"en": "Plot Type:", "pt": "Tipo de gráfico:"},
     "s7_tooltip_ad_expl_plot_type": {
-        "en": "Select any combination: '3D scatter' (else 2D), 'Train as KDE density' (else scattered points), 'Marginal histograms (2D)' (ignored in 3D).",
-        "pt": "Selecione qualquer combinação: '3D scatter' (senão 2D), 'Train as KDE density' (senão pontos dispersos), 'Marginal histograms (2D)' (ignorado em 3D).",
+        "en": "Select any combination: '3D scatter' (else 2D), 'Train as KDE density' (else scattered points), 'Marginal histograms (2D)' (ignored in 3D). 'Frequency' ignores X/Y/Z and Compute AD - it plots class counts from 'Select AD DataFrame' / 'Select Column:' instead.",
+        "pt": "Selecione qualquer combinação: '3D scatter' (senão 2D), 'Train as KDE density' (senão pontos dispersos), 'Marginal histograms (2D)' (ignorado em 3D). 'Frequency' ignora X/Y/Z e o Compute AD - plota a contagem de classes de 'Select AD DataFrame' / 'Select Column:'.",
     },
     "s7_chk_ad_expl_thresholds": {"en": "Show cutoff lines", "pt": "Mostrar linhas de corte"},
     "s7_chk_ad_expl_show_ext": {"en": "Show external points", "pt": "Mostrar pontos externos"},
@@ -845,6 +852,11 @@ _TEXTOS = {
     "req_chk_chembl": {"en": "Install chembl_webresource_client", "pt": "Instalar chembl_webresource_client"},
     "req_chk_padelpy": {"en": "Install padelpy (PaDEL-Descriptor launcher)", "pt": "Instalar padelpy (executor do PaDEL-Descriptor)"},
     "req_chk_rdkit": {"en": "Install RDKit (rdkit-pypi)", "pt": "Instalar RDKit (rdkit-pypi)"},
+    "req_chk_openbabel": {"en": "Install OpenBabel (openbabel-wheel)", "pt": "Instalar OpenBabel (openbabel-wheel)"},
+    "req_tooltip_openbabel": {
+        "en": "Optional. Used by STEP 3 'Or Select Structures File' to read .mol2/.pdb/.pdbqt (and similar) structure files, preserving their original 3D coordinates for 3D descriptors. Not required for .smi/.sdf, which RDKit already reads.",
+        "pt": "Opcional. Usado pela STEP 3 'Or Select Structures File' para ler arquivos de estrutura .mol2/.pdb/.pdbqt (e similares), preservando as coordenadas 3D originais para os descritores 3D. Não é necessário para .smi/.sdf, que já são lidos pelo RDKit.",
+    },
     "req_chk_matplotlib": {"en": "Install Matplotlib", "pt": "Instalar Matplotlib"},
     "req_chk_seaborn": {"en": "Install Seaborn", "pt": "Instalar Seaborn"},
     "req_chk_joblib": {"en": "Install joblib", "pt": "Instalar joblib"},
