@@ -11821,10 +11821,21 @@ class MainWindow(QMainWindow):
             target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
             target_organism = self.ed_organism_name.text().strip() if hasattr(self, "ed_organism_name") else ""
             suffix_parts = [part for part in [target_chembl_id, target_organism] if part]
-            suffix = "_".join(suffix_parts) if suffix_parts else datetime.now().strftime("%Y%m%d_%H%M%S")
+            suffix = "_".join(suffix_parts) if suffix_parts else "consensus"
+            # RANK fica fora de qualquer pasta USI (é compartilhada entre execuções, já que o
+            # Consensus Generate tipicamente combina predições de USIs diferentes) — sem o(s)
+            # código(s) de USI e um timestamp no nome, uma nova execução sobrescreveria os
+            # arquivos de uma execução anterior com o mesmo alvo/organismo/nº de modelos.
+            usi_codes = []
+            for row in rows:
+                usi = self._extract_usi_from_any_path(row.get("file_path", ""))
+                if usi and usi not in usi_codes:
+                    usi_codes.append(usi)
+            usi_label = "+".join(usi_codes) if usi_codes else "USI"
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             out_dir = self._ensure_rank_results_dir()
-            out_path = os.path.join(out_dir, f"df_consensus_analysis_{suffix}_{selected_count}modelos.csv")
-            hits_path = os.path.join(out_dir, f"df_consensus_hits_{suffix}_{selected_count}modelos.csv")
+            out_path = os.path.join(out_dir, f"df_consensus_analysis_{suffix}_{selected_count}modelos_{usi_label}_{timestamp}.csv")
+            hits_path = os.path.join(out_dir, f"df_consensus_hits_{suffix}_{selected_count}modelos_{usi_label}_{timestamp}.csv")
 
             pair_lines = []
             for left_index, left in enumerate(selected_slots):
@@ -21869,9 +21880,12 @@ class MainWindow(QMainWindow):
             self._set_current_sklearn_usi_context()
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             file_suffix = selected_names[0] if len(selected_names) == 1 else f"{len(selected_names)}models"
-            self._next_dataframe_save_path = os.path.join(
+            file_path = os.path.join(
                 self.skl_predictions_path, f"{timestamp}_df_predicted_{file_suffix}_{self.skl_usi_key}.csv"
             )
+            os.makedirs(self.skl_predictions_path, exist_ok=True)
+            df_result.to_csv(file_path, index=False)
+            self._next_dataframe_save_path = file_path
             self.show_dataframe(df_result)
         except Exception as e:
             import traceback; traceback.print_exc()
