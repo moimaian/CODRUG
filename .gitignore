@@ -9,3 +9,6 @@ ANTIGOS/
 
 # Saída do build do pacote .deb (packaging/deb/build.sh) — binário gerado, não fonte
 packaging/dist/
+
+# Arquivos grandes das bases de dados externas:
+BASE/EXTERNAL_DATA/

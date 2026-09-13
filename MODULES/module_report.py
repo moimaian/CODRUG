@@ -1247,7 +1247,8 @@ def _param_label(key: str) -> str:
     return key.replace("_", " ").title()
 
 
-def _add_step4_section(document: Any, job_dir: str, state: dict[str, Any], idioma: str = "pt") -> bool:
+def _add_step4_section(document: Any, job_dir: str, state: dict[str, Any], idioma: str = "pt",
+                        app_dir: Optional[str] = None) -> bool:
     step4 = state.get("step4")
     if not isinstance(step4, dict) or not step4:
         return False
@@ -1392,8 +1393,11 @@ def _add_step4_section(document: Any, job_dir: str, state: dict[str, Any], idiom
                 add(str(value), True)
                 add(". ", False)
 
-    # External dataset column-count note.
-    ext_dir = os.path.join(job_dir, "DATA_BASES", "EXTERNAL_DATA")
+    # External dataset column-count note. BASE/EXTERNAL_DATA is shared across jobs (not under
+    # job_dir anymore - see CODRUG.py __init__), so it needs app_dir (CODRUG's own install dir),
+    # falling back to job_dir's grandparent for older callers that don't pass it.
+    ext_dir = os.path.join(app_dir, "BASE", "EXTERNAL_DATA") if app_dir else \
+        os.path.join(os.path.dirname(os.path.dirname(job_dir)), "BASE", "EXTERNAL_DATA")
     reference_path = selection_path or descriptors_path
     if reference_path:
         reference_df = _read_csv(reference_path, nrows=1)
@@ -2185,7 +2189,7 @@ def generate_final_report(
     report("Building STEP 2 - Preprocessing and Exploratory Analysis...")
     added_23 = _add_step2_3_section(document, job_dir, state, idioma)
     report("Building STEP 3 - Features Engineering...")
-    added_4 = _add_step4_section(document, job_dir, state, idioma)
+    added_4 = _add_step4_section(document, job_dir, state, idioma, app_dir=app_dir)
     report("Building STEP 4 - Machine Learning Models...")
     added_5 = _add_step5_section(document, job_dir, state, idioma)
     report("Building STEP 5 - Applicability Domain and Similarity Analysis...")

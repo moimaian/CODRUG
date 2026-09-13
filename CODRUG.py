@@ -2683,6 +2683,13 @@ class MainWindow(QMainWindow):
         # PASTA DE TRABALHO
         self.dp_dir = os.path.abspath(os.path.dirname(__file__))
         self.data_str = datetime.now().strftime("%Y-%m-%d_%H-%M")
+
+        # BASE/EXTERNAL_DATA: pasta compartilhada entre TODOS os jobs (bases de reposicionamento -
+        # ex. Zinc World -, produtos naturais/sintéticos etc. não são específicas de um job, então
+        # não fica mais dentro de DATA_BASES de cada job - fica uma única vez na raiz do CODRUG).
+        # Criada aqui, uma vez, no início do app, para já existir em qualquer ponto do código que
+        # for ler/gravar nela.
+        os.makedirs(os.path.join(self.dp_dir, "BASE", "EXTERNAL_DATA"), exist_ok=True)
         
         # Atribuir df_selecionado como None inicialmente:
         self.df_selecionado = None
@@ -3603,7 +3610,8 @@ class MainWindow(QMainWindow):
             f'{self.job_dir}/DATA_BASES/STRUCTURES/1D',
             f'{self.job_dir}/DATA_BASES/STRUCTURES/3D',
             f'{self.job_dir}/DATA_BASES/INTERNAL_DATA',
-            f'{self.job_dir}/DATA_BASES/EXTERNAL_DATA',
+            # DATA_BASES/EXTERNAL_DATA não é mais criada por job - agora é compartilhada, em
+            # BASE/EXTERNAL_DATA na raiz do CODRUG (já garantida em self.dp_dir, ver __init__).
             f'{self.job_dir}/RESULTS',
             f'{self.job_dir}/RESULTS/USI',
             f'{self.job_dir}/RESULTS/MIDIA',
@@ -3842,9 +3850,10 @@ class MainWindow(QMainWindow):
 
     def _to_job_relative_path(self, file_path):
         """Converts an absolute CSV/XLSX path into one relative to job_dir, when the file
-        lives under it (the common case - INTERNAL_DATA, EXTERNAL_DATA, RESULTS/...). Kept
-        as an absolute path otherwise (e.g. a file the user picked from outside the job
-        folder via the file dialog), so it can still be resolved back with
+        lives under it (the common case - INTERNAL_DATA, RESULTS/...). Kept as an absolute
+        path otherwise - e.g. a file the user picked from outside the job folder via the
+        file dialog, which now also includes BASE/EXTERNAL_DATA (shared across jobs, not
+        under job_dir anymore) - so it can still be resolved back with
         _from_job_relative_path even if the job folder itself is later moved/renamed."""
         if not file_path:
             return file_path
@@ -9877,11 +9886,23 @@ class MainWindow(QMainWindow):
             self.cb_select_bioactivity.clear()
             self.cb_select_bioactivity.addItems([""] + list(self.df_selecionado.columns.astype(str)))
             self.cb_bioactivity_column.clear()
-            self.cb_bioactivity_column.addItems(self.df_selecionado.columns.astype(str))
+            # Opção vazia primeiro: sem uma coluna de bioatividade de verdade (ex.: dataframe
+            # externo só com Name/SMILES/descritores), o combo deve ficar em branco, não
+            # silenciosamente apontando pra "Name" (índice 0) - a busca por termo de bioatividade
+            # logo abaixo sobrescreve para a coluna certa quando uma é encontrada. Mesmo bug (e
+            # mesma correção) já feita para cb_class_column: sem isso, "Generate Descriptors" (ramo
+            # sem bioatividade) lê esse valor como bio_col e faz "df_final[bio_col] = ''" - que,
+            # apontando para "Name", APAGA a própria coluna Name que acabou de ser montada certa.
+            self.cb_bioactivity_column.addItems([""] + list(self.df_selecionado.columns.astype(str)))
             self.cb_select_name_column.clear()
             self.cb_select_name_column.addItems(self.df_selecionado.columns.astype(str))
             self.cb_class_column.clear()
-            self.cb_class_column.addItems(self.df_selecionado.columns.astype(str))
+            # Opção vazia primeiro: sem uma coluna "Class" de verdade (ex.: dataframe externo só
+            # com Name/SMILES/descritores), o combo deve ficar em branco, não silenciosamente
+            # apontando pra "Name" (índice 0) - ver "Deixa Class já selecionada" logo abaixo, e o
+            # bug que esse valor-padrão errado causava em "Run Selection"/"Run Projection"
+            # (Name reanexada duas vezes -> "Name"/"Name.1" ao salvar/reler o CSV).
+            self.cb_class_column.addItems([""] + list(self.df_selecionado.columns.astype(str)))
 
             cb_tb_label_col = getattr(self, "cb_tb_label_col", None)
             if cb_tb_label_col is not None:
@@ -10010,19 +10031,6 @@ class MainWindow(QMainWindow):
             if cb_tb_label_col is not None:
                 cb_tb_label_col.clear()
             QMessageBox.critical(self, i18n.t("msg_title_error_list_columns_csv", self._idioma), str(e))
-        
-        col = self.cb_class_column.currentText().strip()
-        if col and col in self.df_selecionado.columns:
-            classes = pd.unique(self.df_selecionado[col].astype(str))
-        elif "Class" in self.df_selecionado.columns:
-            classes = pd.unique(self.df_selecionado["Class"].astype(str))
-        else:
-            QMessageBox.information(
-                self,
-                "Select class column",
-                "Please choose a class column above in 'Select class column'."
-            )
-            return
 
     def _init_descriptor_checkbox_logic(self):
         """
@@ -10704,9 +10712,25 @@ class MainWindow(QMainWindow):
             smi_dir = os.path.join(self.job_dir, "DATA_BASES", "STRUCTURES", "1D")
             os.makedirs(smi_dir, exist_ok=True)
             smi_path = os.path.join(
-                smi_dir, f"multiligand_{self.ed_target_chembl_id.text().strip()}.smi"
+                smi_dir, f"multiligand_{self.ed_target_chembl_id.text().strip()}.sdf"
             )
-            smi_df[[structure_col, name_col]].to_csv(smi_path, sep="\t", header=False, index=False)
+            # Grava como SDF, NÃO como .smi/.txt tabulado: o leitor de .smi do PaDEL usa espaço em
+            # branco como delimitador entre SMILES e nome, e quando o próprio nome do composto tem
+            # espaço, parênteses, vírgula etc. (comum em nomes reais - produtos naturais, fármacos
+            # de reposicionamento) ele quebra silenciosamente - chega a processar só o PRIMEIRO
+            # composto do arquivo inteiro (ou nenhum, se o nome problemático vier logo no início),
+            # sem lançar erro. Isso é exatamente o que causava "Name" vazio/faltando no resultado
+            # final. Confirmado isolando o problema com o PaDEL de verdade: o mesmo conjunto de
+            # compostos, gravado como SDF em vez de .smi, processa 100% corretamente - o título de
+            # cada bloco MOL aceita qualquer caractere, sem tokenização por espaço.
+            _padel_writer = Chem.SDWriter(smi_path)
+            for _, _row in smi_df.iterrows():
+                _mol = Chem.MolFromSmiles(_row[structure_col])
+                if _mol is None:
+                    continue
+                _mol.SetProp("_Name", _row[name_col])
+                _padel_writer.write(_mol)
+            _padel_writer.close()
 
             # ================== Geometria 3D real p/ o grupo "3D" (Retain 3D coordinates) ======
             # Construído sob demanda (só se algum descritor 3D for de fato processado com "Retain
@@ -11146,10 +11170,20 @@ class MainWindow(QMainWindow):
                     report_lines.append(f"- Failed to obtain a 3D conformer: {three_d_stats['failed']}")
 
             internal_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
-            external_dir = os.path.join(self.job_dir, "DATA_BASES", "EXTERNAL_DATA")
+            # BASE/EXTERNAL_DATA: compartilhada entre jobs (ver __init__) - descritores gerados
+            # para uma base externa (reposicionamento, produtos naturais/sintéticos etc.) ficam
+            # disponíveis para qualquer job reutilizar, sem recalcular.
+            external_dir = os.path.join(self.dp_dir, "BASE", "EXTERNAL_DATA")
+            os.makedirs(external_dir, exist_ok=True)
             if not self.cb_select_bioactivity.currentText().strip():
                 bio_col = self.cb_bioactivity_column.currentText().strip() if hasattr(self, "cb_bioactivity_column") else ""
-                if bio_col:  # só cria se o nome não estiver vazio
+                # Só cria a coluna-placeholder vazia se for um nome novo, DIFERENTE de Name/SMILES
+                # - "cb_bioactivity_column" pode ficar parado apontando para "Name" (a primeira
+                # coluna do dataframe) quando não há bioatividade real para esse dataframe; sem
+                # essa checagem, "df_final[bio_col] = ''" reescrevia a própria coluna Name (já
+                # corretamente montada) com string vazia, que ao salvar/reler o CSV vira NaN - a
+                # causa raiz de "Name" saindo vazio nos datasets externos sem bioatividade.
+                if bio_col and bio_col not in ("Name", "SMILES"):
                     df_final[bio_col] = ""
                 df_final = df_final.drop(columns=["_name_key"], errors="ignore")
                 df_final = df_final[["Name", "SMILES"] + [col for col in df_final.columns if col not in {"Name", "SMILES"}]]
@@ -13566,6 +13600,38 @@ class MainWindow(QMainWindow):
             if progress_dlg is not None:
                 progress_dlg.close()
 
+    def _reattach_id_columns(self, df_in, df_result):
+        """Reconstrói df_result como [Name, <colunas de df_result menos Name/bioatividade/
+        classe>, bioatividade, classe], buscando Name/bioatividade/classe em df_in (o dataframe
+        de entrada, antes da seleção/projeção). Compartilhado por "Run Selection" e "Run
+        Projection".
+
+        Guarda contra "Select bioactivity column"/"Select class column" ainda apontando para a
+        MESMA coluna de "Select name column" - caso comum num dataframe externo sem bioatividade/
+        classe reais (ex.: só Name/SMILES/descritores), onde esses dois combos nunca foram
+        configurados para este dataframe e ficam parados no valor anterior. Sem essa checagem, a
+        mesma coluna era reanexada duas vezes sob papéis diferentes, produzindo duas colunas
+        chamadas "Name" - inofensivo em memória, mas ao salvar e reler o CSV o pandas renomeia a
+        segunda para "Name.1" (e mais uma a cada nova rodada, virando "Name.2", "Name.3"...)."""
+        def _safe_series(df, col):
+            if not col or col not in df.columns:
+                return None
+            s = df[col]
+            return s.iloc[:, 0] if isinstance(s, pd.DataFrame) else s
+
+        name_col = self.cb_select_name_column.currentText().strip() if hasattr(self, "cb_select_name_column") else ""
+        bio_col = self.cb_bioactivity_column.currentText().strip() if hasattr(self, "cb_bioactivity_column") else ""
+        class_col = self.cb_class_column.currentText().strip() if hasattr(self, "cb_class_column") else ""
+
+        df_name_col = _safe_series(df_in, name_col)
+        df_bio_col = _safe_series(df_in, bio_col) if bio_col not in ("", name_col) else None
+        df_class_col = _safe_series(df_in, class_col) if class_col not in ("", name_col, bio_col) else None
+
+        attached = {c for c in (name_col, bio_col if df_bio_col is not None else "",
+                                 class_col if df_class_col is not None else "") if c}
+        df_result_cols = df_result.drop(columns=[c for c in attached if c in df_result.columns])
+        return pd.concat([df_name_col, df_result_cols, df_bio_col, df_class_col], axis=1)
+
     def run_recommended_selection(self):
         # ------------- checagens básicas -------------
         if getattr(self, "df_selecionado", None) is None or self.df_selecionado.empty:
@@ -13756,14 +13822,7 @@ class MainWindow(QMainWindow):
                     validation_msg = f"\n\n[Warning] Post-selection validation could not be executed: {str(_e)}"
                  
                 # ====== Reordenar o dataframe ======
-                bio_col = self.cb_bioactivity_column.currentText().strip() if hasattr(self, "cb_bioactivity_column") else ""
-                df_bio_col = df_in[bio_col] if bio_col in df_in.columns else None
-                name_col = self.cb_select_name_column.currentText().strip() if hasattr(self, "cb_select_name_column") else ""
-                df_name_col = df_in[name_col] if name_col in df_in.columns else None
-                class_col = self.cb_class_column.currentText().strip() if hasattr(self, "cb_class_column") else ""
-                df_class_col = df_in[class_col] if class_col in df_in.columns else None
-                df_sel_cols = df_sel.drop(columns=[c for c in [name_col, bio_col, class_col] if c in df_sel.columns])
-                df_sel = pd.concat([df_name_col, df_sel_cols, df_bio_col, df_class_col], axis=1)
+                df_sel = self._reattach_id_columns(df_in, df_sel)
             
                 # ====== salvar ======                
                 self.date_time = datetime.now().strftime("%Y-%m-%d_%H-%M")
@@ -14023,14 +14082,7 @@ class MainWindow(QMainWindow):
                     if proj_cols:
                         self._proj_table_set_value(self.PROJ_ROW_N_COMPONENTS, str(len(proj_cols)))
 
-                bio_col = self.cb_bioactivity_column.currentText().strip() if hasattr(self, "cb_bioactivity_column") else ""
-                df_bio_col = df_in[bio_col] if bio_col in df_in.columns else None
-                name_col = self.cb_select_name_column.currentText().strip() if hasattr(self, "cb_select_name_column") else ""
-                df_name_col = df_in[name_col] if name_col in df_in.columns else None
-                class_col = self.cb_class_column.currentText().strip() if hasattr(self, "cb_class_column") else ""
-                df_class_col = df_in[class_col] if class_col in df_in.columns else None
-                df_proj_cols = df_proj.drop(columns=[c for c in [name_col, bio_col, class_col] if c in df_proj.columns])
-                df_proj = pd.concat([df_name_col, df_proj_cols, df_bio_col, df_class_col], axis=1)
+                df_proj = self._reattach_id_columns(df_in, df_proj)
 
                 msg_eval = ""
                 if eval_info:
@@ -14122,7 +14174,7 @@ class MainWindow(QMainWindow):
                 return
 
             p_int = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA", f_int)
-            p_ext = os.path.join(self.job_dir, "DATA_BASES", "EXTERNAL_DATA", f_ext)
+            p_ext = os.path.join(self.dp_dir, "BASE", "EXTERNAL_DATA", f_ext)  # compartilhada entre jobs
             if not (os.path.isfile(p_int) and os.path.isfile(p_ext)):
                 QMessageBox.warning(self, i18n.t("msg_title_ad", self._idioma), "Files not found.")
                 return
@@ -14819,6 +14871,12 @@ class MainWindow(QMainWindow):
     def plot_ad_exploration(self):
         import matplotlib.pyplot as plt
         try:
+            # Fecha qualquer figura do AD Exploration ainda aberta de um clique anterior (Plot
+            # AD Exploration nunca chamava plt.close() depois de "Save Chart" - as janelas
+            # ficavam registradas no gerenciador de figuras do pyplot para sempre, então um novo
+            # plt.show() reexibia TODAS elas, não só a nova). Sem isso aqui, cada novo Plot Type
+            # gerado (inclusive "Frequency") reabria todo o histórico de janelas já vistas.
+            plt.close('all')
             # Plot Type "Frequency" (antigo grupo Verdict Distribution, incorporado aqui): não usa
             # eixos X/Y/Z nem depende de "Compute AD" — trabalha sobre "Select AD DataFrame" /
             # "Select Column:" diretamente, então é despachado antes de exigir um contexto de AD.
@@ -15381,7 +15439,7 @@ class MainWindow(QMainWindow):
         return True
 
     def select_dataframe_ext(self):
-        initial_dir = os.path.join(self.job_dir, "DATA_BASES", "EXTERNAL_DATA")
+        initial_dir = os.path.join(self.dp_dir, "BASE", "EXTERNAL_DATA")  # compartilhada entre jobs
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Select a CSV file",
@@ -15475,8 +15533,8 @@ class MainWindow(QMainWindow):
 
         def save_report():
             default_name = f"external_columns_diff_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-            initial_dir = os.path.join(self.job_dir, "DATA_BASES", "EXTERNAL_DATA") if getattr(self, "job_dir", None) else ""
-            initial_path = os.path.join(initial_dir, default_name) if initial_dir else default_name
+            initial_dir = os.path.join(self.dp_dir, "BASE", "EXTERNAL_DATA")  # compartilhada entre jobs
+            initial_path = os.path.join(initial_dir, default_name)
             file_path, _ = QFileDialog.getSaveFileName(dialog, "Save column differences log", initial_path, "Text files (*.txt)")
             if file_path:
                 try:
@@ -17350,6 +17408,7 @@ class MainWindow(QMainWindow):
             label_outlier.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
             self.cb_outlier_method = QComboBox()
             self.cb_outlier_method.addItems(["Z-Score", "IQR", "SD"])
+            self.cb_outlier_method.setCurrentText("IQR")
             self.threshold_outlier = QLineEdit(); self.threshold_outlier.setFixedSize(80, 25); self.threshold_outlier.setAlignment(Qt.AlignCenter); self.threshold_outlier.setText("1.5")
             self.btn_run_outlier = QPushButton()
             self._tr("s2_btn_outlier_elimination", self.btn_run_outlier.setText)
