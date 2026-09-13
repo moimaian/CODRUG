@@ -10572,9 +10572,23 @@ class MainWindow(QMainWindow):
                 cur = self.list_descriptors.currentItem()
                 if cur:
                     selected_names = [cur.text().strip()]
+            # Sigla com os descritores escolhidos, incorporada ao nome do arquivo final mais
+            # abaixo (df3_descriptors_.../df_external_descriptors_...) - sem isso, duas rodadas
+            # com seleções de descritores diferentes (mas mesmo target/organism, ou nenhum dos
+            # dois preenchido no caso de um dataframe externo) sobrescreviam uma à outra.
+            def _descriptors_filename_slug(names, max_items=3, max_len=60):
+                parts = [self._sanitize_filename(n) for n in names if n]
+                if not parts:
+                    return "Descriptors"
+                if len(parts) <= max_items:
+                    slug = "-".join(parts)
+                else:
+                    slug = "-".join(parts[:max_items]) + f"-plus{len(parts) - max_items}more"
+                return slug[:max_len].rstrip("_-") or "Descriptors"
             if not selected_names:
                 QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select at least one descriptor in the list.")
                 return
+            descriptors_slug = _descriptors_filename_slug(selected_names)
 
             # ================== Preparar .smi ==================
             smi_df = (
@@ -11188,7 +11202,7 @@ class MainWindow(QMainWindow):
                 df_final = df_final.drop(columns=["_name_key"], errors="ignore")
                 df_final = df_final[["Name", "SMILES"] + [col for col in df_final.columns if col not in {"Name", "SMILES"}]]
                 df_final = _drop_trailing_empty_column(df_final)
-                out_name = f"df_external_descriptors_{target_chembl_id}_{target_organism}.csv"
+                out_name = f"df_external_descriptors_{descriptors_slug}_{target_chembl_id}_{target_organism}.csv"
                 out_path = os.path.join(external_dir, out_name)
                 df_final.to_csv(out_path, index=False)
             else:
@@ -11209,7 +11223,7 @@ class MainWindow(QMainWindow):
                 df_final = _drop_trailing_empty_column(df_final)
                 os.makedirs(internal_dir, exist_ok=True)
                 bio_col_name = bio_col.replace(" ", "_") if bio_col else "NoBioactivity"
-                out_name = f"df3_descriptors_{bio_col_name}_{target_chembl_id}_{target_organism}.csv"
+                out_name = f"df3_descriptors_{descriptors_slug}_{bio_col_name}_{target_chembl_id}_{target_organism}.csv"
                 out_path = os.path.join(internal_dir, out_name)
                 df_final.to_csv(out_path, index=False)
 
