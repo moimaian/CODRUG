@@ -4496,6 +4496,8 @@ class MainWindow(QMainWindow):
         ("consensus_method", "cb_consensus_method"),
         ("cv_max_percent", "ed_consensus_cv_max"),
         ("hit_percent", "ed_consensus_hit_percent"),
+        ("structures_sdf2d", "chk_structures_sdf2d"),
+        ("structures_smiles", "chk_structures_smiles"),
     ] + [
         (f"slot{slot}_{suffix}", f"{attr}_{slot}")
         for slot in range(1, 11)
@@ -11620,7 +11622,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "cb_consensus_method"):
             self.cb_consensus_method.setCurrentIndex(0)
         if hasattr(self, "ed_consensus_cv_max"):
-            self.ed_consensus_cv_max.setText("5")
+            self.ed_consensus_cv_max.setText("100")
         if hasattr(self, "ed_consensus_hit_percent"):
             self.ed_consensus_hit_percent.setText("1")
 
@@ -11665,6 +11667,24 @@ class MainWindow(QMainWindow):
                     weights[slot] = float(weight_text) if weight_text else 1.0
                 except ValueError:
                     weights[slot] = 1.0
+
+            # SMILES/canonical_smiles do(s) dataframe(s) de origem - reaproveitada para inserir uma
+            # coluna 'SMILES' logo após a coluna de ID no resultado final (e nos Hits), e para
+            # alimentar module_compound_names.resolve_compound_names abaixo sem reescanear os CSVs
+            # de PREDICTIONS. O primeiro dataframe selecionado que tiver a coluna vence por ID.
+            smiles_lookup = {}
+            for row in rows:
+                df_src = row["df"]
+                id_col_src = row["id_col"]
+                lowered_cols = {str(c).strip().lower(): c for c in df_src.columns}
+                smiles_src_col = lowered_cols.get("smiles") or lowered_cols.get("canonical_smiles")
+                if smiles_src_col is None:
+                    continue
+                for _id, _smi in df_src[[id_col_src, smiles_src_col]].itertuples(index=False):
+                    _id = str(_id).strip()
+                    _smi = str(_smi).strip() if pd.notna(_smi) else ""
+                    if _id and _smi and _id not in smiles_lookup:
+                        smiles_lookup[_id] = _smi
 
             for row in rows:
                 slot = row["slot"]
@@ -11769,8 +11789,15 @@ class MainWindow(QMainWindow):
                 ascending=[score_ascending, True, True]
             ).reset_index(drop=True)
 
+            # Coluna 'SMILES', logo após a coluna de ID, quando ao menos um dos dataframes
+            # selecionados carregava SMILES/canonical_smiles - omitida por completo se nenhum tinha.
+            have_smiles = bool(smiles_lookup)
+            if have_smiles:
+                merged["SMILES"] = merged[id_col_name].astype(str).str.strip().map(smiles_lookup).fillna("")
+
             final_columns = [
                 id_col_name,
+            ] + (["SMILES"] if have_smiles else []) + [
                 "consensus_rank",
                 "consensus_score_mean",
                 "consensus_score_sum",
@@ -11812,7 +11839,8 @@ class MainWindow(QMainWindow):
             if module_compound_names is not None and not hits_df.empty:
                 try:
                     hit_names = module_compound_names.resolve_compound_names(
-                        list(hits_df[id_col_name].astype(str)), self.job_dir
+                        list(hits_df[id_col_name].astype(str)), self.job_dir,
+                        id_to_smiles=(smiles_lookup or None),
                     )
                 except Exception:
                     hit_names = {}
@@ -11948,6 +11976,109 @@ class MainWindow(QMainWindow):
             return
         QApplication.restoreOverrideCursor()
         QMessageBox.information(self, i18n.t("msg_title_generate_final_report", self._idioma), f"Final report saved to:\n{output_path}")
+
+    def run_generate_structures_for_codoc(self):
+        """STEP 6 'Generate Structure File for CODOC' button: writes .sdf (2D) and/or .smi files
+        with ALL AND ONLY the compounds in the current Consensus 'Hits' table (the same CSV
+        Generate Final Report reads, self._step8_last_hits_file) - for CODOC to consume the same
+        way STEP 3 consumes DATA_BASES/STRUCTURES/1D/multiligand_<target>.sdf. Saved under
+        RESULTS/STRUCTURES (not DATA_BASES/STRUCTURES, which holds the target-wide structures, and
+        not inside a per-USI RESULTS/USI/<usi> folder, since Hits typically combine several USIs)."""
+        want_sdf = hasattr(self, "chk_structures_sdf2d") and self.chk_structures_sdf2d.isChecked()
+        want_smi = hasattr(self, "chk_structures_smiles") and self.chk_structures_smiles.isChecked()
+        if not want_sdf and not want_smi:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma),
+                "Select at least one output format ('SDF 2D' and/or 'Smiles')."
+            )
+            return
+
+        job_dir = getattr(self, "job_dir", None)
+        if not job_dir:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Set a run folder first (CONFIG tab).")
+            return
+
+        hits_path = getattr(self, "_step8_last_hits_file", None)
+        if not hits_path or not os.path.isfile(hits_path):
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma),
+                "No Hits file found. Run 'Consensus Generate' first."
+            )
+            return
+
+        try:
+            hits_df = self._read_selected_table_file(hits_path)
+        except Exception as e:
+            QMessageBox.critical(self, i18n.t("msg_title_error", self._idioma), f"Could not read the Hits file:\n{e}")
+            return
+        if hits_df.empty:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "The Hits table is empty.")
+            return
+
+        # Coluna de ID = primeira coluna da tabela de Hits (id_col_name em run_consensus_generate).
+        name_col = hits_df.columns[0]
+        lowered_cols = {str(c).strip().lower(): c for c in hits_df.columns}
+        smiles_col = lowered_cols.get("smiles") or lowered_cols.get("canonical_smiles")
+
+        ids = hits_df[name_col].astype(str).str.strip().tolist()
+        if smiles_col is not None:
+            smiles_map = dict(zip(ids, hits_df[smiles_col].astype(str).str.strip()))
+        else:
+            # Hits mais antigos (gerados antes da coluna SMILES ser adicionada ao consenso) ou cujos
+            # dataframes de origem não traziam SMILES/canonical_smiles - mesmo fallback usado para o
+            # nome comum dos hits: varre os CSVs de PREDICTIONS atrás de Name/SMILES.
+            smiles_map = module_compound_names.find_smiles_lookup(job_dir, set(ids)) if module_compound_names is not None else {}
+
+        pairs = [(name, smiles_map.get(name, "")) for name in ids]
+        pairs = [(name, smi) for name, smi in pairs if name and smi]
+        missing_smiles = len(ids) - len(pairs)
+        # Valida com RDKit uma única vez (em vez de deixar cada writer descartar por conta própria)
+        # para que .sdf e .smi sempre carreguem exatamente o mesmo conjunto de compostos.
+        valid_pairs = [(name, smi, Chem.MolFromSmiles(smi)) for name, smi in pairs]
+        invalid_smiles = sum(1 for _, _, mol in valid_pairs if mol is None)
+        valid_pairs = [(name, smi, mol) for name, smi, mol in valid_pairs if mol is not None]
+        if not valid_pairs:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma),
+                "No valid SMILES could be found for any of the Hits - nothing to write."
+            )
+            return
+
+        out_dir = os.path.join(job_dir, "RESULTS", "STRUCTURES")
+        os.makedirs(out_dir, exist_ok=True)
+
+        target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
+        target_organism = self.ed_organism_name.text().strip() if hasattr(self, "ed_organism_name") else ""
+        suffix_parts = [part for part in [target_chembl_id, target_organism] if part]
+        suffix = "_".join(suffix_parts) if suffix_parts else "Hits"
+        # RESULTS/STRUCTURES é compartilhado entre execuções (não é uma pasta por USI) - timestamp
+        # evita que uma nova rodada de Consensus Generate sobrescreva os arquivos de uma anterior.
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        base_name = f"Hits_{suffix}_{len(valid_pairs)}compounds_{timestamp}"
+
+        written = []
+        if want_sdf:
+            sdf_path = os.path.join(out_dir, f"{base_name}.sdf")
+            writer = Chem.SDWriter(sdf_path)
+            try:
+                for name, smi, mol in valid_pairs:
+                    AllChem.Compute2DCoords(mol)
+                    mol.SetProp("_Name", name)
+                    writer.write(mol)
+            finally:
+                writer.close()
+            written.append(f"{os.path.basename(sdf_path)} ({len(valid_pairs)} compounds)")
+
+        if want_smi:
+            smi_path = os.path.join(out_dir, f"{base_name}.smi")
+            with open(smi_path, "w", encoding="utf-8") as f:
+                for name, smi, _mol in valid_pairs:
+                    f.write(f"{smi}\t{name}\n")
+            written.append(f"{os.path.basename(smi_path)} ({len(valid_pairs)} compounds)")
+
+        skipped = missing_smiles + invalid_smiles
+        msg = "Structure file(s) generated in RESULTS/STRUCTURES:\n" + "\n".join(written)
+        if skipped:
+            msg += (f"\n\n{skipped} hit(s) were skipped ({missing_smiles} with no SMILES found, "
+                    f"{invalid_smiles} with an unparseable SMILES).")
+        QMessageBox.information(self, i18n.t("msg_title_attention", self._idioma), msg)
 
     def _compute_rdkit_fp_single_mode(self, mode, structure_col, name_col, fp_bits=2048, fp_chirality=True):
         
@@ -19487,8 +19618,8 @@ class MainWindow(QMainWindow):
             lbl_consensus_cv = self._trL("s8_lbl_max_cv")
             lbl_consensus_cv.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
             self.ed_consensus_cv_max = QLineEdit()
-            self.ed_consensus_cv_max.setPlaceholderText("e.g. 5")
-            self.ed_consensus_cv_max.setText("5")
+            self.ed_consensus_cv_max.setPlaceholderText("e.g. 100")
+            self.ed_consensus_cv_max.setText("100")
             self.ed_consensus_cv_max.setFixedWidth(80)
             self._tr("s8_tooltip_max_cv", self.ed_consensus_cv_max.setToolTip)
 
@@ -19553,7 +19684,33 @@ class MainWindow(QMainWindow):
             btn_generate_final_report.setProperty("role", "primary")
             btn_generate_final_report.setFixedWidth(255)
             btn_generate_final_report.clicked.connect(self.generate_final_report)
-            l8.addWidget(btn_generate_final_report, alignment=Qt.AlignCenter)
+
+            self.chk_structures_sdf2d = QCheckBox()
+            self._tr("s8_chk_structures_sdf2d", self.chk_structures_sdf2d.setText)
+            self._tr("s8_tooltip_structures_sdf2d", self.chk_structures_sdf2d.setToolTip)
+            self.chk_structures_sdf2d.setChecked(True)
+
+            self.chk_structures_smiles = QCheckBox()
+            self._tr("s8_chk_structures_smiles", self.chk_structures_smiles.setText)
+            self._tr("s8_tooltip_structures_smiles", self.chk_structures_smiles.setToolTip)
+            self.chk_structures_smiles.setChecked(True)
+
+            btn_generate_structures = QPushButton()
+            self._tr("s8_btn_generate_structures", btn_generate_structures.setText)
+            self._tr("s8_tooltip_generate_structures", btn_generate_structures.setToolTip)
+            btn_generate_structures.setProperty("role", "secondary")
+            btn_generate_structures.setFixedWidth(255)
+            btn_generate_structures.clicked.connect(self.run_generate_structures_for_codoc)
+
+            report_actions_layout = QHBoxLayout()
+            report_actions_layout.addStretch()
+            report_actions_layout.addWidget(btn_generate_final_report)
+            report_actions_layout.addSpacing(20)
+            report_actions_layout.addWidget(self.chk_structures_sdf2d)
+            report_actions_layout.addWidget(self.chk_structures_smiles)
+            report_actions_layout.addWidget(btn_generate_structures)
+            report_actions_layout.addStretch()
+            l8.addLayout(report_actions_layout)
             l8.addSpacing(10)
 
             layout_btn_back_next8 = QHBoxLayout()

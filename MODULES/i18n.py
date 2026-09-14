@@ -694,6 +694,25 @@ _TEXTOS = {
     "s8_btn_consensus_generate": {"en": "Consensus Generate", "pt": "Gerar Consenso"},
     "btn_clear": {"en": "Clear", "pt": "Limpar"},
     "s8_btn_generate_final_report": {"en": "Generate Final Report", "pt": "Gerar Relatório Final"},
+    "s8_chk_structures_sdf2d": {"en": "SDF 2D", "pt": "SDF 2D"},
+    "s8_tooltip_structures_sdf2d": {
+        "en": "Writes a single combined .sdf file (2D coordinates) with all the Hits' structures.",
+        "pt": "Grava um único arquivo .sdf combinado (coordenadas 2D) com as estruturas de todos os Hits.",
+    },
+    "s8_chk_structures_smiles": {"en": "Smiles", "pt": "Smiles"},
+    "s8_tooltip_structures_smiles": {
+        "en": "Writes a single .smi file (SMILES + Name, one per line) with all the Hits.",
+        "pt": "Grava um único arquivo .smi (SMILES + Nome, um por linha) com todos os Hits.",
+    },
+    "s8_btn_generate_structures": {"en": "Generate Structure File for CODOC", "pt": "Gerar Arquivo de Estrutura para o CODOC"},
+    "s8_tooltip_generate_structures": {
+        "en": "Writes .sdf and/or .smi files (per the checkboxes above) with ALL AND ONLY the "
+              "compounds in the current Hits table, saved under RESULTS/STRUCTURES - for use by "
+              "CODOC. Run 'Consensus Generate' first.",
+        "pt": "Grava arquivos .sdf e/ou .smi (conforme os checkboxes ao lado) com TODOS E APENAS os "
+              "compostos da tabela de Hits atual, salvos em RESULTS/STRUCTURES - para uso pelo "
+              "CODOC. Execute 'Consensus Generate' antes.",
+    },
 
     # ---------------------------------------------------------------- EDIT tab
     "edit_grp_merge_remove_compare": {"en": "Merge, Remove or Compare", "pt": "Combinar, Remover ou Comparar"},

@@ -1998,7 +1998,6 @@ def _add_step8_section(document: Any, job_dir: str, state: dict[str, Any], idiom
     document.add_paragraph()
 
     id_col = hits.columns[0]
-    score_col = "consensus_score_mean" if "consensus_score_mean" in hits.columns else "zscore_consensus_mean"
     smiles_lookup = _find_smiles_lookup(job_dir, set(hits[id_col].astype(str)))
 
     # Common name per compound (e.g. "ZINC000003875259" -> "Valsartan"), matched by structure via
@@ -2021,7 +2020,7 @@ def _add_step8_section(document: Any, job_dir: str, state: dict[str, Any], idiom
 
     width = _content_width_cm(document)
     col_widths = [width * 0.20, width * 0.30, width * 0.20, width * 0.15, width * 0.15]
-    headers = ["Compound", "2D Structure", "Consensus Rank", "Consensus Score (mean)", "CV%"]
+    headers = ["Compound", "2D Structure", "Consensus Rank", "Bioactivity Mean", "Bioactivity SD"]
     table = document.add_table(rows=1, cols=len(headers))
     table.style = "Table Grid"
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -2051,10 +2050,10 @@ def _add_step8_section(document: Any, job_dir: str, state: dict[str, Any], idiom
         cells[2].paragraphs[0].add_run(_fmt_num(record.get("consensus_rank", "")))
         _set_cell_width(cells[3], col_widths[3])
         cells[3].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-        cells[3].paragraphs[0].add_run(_fmt_num(record.get(score_col, "")))
+        cells[3].paragraphs[0].add_run(_fmt_num(record.get("bioactivity_mean", "")))
         _set_cell_width(cells[4], col_widths[4])
         cells[4].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-        cells[4].paragraphs[0].add_run(_fmt_num(record.get("bioactivity_cv_percent", "")))
+        cells[4].paragraphs[0].add_run(_fmt_num(record.get("bioactivity_sd", "")))
 
     document.add_paragraph()
     return True
