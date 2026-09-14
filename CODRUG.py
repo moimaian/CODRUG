@@ -4496,6 +4496,7 @@ class MainWindow(QMainWindow):
         ("consensus_method", "cb_consensus_method"),
         ("cv_max_percent", "ed_consensus_cv_max"),
         ("hit_percent", "ed_consensus_hit_percent"),
+        ("structures_scope", "cb_structures_scope"),
         ("structures_sdf2d", "chk_structures_sdf2d"),
         ("structures_smiles", "chk_structures_smiles"),
     ] + [
@@ -11978,12 +11979,14 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, i18n.t("msg_title_generate_final_report", self._idioma), f"Final report saved to:\n{output_path}")
 
     def run_generate_structures_for_codoc(self):
-        """STEP 6 'Generate Structure File for CODOC' button: writes .sdf (2D) and/or .smi files
-        with ALL AND ONLY the compounds in the current Consensus 'Hits' table (the same CSV
-        Generate Final Report reads, self._step8_last_hits_file) - for CODOC to consume the same
-        way STEP 3 consumes DATA_BASES/STRUCTURES/1D/multiligand_<target>.sdf. Saved under
-        RESULTS/STRUCTURES (not DATA_BASES/STRUCTURES, which holds the target-wide structures, and
-        not inside a per-USI RESULTS/USI/<usi> folder, since Hits typically combine several USIs)."""
+        """STEP 6 'CODOC Integration' group / 'Generate Structure' button: writes .sdf (2D) and/or
+        .smi files with ALL AND ONLY the compounds in either the full Consensus result ('All') or
+        the filtered 'Hits' table - per 'Select Consensus Data' - reading whichever CSV
+        run_consensus_generate last saved (self._step8_last_result_file / _step8_last_hits_file).
+        For CODOC to consume the same way STEP 3 consumes
+        DATA_BASES/STRUCTURES/1D/multiligand_<target>.sdf. Saved under RESULTS/STRUCTURES (not
+        DATA_BASES/STRUCTURES, which holds the target-wide structures, and not inside a per-USI
+        RESULTS/USI/<usi> folder, since the consensus typically combines several USIs)."""
         want_sdf = hasattr(self, "chk_structures_sdf2d") and self.chk_structures_sdf2d.isChecked()
         want_smi = hasattr(self, "chk_structures_smiles") and self.chk_structures_smiles.isChecked()
         if not want_sdf and not want_smi:
@@ -11997,23 +12000,25 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Set a run folder first (CONFIG tab).")
             return
 
-        hits_path = getattr(self, "_step8_last_hits_file", None)
-        if not hits_path or not os.path.isfile(hits_path):
+        scope = self.cb_structures_scope.currentText().strip() if hasattr(self, "cb_structures_scope") else "Hits"
+        is_all = scope == "All"
+        source_path = getattr(self, "_step8_last_result_file" if is_all else "_step8_last_hits_file", None)
+        if not source_path or not os.path.isfile(source_path):
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma),
-                "No Hits file found. Run 'Consensus Generate' first."
+                "No consensus result found. Run 'Consensus Generate' first."
             )
             return
 
         try:
-            hits_df = self._read_selected_table_file(hits_path)
+            hits_df = self._read_selected_table_file(source_path)
         except Exception as e:
-            QMessageBox.critical(self, i18n.t("msg_title_error", self._idioma), f"Could not read the Hits file:\n{e}")
+            QMessageBox.critical(self, i18n.t("msg_title_error", self._idioma), f"Could not read the consensus file:\n{e}")
             return
         if hits_df.empty:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "The Hits table is empty.")
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "The selected consensus table is empty.")
             return
 
-        # Coluna de ID = primeira coluna da tabela de Hits (id_col_name em run_consensus_generate).
+        # Coluna de ID = primeira coluna (id_col_name em run_consensus_generate).
         name_col = hits_df.columns[0]
         lowered_cols = {str(c).strip().lower(): c for c in hits_df.columns}
         smiles_col = lowered_cols.get("smiles") or lowered_cols.get("canonical_smiles")
@@ -12037,7 +12042,7 @@ class MainWindow(QMainWindow):
         valid_pairs = [(name, smi, mol) for name, smi, mol in valid_pairs if mol is not None]
         if not valid_pairs:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma),
-                "No valid SMILES could be found for any of the Hits - nothing to write."
+                f"No valid SMILES could be found for any compound in '{scope}' - nothing to write."
             )
             return
 
@@ -12047,11 +12052,11 @@ class MainWindow(QMainWindow):
         target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
         target_organism = self.ed_organism_name.text().strip() if hasattr(self, "ed_organism_name") else ""
         suffix_parts = [part for part in [target_chembl_id, target_organism] if part]
-        suffix = "_".join(suffix_parts) if suffix_parts else "Hits"
+        suffix = "_".join(suffix_parts) if suffix_parts else "consensus"
         # RESULTS/STRUCTURES é compartilhado entre execuções (não é uma pasta por USI) - timestamp
         # evita que uma nova rodada de Consensus Generate sobrescreva os arquivos de uma anterior.
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        base_name = f"Hits_{suffix}_{len(valid_pairs)}compounds_{timestamp}"
+        base_name = f"{scope}_{suffix}_{len(valid_pairs)}compounds_{timestamp}"
 
         written = []
         if want_sdf:
@@ -12076,7 +12081,7 @@ class MainWindow(QMainWindow):
         skipped = missing_smiles + invalid_smiles
         msg = "Structure file(s) generated in RESULTS/STRUCTURES:\n" + "\n".join(written)
         if skipped:
-            msg += (f"\n\n{skipped} hit(s) were skipped ({missing_smiles} with no SMILES found, "
+            msg += (f"\n\n{skipped} compound(s) were skipped ({missing_smiles} with no SMILES found, "
                     f"{invalid_smiles} with an unparseable SMILES).")
         QMessageBox.information(self, i18n.t("msg_title_attention", self._idioma), msg)
 
@@ -19493,6 +19498,7 @@ class MainWindow(QMainWindow):
             l8.addSpacing(10)
 
             g21 = QGroupBox()
+            self._tr("s8_grp_consensus_options", g21.setTitle)
             g21.setStyleSheet("QGroupBox { background-color: #F5F5F5; border: 1px solid #ccc; border-radius: 6px; }")
             g21.setFixedWidth(1200); g21.setFixedHeight(660);
             g21_main_layout = QVBoxLayout(g21)
@@ -19679,11 +19685,20 @@ class MainWindow(QMainWindow):
             l8.addWidget(g21, alignment=Qt.AlignCenter)
             l8.addStretch()
 
-            btn_generate_final_report = QPushButton()
-            self._tr("s8_btn_generate_final_report", btn_generate_final_report.setText)
-            btn_generate_final_report.setProperty("role", "primary")
-            btn_generate_final_report.setFixedWidth(255)
-            btn_generate_final_report.clicked.connect(self.generate_final_report)
+            # ---------------- CODOC Integration ----------------
+            g22 = QGroupBox()
+            self._tr("s8_grp_codoc_integration", g22.setTitle)
+            g22.setStyleSheet("QGroupBox { background-color: #F5F5F5; border: 1px solid #ccc; border-radius: 6px; }")
+            g22.setFixedWidth(1200)
+            g22_layout = QVBoxLayout(g22)
+
+            lbl_structures_scope = self._trL("s8_lbl_structures_scope")
+            lbl_structures_scope.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
+            self.cb_structures_scope = QComboBox()
+            self.cb_structures_scope.addItems(["All", "Hits"])
+            self.cb_structures_scope.setCurrentText("Hits")
+            self.cb_structures_scope.setFixedWidth(100)
+            self._tr("s8_tooltip_structures_scope", self.cb_structures_scope.setToolTip)
 
             self.chk_structures_sdf2d = QCheckBox()
             self._tr("s8_chk_structures_sdf2d", self.chk_structures_sdf2d.setText)
@@ -19698,19 +19713,31 @@ class MainWindow(QMainWindow):
             btn_generate_structures = QPushButton()
             self._tr("s8_btn_generate_structures", btn_generate_structures.setText)
             self._tr("s8_tooltip_generate_structures", btn_generate_structures.setToolTip)
-            btn_generate_structures.setProperty("role", "secondary")
-            btn_generate_structures.setFixedWidth(255)
+            btn_generate_structures.setProperty("role", "primary")
+            btn_generate_structures.setFixedWidth(180)
             btn_generate_structures.clicked.connect(self.run_generate_structures_for_codoc)
 
-            report_actions_layout = QHBoxLayout()
-            report_actions_layout.addStretch()
-            report_actions_layout.addWidget(btn_generate_final_report)
-            report_actions_layout.addSpacing(20)
-            report_actions_layout.addWidget(self.chk_structures_sdf2d)
-            report_actions_layout.addWidget(self.chk_structures_smiles)
-            report_actions_layout.addWidget(btn_generate_structures)
-            report_actions_layout.addStretch()
-            l8.addLayout(report_actions_layout)
+            codoc_row_layout = QHBoxLayout()
+            codoc_row_layout.addStretch()
+            codoc_row_layout.addWidget(lbl_structures_scope)
+            codoc_row_layout.addWidget(self.cb_structures_scope)
+            codoc_row_layout.addSpacing(20)
+            codoc_row_layout.addWidget(self.chk_structures_sdf2d)
+            codoc_row_layout.addWidget(self.chk_structures_smiles)
+            codoc_row_layout.addSpacing(20)
+            codoc_row_layout.addWidget(btn_generate_structures)
+            codoc_row_layout.addStretch()
+            g22_layout.addLayout(codoc_row_layout)
+
+            l8.addWidget(g22, alignment=Qt.AlignCenter)
+            l8.addStretch()
+
+            btn_generate_final_report = QPushButton()
+            self._tr("s8_btn_generate_final_report", btn_generate_final_report.setText)
+            btn_generate_final_report.setProperty("role", "primary")
+            btn_generate_final_report.setFixedWidth(255)
+            btn_generate_final_report.clicked.connect(self.generate_final_report)
+            l8.addWidget(btn_generate_final_report, alignment=Qt.AlignCenter)
             l8.addSpacing(10)
 
             layout_btn_back_next8 = QHBoxLayout()

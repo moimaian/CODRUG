@@ -691,26 +691,35 @@ _TEXTOS = {
               "após o filtro de CV%). Ex.: 1000 compostos compartilhados + Hits 2% -> top 20. Deixe "
               "em branco para manter todos os compostos que passarem no filtro de CV%.",
     },
+    "s8_grp_consensus_options": {"en": "Consensus Options", "pt": "Opções de Consenso"},
     "s8_btn_consensus_generate": {"en": "Consensus Generate", "pt": "Gerar Consenso"},
     "btn_clear": {"en": "Clear", "pt": "Limpar"},
     "s8_btn_generate_final_report": {"en": "Generate Final Report", "pt": "Gerar Relatório Final"},
+    "s8_grp_codoc_integration": {"en": "CODOC Integration", "pt": "Integração com o CODOC"},
+    "s8_lbl_structures_scope": {"en": "Select Consensus Data:", "pt": "Selecionar Dados do Consenso:"},
+    "s8_tooltip_structures_scope": {
+        "en": "'All': every compound that took part in the consensus (the full merged result). "
+              "'Hits': only the compounds in the filtered Hits table (after the CV%/Top Hits% filters).",
+        "pt": "'All': todos os compostos que participaram do consenso (resultado completo combinado). "
+              "'Hits': apenas os compostos da tabela de Hits filtrada (após os filtros de CV%/Top Hits%).",
+    },
     "s8_chk_structures_sdf2d": {"en": "SDF 2D", "pt": "SDF 2D"},
     "s8_tooltip_structures_sdf2d": {
-        "en": "Writes a single combined .sdf file (2D coordinates) with all the Hits' structures.",
-        "pt": "Grava um único arquivo .sdf combinado (coordenadas 2D) com as estruturas de todos os Hits.",
+        "en": "Writes a single combined .sdf file (2D coordinates) with the selected compounds' structures.",
+        "pt": "Grava um único arquivo .sdf combinado (coordenadas 2D) com as estruturas dos compostos selecionados.",
     },
     "s8_chk_structures_smiles": {"en": "Smiles", "pt": "Smiles"},
     "s8_tooltip_structures_smiles": {
-        "en": "Writes a single .smi file (SMILES + Name, one per line) with all the Hits.",
-        "pt": "Grava um único arquivo .smi (SMILES + Nome, um por linha) com todos os Hits.",
+        "en": "Writes a single .smi file (SMILES + Name, one per line) with the selected compounds.",
+        "pt": "Grava um único arquivo .smi (SMILES + Nome, um por linha) com os compostos selecionados.",
     },
-    "s8_btn_generate_structures": {"en": "Generate Structure File for CODOC", "pt": "Gerar Arquivo de Estrutura para o CODOC"},
+    "s8_btn_generate_structures": {"en": "Generate Structure", "pt": "Gerar Estrutura"},
     "s8_tooltip_generate_structures": {
-        "en": "Writes .sdf and/or .smi files (per the checkboxes above) with ALL AND ONLY the "
-              "compounds in the current Hits table, saved under RESULTS/STRUCTURES - for use by "
-              "CODOC. Run 'Consensus Generate' first.",
-        "pt": "Grava arquivos .sdf e/ou .smi (conforme os checkboxes ao lado) com TODOS E APENAS os "
-              "compostos da tabela de Hits atual, salvos em RESULTS/STRUCTURES - para uso pelo "
+        "en": "Writes .sdf and/or .smi files (per the checkboxes) with ALL AND ONLY the compounds "
+              "from 'Select Consensus Data' (All or Hits), saved under RESULTS/STRUCTURES - for use "
+              "by CODOC. Run 'Consensus Generate' first.",
+        "pt": "Grava arquivos .sdf e/ou .smi (conforme os checkboxes) com TODOS E APENAS os compostos "
+              "de 'Select Consensus Data' (All ou Hits), salvos em RESULTS/STRUCTURES - para uso pelo "
               "CODOC. Execute 'Consensus Generate' antes.",
     },
 
