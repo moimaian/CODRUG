@@ -581,6 +581,14 @@ except Exception as e:
     print(f"Details: {e}")
     module_compound_names = None
 
+try:
+    import MODULES.module_feature_structures as module_feature_structures
+    print("✅ module_feature_structures imported successfully.")
+except Exception as e:
+    print("⚠️ module_feature_structures not available - Feature Importance charts won't identify substructures.")
+    print(f"Details: {e}")
+    module_feature_structures = None
+
 # ==========================================================================================================================================
 # ================================================== DESIGN CONFIG - DARK MODE =============================================================
 # ========================================================================================================================================== 
@@ -22179,6 +22187,81 @@ class MainWindow(QMainWindow):
             import traceback; traceback.print_exc()
             QMessageBox.critical(self, i18n.t("msg_title_plot_error", self._idioma), str(e))
 
+    def _save_feature_importance_structures(self, model_name, feat_names, order, importances):
+        """Side artifact of the STEP 4 'Feature Importance' chart (Performance Charts group,
+        'Plot Model'): for each of the Top 15 highlighted features, identifies its structural
+        substructure WHEN POSSIBLE (see MODULES/module_feature_structures.py for exactly which
+        descriptor families are supported - ECFP4/FCFP6/ECFP4_count and PubchemFP exactly (the
+        latter via BASE/DESCRIPTORS/pubchem_fingerprint_bits.json, NCBI's own bit definitions),
+        MACCSFP as a best-effort approximation - and why MomentOfInertia/etc. are skipped rather
+        than guessed), then saves under this USI's own MIDIA folder:
+        - <model>_feature_importance_structures_<usi>.csv: rank/descriptor/importance/family/
+          SMARTS/SMILES/note for every feature that could be resolved.
+        - <model>_feature_importance_structures_<usi>.svg (+ .png alongside, since the final
+          report - python-docx - can't embed SVG): a grid drawing of those substructures.
+        Silently does nothing if module_feature_structures is unavailable, no USI context is
+        set, or none of the Top 15 features could be resolved - and never raises, since this
+        must never affect the Feature Importance bar chart it's attached to."""
+        if module_feature_structures is None:
+            return
+        try:
+            df_int = getattr(self, "df_int", None)
+            x_train = getattr(self, "skl_x_train", None)
+            training_smiles = None
+            if df_int is not None and x_train is not None:
+                smiles_col = "SMILES" if "SMILES" in df_int.columns else (
+                    "canonical_smiles" if "canonical_smiles" in df_int.columns else None
+                )
+                if smiles_col is not None:
+                    common_idx = x_train.index.intersection(df_int.index)
+                    training_smiles = df_int.loc[common_idx, smiles_col].tolist()
+
+            records = []
+            for rank, i in enumerate(order, start=1):
+                col_name = feat_names[i]
+                parsed = module_feature_structures.parse_descriptor_column(col_name)
+                if parsed is None:
+                    continue
+                fp_bits = (
+                    module_feature_structures.infer_fp_bits(df_int.columns, parsed["family"])
+                    if df_int is not None else None
+                )
+                rec = module_feature_structures.resolve_feature(
+                    col_name, training_smiles=training_smiles, fp_bits=fp_bits, fp_chirality=True,
+                )
+                if rec is None:
+                    continue
+                rec["rank"] = rank
+                rec["descriptor"] = col_name
+                rec["importance"] = float(importances[i])
+                records.append(rec)
+
+            if not records:
+                return
+            out_dir = getattr(self, "skl_plot_path", None)
+            usi_key = getattr(self, "skl_usi_key", None)
+            if not out_dir or not usi_key:
+                return
+            os.makedirs(out_dir, exist_ok=True)
+            base_name = f"{model_name}_feature_importance_structures_{usi_key}"
+
+            csv_path = os.path.join(out_dir, f"{base_name}.csv")
+            pd.DataFrame.from_records(records, columns=[
+                "rank", "descriptor", "importance", "family", "bit_index", "smarts", "smiles",
+                "source_smiles", "exact", "note",
+            ]).to_csv(csv_path, index=False)
+
+            legends = [f"#{r['rank']} {r['descriptor']}" for r in records]
+            svg_text, png_bytes = module_feature_structures.draw_structures_grid(records, legends=legends)
+            if svg_text:
+                with open(os.path.join(out_dir, f"{base_name}.svg"), "w", encoding="utf-8") as f:
+                    f.write(svg_text)
+            if png_bytes:
+                with open(os.path.join(out_dir, f"{base_name}.png"), "wb") as f:
+                    f.write(png_bytes)
+        except Exception:
+            import traceback; traceback.print_exc()
+
     def _build_skl_plot_figure(self, kind, task, model=None, model_name=None):
         if model is None:
             model = self.skl_current_model
@@ -22284,6 +22367,9 @@ class MainWindow(QMainWindow):
             ax.set_xlabel("Importance")
             ax.set_title(f"{model_name}: Top 15 Feature Importances")
             fig.tight_layout()
+            # Best-effort side artifact: structural identification of the Top 15 features (CSV +
+            # SVG/PNG in this USI's MIDIA folder), never allowed to affect the bar chart above.
+            self._save_feature_importance_structures(model_name, feat_names, order, importances)
             return fig
 
         if kind == "learning_curve":

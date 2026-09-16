@@ -1446,6 +1446,16 @@ _STEP4_ML_TEXTS = {
     "figure4_caption_en": "Figure 4. Train and test set split for the {df} dataframe.",
     "table3_caption_pt": "Tabela 3. Resultado da triagem dos modelos de machine learning para o dataframe interno {df}.",
     "table3_caption_en": "Table 3. Machine learning model screening results for the {df} internal dataframe.",
+    "feat_struct_intro_pt": (
+        "Para o modelo {model}, sempre que possível, o significado estrutural das features "
+        "destacadas no gráfico de Feature Importance acima foi identificado - a subestrutura "
+        "correspondente a cada descritor é apresentada a seguir:"
+    ),
+    "feat_struct_intro_en": (
+        "For the {model} model, whenever possible, the structural meaning of the features "
+        "highlighted in the Feature Importance chart above was identified - the substructure "
+        "corresponding to each descriptor is presented below:"
+    ),
 }
 
 # Same shading used in the methodology template's STEP 4 tables (screening/tuning/cross-
@@ -1481,6 +1491,13 @@ def _find_skl_image(midia_dir: str, model_name: str, kind: str, usi: str) -> Opt
         if os.path.isfile(candidate):
             return candidate
     return None
+
+
+def _find_feature_structures_csv(midia_dir: str, model_name: str, usi: str) -> Optional[str]:
+    """CSV saved alongside the Feature Importance chart by
+    CODRUG._save_feature_importance_structures: <model>_feature_importance_structures_<usi>.csv."""
+    candidate = os.path.join(midia_dir, f"{model_name}_feature_importance_structures_{usi}.csv")
+    return candidate if os.path.isfile(candidate) else None
 
 
 def _discover_skl_tuned_models(data_dir: str, usi: str) -> list[str]:
@@ -1705,6 +1722,22 @@ def _add_step5_section(document: Any, job_dir: str, state: dict[str, Any], idiom
                 )
                 for chart_path in chart_paths:
                     _add_image(document, chart_path)
+
+            # Structural identification of the Top 15 Feature Importance features (CODRUG.
+            # _save_feature_importance_structures) - CSV table + grid drawing, when at least one
+            # feature could be resolved (see MODULES/module_feature_structures.py for which
+            # descriptor families are supported and why the rest are skipped rather than guessed).
+            struct_csv = _find_feature_structures_csv(midia_dir, model_name, usi)
+            struct_df = _read_csv(struct_csv)
+            if struct_df is not None and not struct_df.empty:
+                _para(document).add_run(
+                    texts["feat_struct_intro_pt" if lang == "pt" else "feat_struct_intro_en"].format(model=model_name)
+                )
+                struct_png = _find_skl_image(midia_dir, model_name, "feature_importance_structures", usi)
+                if struct_png:
+                    _add_image(document, struct_png)
+                display_cols = [c for c in ("rank", "descriptor", "family", "smiles", "smarts", "exact") if c in struct_df.columns]
+                _add_dataframe_table(document, struct_df[display_cols] if display_cols else struct_df, max_rows=15)
 
         added_any = True
         document.add_paragraph()

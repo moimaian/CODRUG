@@ -1,0 +1,8175 @@
+{
+ "$schema_note": "PubChem CACTVS Substructure Fingerprint (881 bits) bit definitions, parsed from the official NCBI specification 'PubChem Substructure Fingerprint V1.3' (http://pubchem.ncbi.nlm.nih.gov). Sections 3-7 (bits 263-880) are drawable SMARTS patterns taken verbatim (or lightly re-bracketed for RDKit SMARTS syntax) from the spec. Section 1 (bits 0-114) are single-element atom counts ('>= N <element>' over the WHOLE molecule) - drawn as a single query atom; the count threshold itself has no fixed substructure to draw and is kept only in 'description'. Section 2 (bits 115-262) are ring COUNT/property rules (e.g. '>= 2 aromatic rings') with no single fixed-topology substructure - not drawable (drawable=false, smarts/smiles left empty); 'description' still carries the exact rule.",
+ "source": "PubChem Substructure Fingerprint V1.3 (2009-05-01), http://pubchem.ncbi.nlm.nih.gov",
+ "total_bits": 881,
+ "sections": {
+  "1": "Hierarchic Element Counts",
+  "2": "Rings in a canonic Extended Smallest Set of Smallest Rings (ESSSR) ring set",
+  "3": "Simple atom pairs",
+  "4": "Simple atom nearest neighbors",
+  "5": "Detailed atom neighborhoods",
+  "6": "Simple SMARTS patterns",
+  "7": "Complex SMARTS patterns"
+ },
+ "bits": [
+  {
+   "bit": 0,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[H]",
+   "description": ">= 4 atom(s) of element H in the whole molecule",
+   "element": "H",
+   "min_count": 4,
+   "smiles": "[HH]"
+  },
+  {
+   "bit": 1,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[H]",
+   "description": ">= 8 atom(s) of element H in the whole molecule",
+   "element": "H",
+   "min_count": 8,
+   "smiles": "[HH]"
+  },
+  {
+   "bit": 2,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[H]",
+   "description": ">= 16 atom(s) of element H in the whole molecule",
+   "element": "H",
+   "min_count": 16,
+   "smiles": "[HH]"
+  },
+  {
+   "bit": 3,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[H]",
+   "description": ">= 32 atom(s) of element H in the whole molecule",
+   "element": "H",
+   "min_count": 32,
+   "smiles": "[HH]"
+  },
+  {
+   "bit": 4,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Li]",
+   "description": ">= 1 atom(s) of element Li in the whole molecule",
+   "element": "Li",
+   "min_count": 1,
+   "smiles": "[LiH]"
+  },
+  {
+   "bit": 5,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Li]",
+   "description": ">= 2 atom(s) of element Li in the whole molecule",
+   "element": "Li",
+   "min_count": 2,
+   "smiles": "[LiH]"
+  },
+  {
+   "bit": 6,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[B]",
+   "description": ">= 1 atom(s) of element B in the whole molecule",
+   "element": "B",
+   "min_count": 1,
+   "smiles": "B"
+  },
+  {
+   "bit": 7,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[B]",
+   "description": ">= 2 atom(s) of element B in the whole molecule",
+   "element": "B",
+   "min_count": 2,
+   "smiles": "B"
+  },
+  {
+   "bit": 8,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[B]",
+   "description": ">= 4 atom(s) of element B in the whole molecule",
+   "element": "B",
+   "min_count": 4,
+   "smiles": "B"
+  },
+  {
+   "bit": 9,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[C]",
+   "description": ">= 2 atom(s) of element C in the whole molecule",
+   "element": "C",
+   "min_count": 2,
+   "smiles": "C"
+  },
+  {
+   "bit": 10,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[C]",
+   "description": ">= 4 atom(s) of element C in the whole molecule",
+   "element": "C",
+   "min_count": 4,
+   "smiles": "C"
+  },
+  {
+   "bit": 11,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[C]",
+   "description": ">= 8 atom(s) of element C in the whole molecule",
+   "element": "C",
+   "min_count": 8,
+   "smiles": "C"
+  },
+  {
+   "bit": 12,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[C]",
+   "description": ">= 16 atom(s) of element C in the whole molecule",
+   "element": "C",
+   "min_count": 16,
+   "smiles": "C"
+  },
+  {
+   "bit": 13,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[C]",
+   "description": ">= 32 atom(s) of element C in the whole molecule",
+   "element": "C",
+   "min_count": 32,
+   "smiles": "C"
+  },
+  {
+   "bit": 14,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[N]",
+   "description": ">= 1 atom(s) of element N in the whole molecule",
+   "element": "N",
+   "min_count": 1,
+   "smiles": "N"
+  },
+  {
+   "bit": 15,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[N]",
+   "description": ">= 2 atom(s) of element N in the whole molecule",
+   "element": "N",
+   "min_count": 2,
+   "smiles": "N"
+  },
+  {
+   "bit": 16,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[N]",
+   "description": ">= 4 atom(s) of element N in the whole molecule",
+   "element": "N",
+   "min_count": 4,
+   "smiles": "N"
+  },
+  {
+   "bit": 17,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[N]",
+   "description": ">= 8 atom(s) of element N in the whole molecule",
+   "element": "N",
+   "min_count": 8,
+   "smiles": "N"
+  },
+  {
+   "bit": 18,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[O]",
+   "description": ">= 1 atom(s) of element O in the whole molecule",
+   "element": "O",
+   "min_count": 1,
+   "smiles": "O"
+  },
+  {
+   "bit": 19,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[O]",
+   "description": ">= 2 atom(s) of element O in the whole molecule",
+   "element": "O",
+   "min_count": 2,
+   "smiles": "O"
+  },
+  {
+   "bit": 20,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[O]",
+   "description": ">= 4 atom(s) of element O in the whole molecule",
+   "element": "O",
+   "min_count": 4,
+   "smiles": "O"
+  },
+  {
+   "bit": 21,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[O]",
+   "description": ">= 8 atom(s) of element O in the whole molecule",
+   "element": "O",
+   "min_count": 8,
+   "smiles": "O"
+  },
+  {
+   "bit": 22,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[O]",
+   "description": ">= 16 atom(s) of element O in the whole molecule",
+   "element": "O",
+   "min_count": 16,
+   "smiles": "O"
+  },
+  {
+   "bit": 23,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[F]",
+   "description": ">= 1 atom(s) of element F in the whole molecule",
+   "element": "F",
+   "min_count": 1,
+   "smiles": "F"
+  },
+  {
+   "bit": 24,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[F]",
+   "description": ">= 2 atom(s) of element F in the whole molecule",
+   "element": "F",
+   "min_count": 2,
+   "smiles": "F"
+  },
+  {
+   "bit": 25,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[F]",
+   "description": ">= 4 atom(s) of element F in the whole molecule",
+   "element": "F",
+   "min_count": 4,
+   "smiles": "F"
+  },
+  {
+   "bit": 26,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Na]",
+   "description": ">= 1 atom(s) of element Na in the whole molecule",
+   "element": "Na",
+   "min_count": 1,
+   "smiles": "[NaH]"
+  },
+  {
+   "bit": 27,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Na]",
+   "description": ">= 2 atom(s) of element Na in the whole molecule",
+   "element": "Na",
+   "min_count": 2,
+   "smiles": "[NaH]"
+  },
+  {
+   "bit": 28,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Si]",
+   "description": ">= 1 atom(s) of element Si in the whole molecule",
+   "element": "Si",
+   "min_count": 1,
+   "smiles": "[SiH4]"
+  },
+  {
+   "bit": 29,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Si]",
+   "description": ">= 2 atom(s) of element Si in the whole molecule",
+   "element": "Si",
+   "min_count": 2,
+   "smiles": "[SiH4]"
+  },
+  {
+   "bit": 30,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[P]",
+   "description": ">= 1 atom(s) of element P in the whole molecule",
+   "element": "P",
+   "min_count": 1,
+   "smiles": "P"
+  },
+  {
+   "bit": 31,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[P]",
+   "description": ">= 2 atom(s) of element P in the whole molecule",
+   "element": "P",
+   "min_count": 2,
+   "smiles": "P"
+  },
+  {
+   "bit": 32,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[P]",
+   "description": ">= 4 atom(s) of element P in the whole molecule",
+   "element": "P",
+   "min_count": 4,
+   "smiles": "P"
+  },
+  {
+   "bit": 33,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[S]",
+   "description": ">= 1 atom(s) of element S in the whole molecule",
+   "element": "S",
+   "min_count": 1,
+   "smiles": "S"
+  },
+  {
+   "bit": 34,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[S]",
+   "description": ">= 2 atom(s) of element S in the whole molecule",
+   "element": "S",
+   "min_count": 2,
+   "smiles": "S"
+  },
+  {
+   "bit": 35,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[S]",
+   "description": ">= 4 atom(s) of element S in the whole molecule",
+   "element": "S",
+   "min_count": 4,
+   "smiles": "S"
+  },
+  {
+   "bit": 36,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[S]",
+   "description": ">= 8 atom(s) of element S in the whole molecule",
+   "element": "S",
+   "min_count": 8,
+   "smiles": "S"
+  },
+  {
+   "bit": 37,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Cl]",
+   "description": ">= 1 atom(s) of element Cl in the whole molecule",
+   "element": "Cl",
+   "min_count": 1,
+   "smiles": "Cl"
+  },
+  {
+   "bit": 38,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Cl]",
+   "description": ">= 2 atom(s) of element Cl in the whole molecule",
+   "element": "Cl",
+   "min_count": 2,
+   "smiles": "Cl"
+  },
+  {
+   "bit": 39,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Cl]",
+   "description": ">= 4 atom(s) of element Cl in the whole molecule",
+   "element": "Cl",
+   "min_count": 4,
+   "smiles": "Cl"
+  },
+  {
+   "bit": 40,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Cl]",
+   "description": ">= 8 atom(s) of element Cl in the whole molecule",
+   "element": "Cl",
+   "min_count": 8,
+   "smiles": "Cl"
+  },
+  {
+   "bit": 41,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[K]",
+   "description": ">= 1 atom(s) of element K in the whole molecule",
+   "element": "K",
+   "min_count": 1,
+   "smiles": "[KH]"
+  },
+  {
+   "bit": 42,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[K]",
+   "description": ">= 2 atom(s) of element K in the whole molecule",
+   "element": "K",
+   "min_count": 2,
+   "smiles": "[KH]"
+  },
+  {
+   "bit": 43,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Br]",
+   "description": ">= 1 atom(s) of element Br in the whole molecule",
+   "element": "Br",
+   "min_count": 1,
+   "smiles": "Br"
+  },
+  {
+   "bit": 44,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Br]",
+   "description": ">= 2 atom(s) of element Br in the whole molecule",
+   "element": "Br",
+   "min_count": 2,
+   "smiles": "Br"
+  },
+  {
+   "bit": 45,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Br]",
+   "description": ">= 4 atom(s) of element Br in the whole molecule",
+   "element": "Br",
+   "min_count": 4,
+   "smiles": "Br"
+  },
+  {
+   "bit": 46,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[I]",
+   "description": ">= 1 atom(s) of element I in the whole molecule",
+   "element": "I",
+   "min_count": 1,
+   "smiles": "I"
+  },
+  {
+   "bit": 47,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[I]",
+   "description": ">= 2 atom(s) of element I in the whole molecule",
+   "element": "I",
+   "min_count": 2,
+   "smiles": "I"
+  },
+  {
+   "bit": 48,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[I]",
+   "description": ">= 4 atom(s) of element I in the whole molecule",
+   "element": "I",
+   "min_count": 4,
+   "smiles": "I"
+  },
+  {
+   "bit": 49,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Be]",
+   "description": ">= 1 atom(s) of element Be in the whole molecule",
+   "element": "Be",
+   "min_count": 1,
+   "smiles": "[BeH2]"
+  },
+  {
+   "bit": 50,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Mg]",
+   "description": ">= 1 atom(s) of element Mg in the whole molecule",
+   "element": "Mg",
+   "min_count": 1,
+   "smiles": "[MgH2]"
+  },
+  {
+   "bit": 51,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Al]",
+   "description": ">= 1 atom(s) of element Al in the whole molecule",
+   "element": "Al",
+   "min_count": 1,
+   "smiles": "[AlH3]"
+  },
+  {
+   "bit": 52,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Ca]",
+   "description": ">= 1 atom(s) of element Ca in the whole molecule",
+   "element": "Ca",
+   "min_count": 1,
+   "smiles": "[CaH2]"
+  },
+  {
+   "bit": 53,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Sc]",
+   "description": ">= 1 atom(s) of element Sc in the whole molecule",
+   "element": "Sc",
+   "min_count": 1,
+   "smiles": "[Sc]"
+  },
+  {
+   "bit": 54,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Ti]",
+   "description": ">= 1 atom(s) of element Ti in the whole molecule",
+   "element": "Ti",
+   "min_count": 1,
+   "smiles": "[Ti]"
+  },
+  {
+   "bit": 55,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[V]",
+   "description": ">= 1 atom(s) of element V in the whole molecule",
+   "element": "V",
+   "min_count": 1,
+   "smiles": "[V]"
+  },
+  {
+   "bit": 56,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Cr]",
+   "description": ">= 1 atom(s) of element Cr in the whole molecule",
+   "element": "Cr",
+   "min_count": 1,
+   "smiles": "[Cr]"
+  },
+  {
+   "bit": 57,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Mn]",
+   "description": ">= 1 atom(s) of element Mn in the whole molecule",
+   "element": "Mn",
+   "min_count": 1,
+   "smiles": "[Mn]"
+  },
+  {
+   "bit": 58,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Fe]",
+   "description": ">= 1 atom(s) of element Fe in the whole molecule",
+   "element": "Fe",
+   "min_count": 1,
+   "smiles": "[Fe]"
+  },
+  {
+   "bit": 59,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Co]",
+   "description": ">= 1 atom(s) of element Co in the whole molecule",
+   "element": "Co",
+   "min_count": 1,
+   "smiles": "[Co]"
+  },
+  {
+   "bit": 60,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Ni]",
+   "description": ">= 1 atom(s) of element Ni in the whole molecule",
+   "element": "Ni",
+   "min_count": 1,
+   "smiles": "[Ni]"
+  },
+  {
+   "bit": 61,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Cu]",
+   "description": ">= 1 atom(s) of element Cu in the whole molecule",
+   "element": "Cu",
+   "min_count": 1,
+   "smiles": "[Cu]"
+  },
+  {
+   "bit": 62,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Zn]",
+   "description": ">= 1 atom(s) of element Zn in the whole molecule",
+   "element": "Zn",
+   "min_count": 1,
+   "smiles": "[Zn]"
+  },
+  {
+   "bit": 63,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Ga]",
+   "description": ">= 1 atom(s) of element Ga in the whole molecule",
+   "element": "Ga",
+   "min_count": 1,
+   "smiles": "[GaH3]"
+  },
+  {
+   "bit": 64,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Ge]",
+   "description": ">= 1 atom(s) of element Ge in the whole molecule",
+   "element": "Ge",
+   "min_count": 1,
+   "smiles": "[GeH4]"
+  },
+  {
+   "bit": 65,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[As]",
+   "description": ">= 1 atom(s) of element As in the whole molecule",
+   "element": "As",
+   "min_count": 1,
+   "smiles": "[AsH3]"
+  },
+  {
+   "bit": 66,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Se]",
+   "description": ">= 1 atom(s) of element Se in the whole molecule",
+   "element": "Se",
+   "min_count": 1,
+   "smiles": "[SeH2]"
+  },
+  {
+   "bit": 67,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Kr]",
+   "description": ">= 1 atom(s) of element Kr in the whole molecule",
+   "element": "Kr",
+   "min_count": 1,
+   "smiles": "[Kr]"
+  },
+  {
+   "bit": 68,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Rb]",
+   "description": ">= 1 atom(s) of element Rb in the whole molecule",
+   "element": "Rb",
+   "min_count": 1,
+   "smiles": "[RbH]"
+  },
+  {
+   "bit": 69,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Sr]",
+   "description": ">= 1 atom(s) of element Sr in the whole molecule",
+   "element": "Sr",
+   "min_count": 1,
+   "smiles": "[SrH2]"
+  },
+  {
+   "bit": 70,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Y]",
+   "description": ">= 1 atom(s) of element Y in the whole molecule",
+   "element": "Y",
+   "min_count": 1,
+   "smiles": "[Y]"
+  },
+  {
+   "bit": 71,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Zr]",
+   "description": ">= 1 atom(s) of element Zr in the whole molecule",
+   "element": "Zr",
+   "min_count": 1,
+   "smiles": "[Zr]"
+  },
+  {
+   "bit": 72,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Nb]",
+   "description": ">= 1 atom(s) of element Nb in the whole molecule",
+   "element": "Nb",
+   "min_count": 1,
+   "smiles": "[Nb]"
+  },
+  {
+   "bit": 73,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Mo]",
+   "description": ">= 1 atom(s) of element Mo in the whole molecule",
+   "element": "Mo",
+   "min_count": 1,
+   "smiles": "[Mo]"
+  },
+  {
+   "bit": 74,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Ru]",
+   "description": ">= 1 atom(s) of element Ru in the whole molecule",
+   "element": "Ru",
+   "min_count": 1,
+   "smiles": "[Ru]"
+  },
+  {
+   "bit": 75,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Rh]",
+   "description": ">= 1 atom(s) of element Rh in the whole molecule",
+   "element": "Rh",
+   "min_count": 1,
+   "smiles": "[Rh]"
+  },
+  {
+   "bit": 76,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Pd]",
+   "description": ">= 1 atom(s) of element Pd in the whole molecule",
+   "element": "Pd",
+   "min_count": 1,
+   "smiles": "[Pd]"
+  },
+  {
+   "bit": 77,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Ag]",
+   "description": ">= 1 atom(s) of element Ag in the whole molecule",
+   "element": "Ag",
+   "min_count": 1,
+   "smiles": "[Ag]"
+  },
+  {
+   "bit": 78,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Cd]",
+   "description": ">= 1 atom(s) of element Cd in the whole molecule",
+   "element": "Cd",
+   "min_count": 1,
+   "smiles": "[Cd]"
+  },
+  {
+   "bit": 79,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[In]",
+   "description": ">= 1 atom(s) of element In in the whole molecule",
+   "element": "In",
+   "min_count": 1,
+   "smiles": "[InH3]"
+  },
+  {
+   "bit": 80,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Sn]",
+   "description": ">= 1 atom(s) of element Sn in the whole molecule",
+   "element": "Sn",
+   "min_count": 1,
+   "smiles": "[SnH2]"
+  },
+  {
+   "bit": 81,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Sb]",
+   "description": ">= 1 atom(s) of element Sb in the whole molecule",
+   "element": "Sb",
+   "min_count": 1,
+   "smiles": "[SbH3]"
+  },
+  {
+   "bit": 82,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Te]",
+   "description": ">= 1 atom(s) of element Te in the whole molecule",
+   "element": "Te",
+   "min_count": 1,
+   "smiles": "[TeH2]"
+  },
+  {
+   "bit": 83,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Xe]",
+   "description": ">= 1 atom(s) of element Xe in the whole molecule",
+   "element": "Xe",
+   "min_count": 1,
+   "smiles": "[Xe]"
+  },
+  {
+   "bit": 84,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Cs]",
+   "description": ">= 1 atom(s) of element Cs in the whole molecule",
+   "element": "Cs",
+   "min_count": 1,
+   "smiles": "[CsH]"
+  },
+  {
+   "bit": 85,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Ba]",
+   "description": ">= 1 atom(s) of element Ba in the whole molecule",
+   "element": "Ba",
+   "min_count": 1,
+   "smiles": "[BaH2]"
+  },
+  {
+   "bit": 86,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Lu]",
+   "description": ">= 1 atom(s) of element Lu in the whole molecule",
+   "element": "Lu",
+   "min_count": 1,
+   "smiles": "[Lu]"
+  },
+  {
+   "bit": 87,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Hf]",
+   "description": ">= 1 atom(s) of element Hf in the whole molecule",
+   "element": "Hf",
+   "min_count": 1,
+   "smiles": "[Hf]"
+  },
+  {
+   "bit": 88,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Ta]",
+   "description": ">= 1 atom(s) of element Ta in the whole molecule",
+   "element": "Ta",
+   "min_count": 1,
+   "smiles": "[Ta]"
+  },
+  {
+   "bit": 89,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[W]",
+   "description": ">= 1 atom(s) of element W in the whole molecule",
+   "element": "W",
+   "min_count": 1,
+   "smiles": "[W]"
+  },
+  {
+   "bit": 90,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Re]",
+   "description": ">= 1 atom(s) of element Re in the whole molecule",
+   "element": "Re",
+   "min_count": 1,
+   "smiles": "[Re]"
+  },
+  {
+   "bit": 91,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Os]",
+   "description": ">= 1 atom(s) of element Os in the whole molecule",
+   "element": "Os",
+   "min_count": 1,
+   "smiles": "[Os]"
+  },
+  {
+   "bit": 92,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Ir]",
+   "description": ">= 1 atom(s) of element Ir in the whole molecule",
+   "element": "Ir",
+   "min_count": 1,
+   "smiles": "[Ir]"
+  },
+  {
+   "bit": 93,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Pt]",
+   "description": ">= 1 atom(s) of element Pt in the whole molecule",
+   "element": "Pt",
+   "min_count": 1,
+   "smiles": "[Pt]"
+  },
+  {
+   "bit": 94,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Au]",
+   "description": ">= 1 atom(s) of element Au in the whole molecule",
+   "element": "Au",
+   "min_count": 1,
+   "smiles": "[Au]"
+  },
+  {
+   "bit": 95,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Hg]",
+   "description": ">= 1 atom(s) of element Hg in the whole molecule",
+   "element": "Hg",
+   "min_count": 1,
+   "smiles": "[Hg]"
+  },
+  {
+   "bit": 96,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Tl]",
+   "description": ">= 1 atom(s) of element Tl in the whole molecule",
+   "element": "Tl",
+   "min_count": 1,
+   "smiles": "[Tl]"
+  },
+  {
+   "bit": 97,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Pb]",
+   "description": ">= 1 atom(s) of element Pb in the whole molecule",
+   "element": "Pb",
+   "min_count": 1,
+   "smiles": "[PbH2]"
+  },
+  {
+   "bit": 98,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Bi]",
+   "description": ">= 1 atom(s) of element Bi in the whole molecule",
+   "element": "Bi",
+   "min_count": 1,
+   "smiles": "[BiH3]"
+  },
+  {
+   "bit": 99,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[La]",
+   "description": ">= 1 atom(s) of element La in the whole molecule",
+   "element": "La",
+   "min_count": 1,
+   "smiles": "[La]"
+  },
+  {
+   "bit": 100,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Ce]",
+   "description": ">= 1 atom(s) of element Ce in the whole molecule",
+   "element": "Ce",
+   "min_count": 1,
+   "smiles": "[Ce]"
+  },
+  {
+   "bit": 101,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Pr]",
+   "description": ">= 1 atom(s) of element Pr in the whole molecule",
+   "element": "Pr",
+   "min_count": 1,
+   "smiles": "[Pr]"
+  },
+  {
+   "bit": 102,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Nd]",
+   "description": ">= 1 atom(s) of element Nd in the whole molecule",
+   "element": "Nd",
+   "min_count": 1,
+   "smiles": "[Nd]"
+  },
+  {
+   "bit": 103,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Pm]",
+   "description": ">= 1 atom(s) of element Pm in the whole molecule",
+   "element": "Pm",
+   "min_count": 1,
+   "smiles": "[Pm]"
+  },
+  {
+   "bit": 104,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Sm]",
+   "description": ">= 1 atom(s) of element Sm in the whole molecule",
+   "element": "Sm",
+   "min_count": 1,
+   "smiles": "[Sm]"
+  },
+  {
+   "bit": 105,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Eu]",
+   "description": ">= 1 atom(s) of element Eu in the whole molecule",
+   "element": "Eu",
+   "min_count": 1,
+   "smiles": "[Eu]"
+  },
+  {
+   "bit": 106,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Gd]",
+   "description": ">= 1 atom(s) of element Gd in the whole molecule",
+   "element": "Gd",
+   "min_count": 1,
+   "smiles": "[Gd]"
+  },
+  {
+   "bit": 107,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Tb]",
+   "description": ">= 1 atom(s) of element Tb in the whole molecule",
+   "element": "Tb",
+   "min_count": 1,
+   "smiles": "[Tb]"
+  },
+  {
+   "bit": 108,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Dy]",
+   "description": ">= 1 atom(s) of element Dy in the whole molecule",
+   "element": "Dy",
+   "min_count": 1,
+   "smiles": "[Dy]"
+  },
+  {
+   "bit": 109,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Ho]",
+   "description": ">= 1 atom(s) of element Ho in the whole molecule",
+   "element": "Ho",
+   "min_count": 1,
+   "smiles": "[Ho]"
+  },
+  {
+   "bit": 110,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Er]",
+   "description": ">= 1 atom(s) of element Er in the whole molecule",
+   "element": "Er",
+   "min_count": 1,
+   "smiles": "[Er]"
+  },
+  {
+   "bit": 111,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Tm]",
+   "description": ">= 1 atom(s) of element Tm in the whole molecule",
+   "element": "Tm",
+   "min_count": 1,
+   "smiles": "[Tm]"
+  },
+  {
+   "bit": 112,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Yb]",
+   "description": ">= 1 atom(s) of element Yb in the whole molecule",
+   "element": "Yb",
+   "min_count": 1,
+   "smiles": "[Yb]"
+  },
+  {
+   "bit": 113,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[Tc]",
+   "description": ">= 1 atom(s) of element Tc in the whole molecule",
+   "element": "Tc",
+   "min_count": 1,
+   "smiles": "[Tc]"
+  },
+  {
+   "bit": 114,
+   "section": 1,
+   "kind": "element_count",
+   "drawable": true,
+   "smarts": "[U]",
+   "description": ">= 1 atom(s) of element U in the whole molecule",
+   "element": "U",
+   "min_count": 1,
+   "smiles": "[U]"
+  },
+  {
+   "bit": 115,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 any ring size 3",
+   "smiles": ""
+  },
+  {
+   "bit": 116,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 saturated or aromatic carbon-only ring size 3",
+   "smiles": ""
+  },
+  {
+   "bit": 117,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 saturated or aromatic nitrogen-containing ring size 3",
+   "smiles": ""
+  },
+  {
+   "bit": 118,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 saturated or aromatic heteroatom-containing ring size 3",
+   "smiles": ""
+  },
+  {
+   "bit": 119,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 unsaturated non-aromatic carbon-only ring size 3",
+   "smiles": ""
+  },
+  {
+   "bit": 120,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 unsaturated non-aromatic nitrogen-containing ring size 3",
+   "smiles": ""
+  },
+  {
+   "bit": 121,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 unsaturated non-aromatic heteroatom-containing ring size 3",
+   "smiles": ""
+  },
+  {
+   "bit": 122,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 any ring size 3",
+   "smiles": ""
+  },
+  {
+   "bit": 123,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 saturated or aromatic carbon-only ring size 3",
+   "smiles": ""
+  },
+  {
+   "bit": 124,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 saturated or aromatic nitrogen-containing ring size 3",
+   "smiles": ""
+  },
+  {
+   "bit": 125,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 saturated or aromatic heteroatom-containing ring size 3",
+   "smiles": ""
+  },
+  {
+   "bit": 126,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 unsaturated non-aromatic carbon-only ring size 3",
+   "smiles": ""
+  },
+  {
+   "bit": 127,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 unsaturated non-aromatic nitrogen-containing ring size 3",
+   "smiles": ""
+  },
+  {
+   "bit": 128,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 unsaturated non-aromatic heteroatom-containing ring size 3",
+   "smiles": ""
+  },
+  {
+   "bit": 129,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 any ring size 4",
+   "smiles": ""
+  },
+  {
+   "bit": 130,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 saturated or aromatic carbon-only ring size 4",
+   "smiles": ""
+  },
+  {
+   "bit": 131,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 saturated or aromatic nitrogen-containing ring size 4",
+   "smiles": ""
+  },
+  {
+   "bit": 132,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 saturated or aromatic heteroatom-containing ring size 4",
+   "smiles": ""
+  },
+  {
+   "bit": 133,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 unsaturated non-aromatic carbon-only ring size 4",
+   "smiles": ""
+  },
+  {
+   "bit": 134,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 unsaturated non-aromatic nitrogen-containing ring size 4",
+   "smiles": ""
+  },
+  {
+   "bit": 135,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 unsaturated non-aromatic heteroatom-containing ring size 4",
+   "smiles": ""
+  },
+  {
+   "bit": 136,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 any ring size 4",
+   "smiles": ""
+  },
+  {
+   "bit": 137,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 saturated or aromatic carbon-only ring size 4",
+   "smiles": ""
+  },
+  {
+   "bit": 138,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 saturated or aromatic nitrogen-containing ring size 4",
+   "smiles": ""
+  },
+  {
+   "bit": 139,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 saturated or aromatic heteroatom-containing ring size 4",
+   "smiles": ""
+  },
+  {
+   "bit": 140,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 unsaturated non-aromatic carbon-only ring size 4",
+   "smiles": ""
+  },
+  {
+   "bit": 141,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 unsaturated non-aromatic nitrogen-containing ring size 4",
+   "smiles": ""
+  },
+  {
+   "bit": 142,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 unsaturated non-aromatic heteroatom-containing ring size 4",
+   "smiles": ""
+  },
+  {
+   "bit": 143,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 any ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 144,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 saturated or aromatic carbon-only ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 145,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 saturated or aromatic nitrogen-containing ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 146,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 saturated or aromatic heteroatom-containing ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 147,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 unsaturated non-aromatic carbon-only ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 148,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 unsaturated non-aromatic nitrogen-containing ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 149,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 unsaturated non-aromatic heteroatom-containing ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 150,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 any ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 151,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 saturated or aromatic carbon-only ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 152,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 saturated or aromatic nitrogen-containing ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 153,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 saturated or aromatic heteroatom-containing ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 154,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 unsaturated non-aromatic carbon-only ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 155,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 unsaturated non-aromatic nitrogen-containing ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 156,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 unsaturated non-aromatic heteroatom-containing ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 157,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 3 any ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 158,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 3 saturated or aromatic carbon-only ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 159,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 3 saturated or aromatic nitrogen-containing ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 160,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 3 saturated or aromatic heteroatom-containing ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 161,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 3 unsaturated non-aromatic carbon-only ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 162,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 3 unsaturated non-aromatic nitrogen-containing ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 163,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 3 unsaturated non-aromatic heteroatom-containing ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 164,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 4 any ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 165,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 4 saturated or aromatic carbon-only ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 166,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 4 saturated or aromatic nitrogen-containing ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 167,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 4 saturated or aromatic heteroatom-containing ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 168,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 4 unsaturated non-aromatic carbon-only ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 169,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 4 unsaturated non-aromatic nitrogen-containing ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 170,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 4 unsaturated non-aromatic heteroatom-containing ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 171,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 5 any ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 172,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 5 saturated or aromatic carbon-only ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 173,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 5 saturated or aromatic nitrogen-containing ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 174,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 5 saturated or aromatic heteroatom-containing ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 175,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 5 unsaturated non-aromatic carbon-only ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 176,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 5 unsaturated non-aromatic nitrogen-containing ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 177,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 5 unsaturated non-aromatic heteroatom-containing ring size 5",
+   "smiles": ""
+  },
+  {
+   "bit": 178,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 any ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 179,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 saturated or aromatic carbon-only ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 180,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 saturated or aromatic nitrogen-containing ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 181,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 saturated or aromatic heteroatom-containing ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 182,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 unsaturated non-aromatic carbon-only ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 183,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 unsaturated non-aromatic nitrogen-containing ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 184,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 unsaturated non-aromatic heteroatom-containing ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 185,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 any ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 186,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 saturated or aromatic carbon-only ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 187,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 saturated or aromatic nitrogen-containing ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 188,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 saturated or aromatic heteroatom-containing ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 189,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 unsaturated non-aromatic carbon-only ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 190,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 unsaturated non-aromatic nitrogen-containing ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 191,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 unsaturated non-aromatic heteroatom-containing ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 192,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 3 any ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 193,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 3 saturated or aromatic carbon-only ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 194,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 3 saturated or aromatic nitrogen-containing ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 195,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 3 saturated or aromatic heteroatom-containing ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 196,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 3 unsaturated non-aromatic carbon-only ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 197,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 3 unsaturated non-aromatic nitrogen-containing ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 198,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 3 unsaturated non-aromatic heteroatom-containing ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 199,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 4 any ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 200,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 4 saturated or aromatic carbon-only ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 201,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 4 saturated or aromatic nitrogen-containing ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 202,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 4 saturated or aromatic heteroatom-containing ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 203,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 4 unsaturated non-aromatic carbon-only ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 204,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 4 unsaturated non-aromatic nitrogen-containing ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 205,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 4 unsaturated non-aromatic heteroatom-containing ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 206,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 5 any ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 207,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 5 saturated or aromatic carbon-only ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 208,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 5 saturated or aromatic nitrogen-containing ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 209,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 5 saturated or aromatic heteroatom-containing ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 210,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 5 unsaturated non-aromatic carbon-only ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 211,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 5 unsaturated non-aromatic nitrogen-containing ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 212,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 5 unsaturated non-aromatic heteroatom-containing ring size 6",
+   "smiles": ""
+  },
+  {
+   "bit": 213,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 any ring size 7",
+   "smiles": ""
+  },
+  {
+   "bit": 214,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 saturated or aromatic carbon-only ring size 7",
+   "smiles": ""
+  },
+  {
+   "bit": 215,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 saturated or aromatic nitrogen-containing ring size 7",
+   "smiles": ""
+  },
+  {
+   "bit": 216,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 saturated or aromatic heteroatom-containing ring size 7",
+   "smiles": ""
+  },
+  {
+   "bit": 217,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 unsaturated non-aromatic carbon-only ring size 7",
+   "smiles": ""
+  },
+  {
+   "bit": 218,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 unsaturated non-aromatic nitrogen-containing ring size 7",
+   "smiles": ""
+  },
+  {
+   "bit": 219,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 unsaturated non-aromatic heteroatom-containing ring size 7",
+   "smiles": ""
+  },
+  {
+   "bit": 220,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 any ring size 7",
+   "smiles": ""
+  },
+  {
+   "bit": 221,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 saturated or aromatic carbon-only ring size 7",
+   "smiles": ""
+  },
+  {
+   "bit": 222,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 saturated or aromatic nitrogen-containing ring size 7",
+   "smiles": ""
+  },
+  {
+   "bit": 223,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 saturated or aromatic heteroatom-containing ring size 7",
+   "smiles": ""
+  },
+  {
+   "bit": 224,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 unsaturated non-aromatic carbon-only ring size 7",
+   "smiles": ""
+  },
+  {
+   "bit": 225,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 unsaturated non-aromatic nitrogen-containing ring size 7",
+   "smiles": ""
+  },
+  {
+   "bit": 226,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 unsaturated non-aromatic heteroatom-containing ring size 7",
+   "smiles": ""
+  },
+  {
+   "bit": 227,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 any ring size 8",
+   "smiles": ""
+  },
+  {
+   "bit": 228,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 saturated or aromatic carbon-only ring size 8",
+   "smiles": ""
+  },
+  {
+   "bit": 229,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 saturated or aromatic nitrogen-containing ring size 8",
+   "smiles": ""
+  },
+  {
+   "bit": 230,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 saturated or aromatic heteroatom-containing ring size 8",
+   "smiles": ""
+  },
+  {
+   "bit": 231,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 unsaturated non-aromatic carbon-only ring size 8",
+   "smiles": ""
+  },
+  {
+   "bit": 232,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 unsaturated non-aromatic nitrogen-containing ring size 8",
+   "smiles": ""
+  },
+  {
+   "bit": 233,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 unsaturated non-aromatic heteroatom-containing ring size 8",
+   "smiles": ""
+  },
+  {
+   "bit": 234,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 any ring size 8",
+   "smiles": ""
+  },
+  {
+   "bit": 235,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 saturated or aromatic carbon-only ring size 8",
+   "smiles": ""
+  },
+  {
+   "bit": 236,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 saturated or aromatic nitrogen-containing ring size 8",
+   "smiles": ""
+  },
+  {
+   "bit": 237,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 saturated or aromatic heteroatom-containing ring size 8",
+   "smiles": ""
+  },
+  {
+   "bit": 238,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 unsaturated non-aromatic carbon-only ring size 8",
+   "smiles": ""
+  },
+  {
+   "bit": 239,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 unsaturated non-aromatic nitrogen-containing ring size 8",
+   "smiles": ""
+  },
+  {
+   "bit": 240,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 unsaturated non-aromatic heteroatom-containing ring size 8",
+   "smiles": ""
+  },
+  {
+   "bit": 241,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 any ring size 9",
+   "smiles": ""
+  },
+  {
+   "bit": 242,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 saturated or aromatic carbon-only ring size 9",
+   "smiles": ""
+  },
+  {
+   "bit": 243,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 saturated or aromatic nitrogen-containing ring size 9",
+   "smiles": ""
+  },
+  {
+   "bit": 244,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 saturated or aromatic heteroatom-containing ring size 9",
+   "smiles": ""
+  },
+  {
+   "bit": 245,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 unsaturated non-aromatic carbon-only ring size 9",
+   "smiles": ""
+  },
+  {
+   "bit": 246,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 unsaturated non-aromatic nitrogen-containing ring size 9",
+   "smiles": ""
+  },
+  {
+   "bit": 247,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 unsaturated non-aromatic heteroatom-containing ring size 9",
+   "smiles": ""
+  },
+  {
+   "bit": 248,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 any ring size 10",
+   "smiles": ""
+  },
+  {
+   "bit": 249,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 saturated or aromatic carbon-only ring size 10",
+   "smiles": ""
+  },
+  {
+   "bit": 250,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 saturated or aromatic nitrogen-containing ring size 10",
+   "smiles": ""
+  },
+  {
+   "bit": 251,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 saturated or aromatic heteroatom-containing ring size 10",
+   "smiles": ""
+  },
+  {
+   "bit": 252,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 unsaturated non-aromatic carbon-only ring size 10",
+   "smiles": ""
+  },
+  {
+   "bit": 253,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 unsaturated non-aromatic nitrogen-containing ring size 10",
+   "smiles": ""
+  },
+  {
+   "bit": 254,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 unsaturated non-aromatic heteroatom-containing ring size 10",
+   "smiles": ""
+  },
+  {
+   "bit": 255,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 aromatic ring",
+   "smiles": ""
+  },
+  {
+   "bit": 256,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 1 hetero-aromatic ring",
+   "smiles": ""
+  },
+  {
+   "bit": 257,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 aromatic rings",
+   "smiles": ""
+  },
+  {
+   "bit": 258,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 2 hetero-aromatic rings",
+   "smiles": ""
+  },
+  {
+   "bit": 259,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 3 aromatic rings",
+   "smiles": ""
+  },
+  {
+   "bit": 260,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 3 hetero-aromatic rings",
+   "smiles": ""
+  },
+  {
+   "bit": 261,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 4 aromatic rings",
+   "smiles": ""
+  },
+  {
+   "bit": 262,
+   "section": 2,
+   "kind": "ring_property",
+   "drawable": false,
+   "smarts": "",
+   "description": ">= 4 hetero-aromatic rings",
+   "smiles": ""
+  },
+  {
+   "bit": 263,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[Li]~[H]",
+   "description": "bonded atom pair Li-H (any bond order)",
+   "smiles": "[HH]~[LiH]"
+  },
+  {
+   "bit": 264,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[Li]~[Li]",
+   "description": "bonded atom pair Li-Li (any bond order)",
+   "smiles": "[LiH]~[LiH]"
+  },
+  {
+   "bit": 265,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[Li]~[B]",
+   "description": "bonded atom pair Li-B (any bond order)",
+   "smiles": "[LiH]~B"
+  },
+  {
+   "bit": 266,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[Li]~[C]",
+   "description": "bonded atom pair Li-C (any bond order)",
+   "smiles": "[LiH]~C"
+  },
+  {
+   "bit": 267,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[Li]~[O]",
+   "description": "bonded atom pair Li-O (any bond order)",
+   "smiles": "[LiH]~O"
+  },
+  {
+   "bit": 268,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[Li]~[F]",
+   "description": "bonded atom pair Li-F (any bond order)",
+   "smiles": "[LiH]~F"
+  },
+  {
+   "bit": 269,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[Li]~[P]",
+   "description": "bonded atom pair Li-P (any bond order)",
+   "smiles": "[LiH]~P"
+  },
+  {
+   "bit": 270,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[Li]~[S]",
+   "description": "bonded atom pair Li-S (any bond order)",
+   "smiles": "[LiH]~S"
+  },
+  {
+   "bit": 271,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[Li]~[Cl]",
+   "description": "bonded atom pair Li-Cl (any bond order)",
+   "smiles": "[LiH]~Cl"
+  },
+  {
+   "bit": 272,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[B]~[H]",
+   "description": "bonded atom pair B-H (any bond order)",
+   "smiles": "[HH]~B"
+  },
+  {
+   "bit": 273,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[B]~[B]",
+   "description": "bonded atom pair B-B (any bond order)",
+   "smiles": "B~B"
+  },
+  {
+   "bit": 274,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[B]~[C]",
+   "description": "bonded atom pair B-C (any bond order)",
+   "smiles": "B~C"
+  },
+  {
+   "bit": 275,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[B]~[N]",
+   "description": "bonded atom pair B-N (any bond order)",
+   "smiles": "B~N"
+  },
+  {
+   "bit": 276,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[B]~[O]",
+   "description": "bonded atom pair B-O (any bond order)",
+   "smiles": "B~O"
+  },
+  {
+   "bit": 277,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[B]~[F]",
+   "description": "bonded atom pair B-F (any bond order)",
+   "smiles": "B~F"
+  },
+  {
+   "bit": 278,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[B]~[Si]",
+   "description": "bonded atom pair B-Si (any bond order)",
+   "smiles": "B~[SiH4]"
+  },
+  {
+   "bit": 279,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[B]~[P]",
+   "description": "bonded atom pair B-P (any bond order)",
+   "smiles": "B~P"
+  },
+  {
+   "bit": 280,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[B]~[S]",
+   "description": "bonded atom pair B-S (any bond order)",
+   "smiles": "B~S"
+  },
+  {
+   "bit": 281,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[B]~[Cl]",
+   "description": "bonded atom pair B-Cl (any bond order)",
+   "smiles": "B~Cl"
+  },
+  {
+   "bit": 282,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[B]~[Br]",
+   "description": "bonded atom pair B-Br (any bond order)",
+   "smiles": "B~Br"
+  },
+  {
+   "bit": 283,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[C]~[H]",
+   "description": "bonded atom pair C-H (any bond order)",
+   "smiles": "[HH]~C"
+  },
+  {
+   "bit": 284,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[C]~[C]",
+   "description": "bonded atom pair C-C (any bond order)",
+   "smiles": "C~C"
+  },
+  {
+   "bit": 285,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[C]~[N]",
+   "description": "bonded atom pair C-N (any bond order)",
+   "smiles": "C~N"
+  },
+  {
+   "bit": 286,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[C]~[O]",
+   "description": "bonded atom pair C-O (any bond order)",
+   "smiles": "C~O"
+  },
+  {
+   "bit": 287,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[C]~[F]",
+   "description": "bonded atom pair C-F (any bond order)",
+   "smiles": "C~F"
+  },
+  {
+   "bit": 288,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[C]~[Na]",
+   "description": "bonded atom pair C-Na (any bond order)",
+   "smiles": "C~[NaH]"
+  },
+  {
+   "bit": 289,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[C]~[Mg]",
+   "description": "bonded atom pair C-Mg (any bond order)",
+   "smiles": "C~[MgH2]"
+  },
+  {
+   "bit": 290,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[C]~[Al]",
+   "description": "bonded atom pair C-Al (any bond order)",
+   "smiles": "C~[AlH3]"
+  },
+  {
+   "bit": 291,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[C]~[Si]",
+   "description": "bonded atom pair C-Si (any bond order)",
+   "smiles": "C~[SiH4]"
+  },
+  {
+   "bit": 292,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[C]~[P]",
+   "description": "bonded atom pair C-P (any bond order)",
+   "smiles": "C~P"
+  },
+  {
+   "bit": 293,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[C]~[S]",
+   "description": "bonded atom pair C-S (any bond order)",
+   "smiles": "C~S"
+  },
+  {
+   "bit": 294,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[C]~[Cl]",
+   "description": "bonded atom pair C-Cl (any bond order)",
+   "smiles": "C~Cl"
+  },
+  {
+   "bit": 295,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[C]~[As]",
+   "description": "bonded atom pair C-As (any bond order)",
+   "smiles": "C~[AsH3]"
+  },
+  {
+   "bit": 296,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[C]~[Se]",
+   "description": "bonded atom pair C-Se (any bond order)",
+   "smiles": "C~[SeH2]"
+  },
+  {
+   "bit": 297,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[C]~[Br]",
+   "description": "bonded atom pair C-Br (any bond order)",
+   "smiles": "C~Br"
+  },
+  {
+   "bit": 298,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[C]~[I]",
+   "description": "bonded atom pair C-I (any bond order)",
+   "smiles": "C~I"
+  },
+  {
+   "bit": 299,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[N]~[H]",
+   "description": "bonded atom pair N-H (any bond order)",
+   "smiles": "[HH]~N"
+  },
+  {
+   "bit": 300,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[N]~[N]",
+   "description": "bonded atom pair N-N (any bond order)",
+   "smiles": "N~N"
+  },
+  {
+   "bit": 301,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[N]~[O]",
+   "description": "bonded atom pair N-O (any bond order)",
+   "smiles": "N~O"
+  },
+  {
+   "bit": 302,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[N]~[F]",
+   "description": "bonded atom pair N-F (any bond order)",
+   "smiles": "N~F"
+  },
+  {
+   "bit": 303,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[N]~[Si]",
+   "description": "bonded atom pair N-Si (any bond order)",
+   "smiles": "N~[SiH4]"
+  },
+  {
+   "bit": 304,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[N]~[P]",
+   "description": "bonded atom pair N-P (any bond order)",
+   "smiles": "N~P"
+  },
+  {
+   "bit": 305,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[N]~[S]",
+   "description": "bonded atom pair N-S (any bond order)",
+   "smiles": "N~S"
+  },
+  {
+   "bit": 306,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[N]~[Cl]",
+   "description": "bonded atom pair N-Cl (any bond order)",
+   "smiles": "N~Cl"
+  },
+  {
+   "bit": 307,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[N]~[Br]",
+   "description": "bonded atom pair N-Br (any bond order)",
+   "smiles": "N~Br"
+  },
+  {
+   "bit": 308,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[O]~[H]",
+   "description": "bonded atom pair O-H (any bond order)",
+   "smiles": "[HH]~O"
+  },
+  {
+   "bit": 309,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[O]~[O]",
+   "description": "bonded atom pair O-O (any bond order)",
+   "smiles": "O~O"
+  },
+  {
+   "bit": 310,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[O]~[Mg]",
+   "description": "bonded atom pair O-Mg (any bond order)",
+   "smiles": "O~[MgH2]"
+  },
+  {
+   "bit": 311,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[O]~[Na]",
+   "description": "bonded atom pair O-Na (any bond order)",
+   "smiles": "O~[NaH]"
+  },
+  {
+   "bit": 312,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[O]~[Al]",
+   "description": "bonded atom pair O-Al (any bond order)",
+   "smiles": "O~[AlH3]"
+  },
+  {
+   "bit": 313,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[O]~[Si]",
+   "description": "bonded atom pair O-Si (any bond order)",
+   "smiles": "O~[SiH4]"
+  },
+  {
+   "bit": 314,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[O]~[P]",
+   "description": "bonded atom pair O-P (any bond order)",
+   "smiles": "O~P"
+  },
+  {
+   "bit": 315,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[O]~[K]",
+   "description": "bonded atom pair O-K (any bond order)",
+   "smiles": "O~[KH]"
+  },
+  {
+   "bit": 316,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[F]~[P]",
+   "description": "bonded atom pair F-P (any bond order)",
+   "smiles": "F~P"
+  },
+  {
+   "bit": 317,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[F]~[S]",
+   "description": "bonded atom pair F-S (any bond order)",
+   "smiles": "F~S"
+  },
+  {
+   "bit": 318,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[Al]~[H]",
+   "description": "bonded atom pair Al-H (any bond order)",
+   "smiles": "[HH]~[AlH3]"
+  },
+  {
+   "bit": 319,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[Al]~[Cl]",
+   "description": "bonded atom pair Al-Cl (any bond order)",
+   "smiles": "[AlH3]~Cl"
+  },
+  {
+   "bit": 320,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[Si]~[H]",
+   "description": "bonded atom pair Si-H (any bond order)",
+   "smiles": "[HH]~[SiH4]"
+  },
+  {
+   "bit": 321,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[Si]~[Si]",
+   "description": "bonded atom pair Si-Si (any bond order)",
+   "smiles": "[SiH4]~[SiH4]"
+  },
+  {
+   "bit": 322,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[Si]~[Cl]",
+   "description": "bonded atom pair Si-Cl (any bond order)",
+   "smiles": "[SiH4]~Cl"
+  },
+  {
+   "bit": 323,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[P]~[H]",
+   "description": "bonded atom pair P-H (any bond order)",
+   "smiles": "[HH]~P"
+  },
+  {
+   "bit": 324,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[P]~[P]",
+   "description": "bonded atom pair P-P (any bond order)",
+   "smiles": "P~P"
+  },
+  {
+   "bit": 325,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[As]~[H]",
+   "description": "bonded atom pair As-H (any bond order)",
+   "smiles": "[HH]~[AsH3]"
+  },
+  {
+   "bit": 326,
+   "section": 3,
+   "kind": "atom_pair",
+   "drawable": true,
+   "smarts": "[As]~[As]",
+   "description": "bonded atom pair As-As (any bond order)",
+   "smiles": "[AsH3]~[AsH3]"
+  },
+  {
+   "bit": 327,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~Br)(~C)",
+   "description": "C(~Br)(~C)",
+   "smiles": "C~C~Br"
+  },
+  {
+   "bit": 328,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~Br)(~C)(~C)",
+   "description": "C(~Br)(~C)(~C)",
+   "smiles": "C~C(~C)~Br"
+  },
+  {
+   "bit": 329,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~Br)(~[H])",
+   "description": "C(~Br)(~H)",
+   "smiles": "[HH]~C~Br"
+  },
+  {
+   "bit": 330,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~Br)(:C)",
+   "description": "C(~Br)(:C)",
+   "smiles": "C:C~Br"
+  },
+  {
+   "bit": 331,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~Br)(:N)",
+   "description": "C(~Br)(:N)",
+   "smiles": "N:C~Br"
+  },
+  {
+   "bit": 332,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(~C)",
+   "description": "C(~C)(~C)",
+   "smiles": "C~C~C"
+  },
+  {
+   "bit": 333,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(~C)(~C)",
+   "description": "C(~C)(~C)(~C)",
+   "smiles": "C~C(~C)~C"
+  },
+  {
+   "bit": 334,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(~C)(~C)(~C)",
+   "description": "C(~C)(~C)(~C)(~C)",
+   "smiles": "C~C(~C)(~C)~C"
+  },
+  {
+   "bit": 335,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(~C)(~C)(~[H])",
+   "description": "C(~C)(~C)(~C)(~H)",
+   "smiles": "[HH]~C(~C)(~C)~C"
+  },
+  {
+   "bit": 336,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(~C)(~C)(~N)",
+   "description": "C(~C)(~C)(~C)(~N)",
+   "smiles": "C~C(~C)(~C)~N"
+  },
+  {
+   "bit": 337,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(~C)(~C)(~O)",
+   "description": "C(~C)(~C)(~C)(~O)",
+   "smiles": "C~C(~C)(~C)~O"
+  },
+  {
+   "bit": 338,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(~C)(~[H])(~N)",
+   "description": "C(~C)(~C)(~H)(~N)",
+   "smiles": "[HH]~C(~C)(~C)~N"
+  },
+  {
+   "bit": 339,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(~C)(~[H])(~O)",
+   "description": "C(~C)(~C)(~H)(~O)",
+   "smiles": "[HH]~C(~C)(~C)~O"
+  },
+  {
+   "bit": 340,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(~C)(~N)",
+   "description": "C(~C)(~C)(~N)",
+   "smiles": "C~C(~C)~N"
+  },
+  {
+   "bit": 341,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(~C)(~O)",
+   "description": "C(~C)(~C)(~O)",
+   "smiles": "C~C(~C)~O"
+  },
+  {
+   "bit": 342,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(~Cl)",
+   "description": "C(~C)(~Cl)",
+   "smiles": "C~C~Cl"
+  },
+  {
+   "bit": 343,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(~Cl)(~[H])",
+   "description": "C(~C)(~Cl)(~H)",
+   "smiles": "[HH]~C(~C)~Cl"
+  },
+  {
+   "bit": 344,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(~[H])",
+   "description": "C(~C)(~H)",
+   "smiles": "[HH]~C~C"
+  },
+  {
+   "bit": 345,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(~[H])(~N)",
+   "description": "C(~C)(~H)(~N)",
+   "smiles": "[HH]~C(~C)~N"
+  },
+  {
+   "bit": 346,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(~[H])(~O)",
+   "description": "C(~C)(~H)(~O)",
+   "smiles": "[HH]~C(~C)~O"
+  },
+  {
+   "bit": 347,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(~[H])(~O)(~O)",
+   "description": "C(~C)(~H)(~O)(~O)",
+   "smiles": "[HH]~C(~C)(~O)~O"
+  },
+  {
+   "bit": 348,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(~[H])(~P)",
+   "description": "C(~C)(~H)(~P)",
+   "smiles": "[HH]~C(~C)~P"
+  },
+  {
+   "bit": 349,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(~[H])(~S)",
+   "description": "C(~C)(~H)(~S)",
+   "smiles": "[HH]~C(~C)~S"
+  },
+  {
+   "bit": 350,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(~I)",
+   "description": "C(~C)(~I)",
+   "smiles": "C~C~I"
+  },
+  {
+   "bit": 351,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(~N)",
+   "description": "C(~C)(~N)",
+   "smiles": "C~C~N"
+  },
+  {
+   "bit": 352,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(~O)",
+   "description": "C(~C)(~O)",
+   "smiles": "C~C~O"
+  },
+  {
+   "bit": 353,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(~S)",
+   "description": "C(~C)(~S)",
+   "smiles": "C~C~S"
+  },
+  {
+   "bit": 354,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(~[Si])",
+   "description": "C(~C)(~Si)",
+   "smiles": "C~C~[SiH4]"
+  },
+  {
+   "bit": 355,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(:C)",
+   "description": "C(~C)(:C)",
+   "smiles": "C:C~C"
+  },
+  {
+   "bit": 356,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(:C)(:C)",
+   "description": "C(~C)(:C)(:C)",
+   "smiles": "C:C(:C)~C"
+  },
+  {
+   "bit": 357,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(:C)(:N)",
+   "description": "C(~C)(:C)(:N)",
+   "smiles": "C:C(~C):N"
+  },
+  {
+   "bit": 358,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(:N)",
+   "description": "C(~C)(:N)",
+   "smiles": "C~C:N"
+  },
+  {
+   "bit": 359,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~C)(:N)(:N)",
+   "description": "C(~C)(:N)(:N)",
+   "smiles": "C~C(:N):N"
+  },
+  {
+   "bit": 360,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~Cl)(~Cl)",
+   "description": "C(~Cl)(~Cl)",
+   "smiles": "Cl~C~Cl"
+  },
+  {
+   "bit": 361,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~Cl)(~[H])",
+   "description": "C(~Cl)(~H)",
+   "smiles": "[HH]~C~Cl"
+  },
+  {
+   "bit": 362,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~Cl)(:C)",
+   "description": "C(~Cl)(:C)",
+   "smiles": "C:C~Cl"
+  },
+  {
+   "bit": 363,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~F)(~F)",
+   "description": "C(~F)(~F)",
+   "smiles": "F~C~F"
+  },
+  {
+   "bit": 364,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~F)(:C)",
+   "description": "C(~F)(:C)",
+   "smiles": "C:C~F"
+  },
+  {
+   "bit": 365,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~[H])(~N)",
+   "description": "C(~H)(~N)",
+   "smiles": "[HH]~C~N"
+  },
+  {
+   "bit": 366,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~[H])(~O)",
+   "description": "C(~H)(~O)",
+   "smiles": "[HH]~C~O"
+  },
+  {
+   "bit": 367,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~[H])(~O)(~O)",
+   "description": "C(~H)(~O)(~O)",
+   "smiles": "[HH]~C(~O)~O"
+  },
+  {
+   "bit": 368,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~[H])(~S)",
+   "description": "C(~H)(~S)",
+   "smiles": "[HH]~C~S"
+  },
+  {
+   "bit": 369,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~[H])(~[Si])",
+   "description": "C(~H)(~Si)",
+   "smiles": "[HH]~C~[SiH4]"
+  },
+  {
+   "bit": 370,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~[H])(:C)",
+   "description": "C(~H)(:C)",
+   "smiles": "[HH]~C:C"
+  },
+  {
+   "bit": 371,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~[H])(:C)(:C)",
+   "description": "C(~H)(:C)(:C)",
+   "smiles": "[HH]~C(:C):C"
+  },
+  {
+   "bit": 372,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~[H])(:C)(:N)",
+   "description": "C(~H)(:C)(:N)",
+   "smiles": "[HH]~C(:C):N"
+  },
+  {
+   "bit": 373,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~[H])(:N)",
+   "description": "C(~H)(:N)",
+   "smiles": "[HH]~C:N"
+  },
+  {
+   "bit": 374,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~[H])(~[H])(~[H])",
+   "description": "C(~H)(~H)(~H)",
+   "smiles": "[HH]~C(~[HH])~[HH]"
+  },
+  {
+   "bit": 375,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~N)(~N)",
+   "description": "C(~N)(~N)",
+   "smiles": "N~C~N"
+  },
+  {
+   "bit": 376,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~N)(:C)",
+   "description": "C(~N)(:C)",
+   "smiles": "C:C~N"
+  },
+  {
+   "bit": 377,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~N)(:C)(:C)",
+   "description": "C(~N)(:C)(:C)",
+   "smiles": "C:C(:C)~N"
+  },
+  {
+   "bit": 378,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~N)(:C)(:N)",
+   "description": "C(~N)(:C)(:N)",
+   "smiles": "C:C(:N)~N"
+  },
+  {
+   "bit": 379,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~N)(:N)",
+   "description": "C(~N)(:N)",
+   "smiles": "N:C~N"
+  },
+  {
+   "bit": 380,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~O)(~O)",
+   "description": "C(~O)(~O)",
+   "smiles": "O~C~O"
+  },
+  {
+   "bit": 381,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~O)(:C)",
+   "description": "C(~O)(:C)",
+   "smiles": "C:C~O"
+  },
+  {
+   "bit": 382,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~O)(:C)(:C)",
+   "description": "C(~O)(:C)(:C)",
+   "smiles": "C:C(:C)~O"
+  },
+  {
+   "bit": 383,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(~S)(:C)",
+   "description": "C(~S)(:C)",
+   "smiles": "C:C~S"
+  },
+  {
+   "bit": 384,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(:C)(:C)",
+   "description": "C(:C)(:C)",
+   "smiles": "C:C:C"
+  },
+  {
+   "bit": 385,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(:C)(:C)(:C)",
+   "description": "C(:C)(:C)(:C)",
+   "smiles": "C:C(:C):C"
+  },
+  {
+   "bit": 386,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(:C)(:C)(:N)",
+   "description": "C(:C)(:C)(:N)",
+   "smiles": "C:C(:C):N"
+  },
+  {
+   "bit": 387,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(:C)(:N)",
+   "description": "C(:C)(:N)",
+   "smiles": "C:C:N"
+  },
+  {
+   "bit": 388,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(:C)(:N)(:N)",
+   "description": "C(:C)(:N)(:N)",
+   "smiles": "C:C(:N):N"
+  },
+  {
+   "bit": 389,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "C(:N)(:N)",
+   "description": "C(:N)(:N)",
+   "smiles": "N:C:N"
+  },
+  {
+   "bit": 390,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "N(~C)(~C)",
+   "description": "N(~C)(~C)",
+   "smiles": "C~N~C"
+  },
+  {
+   "bit": 391,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "N(~C)(~C)(~C)",
+   "description": "N(~C)(~C)(~C)",
+   "smiles": "C~N(~C)~C"
+  },
+  {
+   "bit": 392,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "N(~C)(~C)(~[H])",
+   "description": "N(~C)(~C)(~H)",
+   "smiles": "[HH]~N(~C)~C"
+  },
+  {
+   "bit": 393,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "N(~C)(~[H])",
+   "description": "N(~C)(~H)",
+   "smiles": "[HH]~N~C"
+  },
+  {
+   "bit": 394,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "N(~C)(~[H])(~N)",
+   "description": "N(~C)(~H)(~N)",
+   "smiles": "[HH]~N(~C)~N"
+  },
+  {
+   "bit": 395,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "N(~C)(~O)",
+   "description": "N(~C)(~O)",
+   "smiles": "C~N~O"
+  },
+  {
+   "bit": 396,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "N(~C)(:C)",
+   "description": "N(~C)(:C)",
+   "smiles": "C:N~C"
+  },
+  {
+   "bit": 397,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "N(~C)(:C)(:C)",
+   "description": "N(~C)(:C)(:C)",
+   "smiles": "C:N(:C)~C"
+  },
+  {
+   "bit": 398,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "N(~[H])(~N)",
+   "description": "N(~H)(~N)",
+   "smiles": "[HH]~N~N"
+  },
+  {
+   "bit": 399,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "N(~[H])(:C)",
+   "description": "N(~H)(:C)",
+   "smiles": "[HH]~N:C"
+  },
+  {
+   "bit": 400,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "N(~[H])(:C)(:C)",
+   "description": "N(~H)(:C)(:C)",
+   "smiles": "[HH]~N(:C):C"
+  },
+  {
+   "bit": 401,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "N(~O)(~O)",
+   "description": "N(~O)(~O)",
+   "smiles": "O~N~O"
+  },
+  {
+   "bit": 402,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "N(~O)(:O)",
+   "description": "N(~O)(:O)",
+   "smiles": "O:N~O"
+  },
+  {
+   "bit": 403,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "N(:C)(:C)",
+   "description": "N(:C)(:C)",
+   "smiles": "C:N:C"
+  },
+  {
+   "bit": 404,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "N(:C)(:C)(:C)",
+   "description": "N(:C)(:C)(:C)",
+   "smiles": "C:N(:C):C"
+  },
+  {
+   "bit": 405,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "O(~C)(~C)",
+   "description": "O(~C)(~C)",
+   "smiles": "C~O~C"
+  },
+  {
+   "bit": 406,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "O(~C)(~[H])",
+   "description": "O(~C)(~H)",
+   "smiles": "[HH]~O~C"
+  },
+  {
+   "bit": 407,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "O(~C)(~P)",
+   "description": "O(~C)(~P)",
+   "smiles": "C~O~P"
+  },
+  {
+   "bit": 408,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "O(~[H])(~S)",
+   "description": "O(~H)(~S)",
+   "smiles": "[HH]~O~S"
+  },
+  {
+   "bit": 409,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "O(:C)(:C)",
+   "description": "O(:C)(:C)",
+   "smiles": "C:O:C"
+  },
+  {
+   "bit": 410,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "P(~C)(~C)",
+   "description": "P(~C)(~C)",
+   "smiles": "C~P~C"
+  },
+  {
+   "bit": 411,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "P(~O)(~O)",
+   "description": "P(~O)(~O)",
+   "smiles": "O~P~O"
+  },
+  {
+   "bit": 412,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "S(~C)(~C)",
+   "description": "S(~C)(~C)",
+   "smiles": "C~S~C"
+  },
+  {
+   "bit": 413,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "S(~C)(~[H])",
+   "description": "S(~C)(~H)",
+   "smiles": "[HH]~S~C"
+  },
+  {
+   "bit": 414,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "S(~C)(~O)",
+   "description": "S(~C)(~O)",
+   "smiles": "C~S~O"
+  },
+  {
+   "bit": 415,
+   "section": 4,
+   "kind": "atom_neighbors",
+   "drawable": true,
+   "smarts": "[Si](~C)(~C)",
+   "description": "Si(~C)(~C)",
+   "smiles": "C~[SiH4]~C"
+  },
+  {
+   "bit": 416,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C=C",
+   "description": "C=C",
+   "smiles": "C=C"
+  },
+  {
+   "bit": 417,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C#C",
+   "description": "C#C",
+   "smiles": "C#C"
+  },
+  {
+   "bit": 418,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C=N",
+   "description": "C=N",
+   "smiles": "C=N"
+  },
+  {
+   "bit": 419,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C#N",
+   "description": "C#N",
+   "smiles": "C#N"
+  },
+  {
+   "bit": 420,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C=O",
+   "description": "C=O",
+   "smiles": "C=O"
+  },
+  {
+   "bit": 421,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C=S",
+   "description": "C=S",
+   "smiles": "C=S"
+  },
+  {
+   "bit": 422,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "N=N",
+   "description": "N=N",
+   "smiles": "N=N"
+  },
+  {
+   "bit": 423,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "N=O",
+   "description": "N=O",
+   "smiles": "N=O"
+  },
+  {
+   "bit": 424,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "N=P",
+   "description": "N=P",
+   "smiles": "N=P"
+  },
+  {
+   "bit": 425,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "P=O",
+   "description": "P=O",
+   "smiles": "O=P"
+  },
+  {
+   "bit": 426,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "P=P",
+   "description": "P=P",
+   "smiles": "P=P"
+  },
+  {
+   "bit": 427,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C(#C)(-C)",
+   "description": "C(#C)(-C)",
+   "smiles": "C#CC"
+  },
+  {
+   "bit": 428,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C(#C)(-[H])",
+   "description": "C(#C)(-H)",
+   "smiles": "[H]C#C"
+  },
+  {
+   "bit": 429,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C(#N)(-C)",
+   "description": "C(#N)(-C)",
+   "smiles": "CC#N"
+  },
+  {
+   "bit": 430,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C(-C)(-C)(=C)",
+   "description": "C(-C)(-C)(=C)",
+   "smiles": "C=C(C)C"
+  },
+  {
+   "bit": 431,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C(-C)(-C)(=N)",
+   "description": "C(-C)(-C)(=N)",
+   "smiles": "CC(C)=N"
+  },
+  {
+   "bit": 432,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C(-C)(-C)(=O)",
+   "description": "C(-C)(-C)(=O)",
+   "smiles": "CC(C)=O"
+  },
+  {
+   "bit": 433,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C(-C)(-Cl)(=O)",
+   "description": "C(-C)(-Cl)(=O)",
+   "smiles": "CC(=O)Cl"
+  },
+  {
+   "bit": 434,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C(-C)(-[H])(=C)",
+   "description": "C(-C)(-H)(=C)",
+   "smiles": "[H]C(=C)C"
+  },
+  {
+   "bit": 435,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C(-C)(-[H])(=N)",
+   "description": "C(-C)(-H)(=N)",
+   "smiles": "[H]C(C)=N"
+  },
+  {
+   "bit": 436,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C(-C)(-[H])(=O)",
+   "description": "C(-C)(-H)(=O)",
+   "smiles": "[H]C(C)=O"
+  },
+  {
+   "bit": 437,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C(-C)(-N)(=C)",
+   "description": "C(-C)(-N)(=C)",
+   "smiles": "C=C(C)N"
+  },
+  {
+   "bit": 438,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C(-C)(-N)(=N)",
+   "description": "C(-C)(-N)(=N)",
+   "smiles": "CC(=N)N"
+  },
+  {
+   "bit": 439,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C(-C)(-N)(=O)",
+   "description": "C(-C)(-N)(=O)",
+   "smiles": "CC(N)=O"
+  },
+  {
+   "bit": 440,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C(-C)(-O)(=O)",
+   "description": "C(-C)(-O)(=O)",
+   "smiles": "CC(=O)O"
+  },
+  {
+   "bit": 441,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C(-C)(=C)",
+   "description": "C(-C)(=C)",
+   "smiles": "C=CC"
+  },
+  {
+   "bit": 442,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C(-C)(=N)",
+   "description": "C(-C)(=N)",
+   "smiles": "CC=N"
+  },
+  {
+   "bit": 443,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C(-C)(=O)",
+   "description": "C(-C)(=O)",
+   "smiles": "CC=O"
+  },
+  {
+   "bit": 444,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C(-Cl)(=O)",
+   "description": "C(-Cl)(=O)",
+   "smiles": "O=CCl"
+  },
+  {
+   "bit": 445,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C(-[H])(-N)(=C)",
+   "description": "C(-H)(-N)(=C)",
+   "smiles": "[H]C(=C)N"
+  },
+  {
+   "bit": 446,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C(-[H])(=C)",
+   "description": "C(-H)(=C)",
+   "smiles": "[H]C=C"
+  },
+  {
+   "bit": 447,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C(-[H])(=N)",
+   "description": "C(-H)(=N)",
+   "smiles": "[H]C=N"
+  },
+  {
+   "bit": 448,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C(-[H])(=O)",
+   "description": "C(-H)(=O)",
+   "smiles": "[H]C=O"
+  },
+  {
+   "bit": 449,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C(-N)(=C)",
+   "description": "C(-N)(=C)",
+   "smiles": "C=CN"
+  },
+  {
+   "bit": 450,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C(-N)(=N)",
+   "description": "C(-N)(=N)",
+   "smiles": "N=CN"
+  },
+  {
+   "bit": 451,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C(-N)(=O)",
+   "description": "C(-N)(=O)",
+   "smiles": "NC=O"
+  },
+  {
+   "bit": 452,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "C(-O)(=O)",
+   "description": "C(-O)(=O)",
+   "smiles": "O=CO"
+  },
+  {
+   "bit": 453,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "N(-C)(=C)",
+   "description": "N(-C)(=C)",
+   "smiles": "C=NC"
+  },
+  {
+   "bit": 454,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "N(-C)(=O)",
+   "description": "N(-C)(=O)",
+   "smiles": "CN=O"
+  },
+  {
+   "bit": 455,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "N(-O)(=O)",
+   "description": "N(-O)(=O)",
+   "smiles": "O=NO"
+  },
+  {
+   "bit": 456,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "P(-O)(=O)",
+   "description": "P(-O)(=O)",
+   "smiles": "O=PO"
+  },
+  {
+   "bit": 457,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "S(-C)(=O)",
+   "description": "S(-C)(=O)",
+   "smiles": "C[SH]=O"
+  },
+  {
+   "bit": 458,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "S(-O)(=O)",
+   "description": "S(-O)(=O)",
+   "smiles": "O=[SH]O"
+  },
+  {
+   "bit": 459,
+   "section": 5,
+   "kind": "detailed_neighbors",
+   "drawable": true,
+   "smarts": "S(=O)(=O)",
+   "description": "S(=O)(=O)",
+   "smiles": "O=S=O"
+  },
+  {
+   "bit": 460,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C-C#C",
+   "description": "C-C-C#C",
+   "smiles": "C#CCC"
+  },
+  {
+   "bit": 461,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C=N",
+   "description": "O-C-C=N",
+   "smiles": "N=CCO"
+  },
+  {
+   "bit": 462,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C=O",
+   "description": "O-C-C=O",
+   "smiles": "O=CCO"
+  },
+  {
+   "bit": 463,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N:C-S-[#1]",
+   "description": "N:C-S-[#1]",
+   "smiles": "[H]SC:N"
+  },
+  {
+   "bit": 464,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C-C=C",
+   "description": "N-C-C=C",
+   "smiles": "C=CCN"
+  },
+  {
+   "bit": 465,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=S-C-C",
+   "description": "O=S-C-C",
+   "smiles": "CC[SH]=O"
+  },
+  {
+   "bit": 466,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N#C-C=C",
+   "description": "N#C-C=C",
+   "smiles": "C=CC#N"
+  },
+  {
+   "bit": 467,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C=N-N-C",
+   "description": "C=N-N-C",
+   "smiles": "C=NNC"
+  },
+  {
+   "bit": 468,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=S-C-N",
+   "description": "O=S-C-N",
+   "smiles": "NC[SH]=O"
+  },
+  {
+   "bit": 469,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "S-S-C:C",
+   "description": "S-S-C:C",
+   "smiles": "C:CSS"
+  },
+  {
+   "bit": 470,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C:C-C=C",
+   "description": "C:C-C=C",
+   "smiles": "C=CC:C"
+  },
+  {
+   "bit": 471,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "S:C:C:C",
+   "description": "S:C:C:C",
+   "smiles": "C:C:C:S"
+  },
+  {
+   "bit": 472,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C:N:C-C",
+   "description": "C:N:C-C",
+   "smiles": "C:N:CC"
+  },
+  {
+   "bit": 473,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "S-C:N:C",
+   "description": "S-C:N:C",
+   "smiles": "C:N:CS"
+  },
+  {
+   "bit": 474,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "S:C:C:N",
+   "description": "S:C:C:N",
+   "smiles": "N:C:C:S"
+  },
+  {
+   "bit": 475,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "S-C=N-C",
+   "description": "S-C=N-C",
+   "smiles": "CN=CS"
+  },
+  {
+   "bit": 476,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-O-C=C",
+   "description": "C-O-C=C",
+   "smiles": "C=COC"
+  },
+  {
+   "bit": 477,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-N-C:C",
+   "description": "N-N-C:C",
+   "smiles": "C:CNN"
+  },
+  {
+   "bit": 478,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "S-C=N-[#1]",
+   "description": "S-C=N-[#1]",
+   "smiles": "[H]N=CS"
+  },
+  {
+   "bit": 479,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "S-C-S-C",
+   "description": "S-C-S-C",
+   "smiles": "CSCS"
+  },
+  {
+   "bit": 480,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C:S:C-C",
+   "description": "C:S:C-C",
+   "smiles": "C:S:CC"
+  },
+  {
+   "bit": 481,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-S-C:C",
+   "description": "O-S-C:C",
+   "smiles": "C:CSO"
+  },
+  {
+   "bit": 482,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C:N-C:C",
+   "description": "C:N-C:C",
+   "smiles": "C:CN:C"
+  },
+  {
+   "bit": 483,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-S-C:C",
+   "description": "N-S-C:C",
+   "smiles": "C:CSN"
+  },
+  {
+   "bit": 484,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C:N:C",
+   "description": "N-C:N:C",
+   "smiles": "C:N:CN"
+  },
+  {
+   "bit": 485,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N:C:C:N",
+   "description": "N:C:C:N",
+   "smiles": "N:C:C:N"
+  },
+  {
+   "bit": 486,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C:N:N",
+   "description": "N-C:N:N",
+   "smiles": "N:N:CN"
+  },
+  {
+   "bit": 487,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C=N-C",
+   "description": "N-C=N-C",
+   "smiles": "CN=CN"
+  },
+  {
+   "bit": 488,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C=N-[#1]",
+   "description": "N-C=N-[#1]",
+   "smiles": "[H]N=CN"
+  },
+  {
+   "bit": 489,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C-S-C",
+   "description": "N-C-S-C",
+   "smiles": "CSCN"
+  },
+  {
+   "bit": 490,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C-C=C",
+   "description": "C-C-C=C",
+   "smiles": "C=CCC"
+  },
+  {
+   "bit": 491,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-N:C-[#1]",
+   "description": "C-N:C-[#1]",
+   "smiles": "[H]C:NC"
+  },
+  {
+   "bit": 492,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C:O:C",
+   "description": "N-C:O:C",
+   "smiles": "C:O:CN"
+  },
+  {
+   "bit": 493,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C:C",
+   "description": "O=C-C:C",
+   "smiles": "C:CC=O"
+  },
+  {
+   "bit": 494,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C:N",
+   "description": "O=C-C:N",
+   "smiles": "N:CC=O"
+  },
+  {
+   "bit": 495,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-N-C:C",
+   "description": "C-N-C:C",
+   "smiles": "C:CNC"
+  },
+  {
+   "bit": 496,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N:N-C-[#1]",
+   "description": "N:N-C-[#1]",
+   "smiles": "[H]CN:N"
+  },
+  {
+   "bit": 497,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C:C:N",
+   "description": "O-C:C:N",
+   "smiles": "N:C:CO"
+  },
+  {
+   "bit": 498,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C=C-C",
+   "description": "O-C=C-C",
+   "smiles": "CC=CO"
+  },
+  {
+   "bit": 499,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C:C:N",
+   "description": "N-C:C:N",
+   "smiles": "N:C:CN"
+  },
+  {
+   "bit": 500,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-S-C:C",
+   "description": "C-S-C:C",
+   "smiles": "C:CSC"
+  },
+  {
+   "bit": 501,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "Cl-C:C-C",
+   "description": "Cl-C:C-C",
+   "smiles": "CC:CCl"
+  },
+  {
+   "bit": 502,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C=C-[#1]",
+   "description": "N-C=C-[#1]",
+   "smiles": "[H]C=CN"
+  },
+  {
+   "bit": 503,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "Cl-C:C-[#1]",
+   "description": "Cl-C:C-[#1]",
+   "smiles": "[H]C:CCl"
+  },
+  {
+   "bit": 504,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N:C:N-C",
+   "description": "N:C:N-C",
+   "smiles": "CN:C:N"
+  },
+  {
+   "bit": 505,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "Cl-C:C-O",
+   "description": "Cl-C:C-O",
+   "smiles": "OC:CCl"
+  },
+  {
+   "bit": 506,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C:N:C",
+   "description": "C-C:N:C",
+   "smiles": "C:N:CC"
+  },
+  {
+   "bit": 507,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C-S-C",
+   "description": "C-C-S-C",
+   "smiles": "CCSC"
+  },
+  {
+   "bit": 508,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "S=C-N-C",
+   "description": "S=C-N-C",
+   "smiles": "CNC=S"
+  },
+  {
+   "bit": 509,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "Br-C:C-C",
+   "description": "Br-C:C-C",
+   "smiles": "CC:CBr"
+  },
+  {
+   "bit": 510,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "[#1]-N-N-[#1]",
+   "description": "[#1]-N-N-[#1]",
+   "smiles": "[H]NN[H]"
+  },
+  {
+   "bit": 511,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "S=C-N-[#1]",
+   "description": "S=C-N-[#1]",
+   "smiles": "[H]NC=S"
+  },
+  {
+   "bit": 512,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-[As]-O-[#1]",
+   "description": "C-[As]-O-[#1]",
+   "smiles": "[H]O[AsH]C"
+  },
+  {
+   "bit": 513,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "S:C:C-[#1]",
+   "description": "S:C:C-[#1]",
+   "smiles": "[H]C:C:S"
+  },
+  {
+   "bit": 514,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-N-C-C",
+   "description": "O-N-C-C",
+   "smiles": "CCNO"
+  },
+  {
+   "bit": 515,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-N-C-C",
+   "description": "N-N-C-C",
+   "smiles": "CCNN"
+  },
+  {
+   "bit": 516,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "[#1]-C=C-[#1]",
+   "description": "[#1]-C=C-[#1]",
+   "smiles": "[H]C=C[H]"
+  },
+  {
+   "bit": 517,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-N-C-N",
+   "description": "N-N-C-N",
+   "smiles": "NCNN"
+  },
+  {
+   "bit": 518,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-N-N",
+   "description": "O=C-N-N",
+   "smiles": "NNC=O"
+  },
+  {
+   "bit": 519,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N=C-N-C",
+   "description": "N=C-N-C",
+   "smiles": "CNC=N"
+  },
+  {
+   "bit": 520,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C=C-C:C",
+   "description": "C=C-C:C",
+   "smiles": "C=CC:C"
+  },
+  {
+   "bit": 521,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C:N-C-[#1]",
+   "description": "C:N-C-[#1]",
+   "smiles": "[H]CN:C"
+  },
+  {
+   "bit": 522,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-N-N-[#1]",
+   "description": "C-N-N-[#1]",
+   "smiles": "[H]NNC"
+  },
+  {
+   "bit": 523,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N:C:C-C",
+   "description": "N:C:C-C",
+   "smiles": "CC:C:N"
+  },
+  {
+   "bit": 524,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C=C-C",
+   "description": "C-C=C-C",
+   "smiles": "CC=CC"
+  },
+  {
+   "bit": 525,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "[As]-C:C-[#1]",
+   "description": "[As]-C:C-[#1]",
+   "smiles": "[H]C:C[AsH2]"
+  },
+  {
+   "bit": 526,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "Cl-C:C-Cl",
+   "description": "Cl-C:C-Cl",
+   "smiles": "ClC:CCl"
+  },
+  {
+   "bit": 527,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C:C:N-[#1]",
+   "description": "C:C:N-[#1]",
+   "smiles": "[H]N:C:C"
+  },
+  {
+   "bit": 528,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "[#1]-N-C-[#1]",
+   "description": "[#1]-N-C-[#1]",
+   "smiles": "[H]CN[H]"
+  },
+  {
+   "bit": 529,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "Cl-C-C-Cl",
+   "description": "Cl-C-C-Cl",
+   "smiles": "ClCCCl"
+  },
+  {
+   "bit": 530,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N:C-C:C",
+   "description": "N:C-C:C",
+   "smiles": "C:CC:N"
+  },
+  {
+   "bit": 531,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "S-C:C-C",
+   "description": "S-C:C-C",
+   "smiles": "CC:CS"
+  },
+  {
+   "bit": 532,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "S-C:C-[#1]",
+   "description": "S-C:C-[#1]",
+   "smiles": "[H]C:CS"
+  },
+  {
+   "bit": 533,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "S-C:C-N",
+   "description": "S-C:C-N",
+   "smiles": "NC:CS"
+  },
+  {
+   "bit": 534,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "S-C:C-O",
+   "description": "S-C:C-O",
+   "smiles": "OC:CS"
+  },
+  {
+   "bit": 535,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C-C",
+   "description": "O=C-C-C",
+   "smiles": "CCC=O"
+  },
+  {
+   "bit": 536,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C-N",
+   "description": "O=C-C-N",
+   "smiles": "NCC=O"
+  },
+  {
+   "bit": 537,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C-O",
+   "description": "O=C-C-O",
+   "smiles": "O=CCO"
+  },
+  {
+   "bit": 538,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N=C-C-C",
+   "description": "N=C-C-C",
+   "smiles": "CCC=N"
+  },
+  {
+   "bit": 539,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N=C-C-[#1]",
+   "description": "N=C-C-[#1]",
+   "smiles": "[H]CC=N"
+  },
+  {
+   "bit": 540,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-N-C-[#1]",
+   "description": "C-N-C-[#1]",
+   "smiles": "[H]CNC"
+  },
+  {
+   "bit": 541,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C:C-C",
+   "description": "O-C:C-C",
+   "smiles": "CC:CO"
+  },
+  {
+   "bit": 542,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C:C-[#1]",
+   "description": "O-C:C-[#1]",
+   "smiles": "[H]C:CO"
+  },
+  {
+   "bit": 543,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C:C-N",
+   "description": "O-C:C-N",
+   "smiles": "NC:CO"
+  },
+  {
+   "bit": 544,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C:C-O",
+   "description": "O-C:C-O",
+   "smiles": "OC:CO"
+  },
+  {
+   "bit": 545,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C:C-C",
+   "description": "N-C:C-C",
+   "smiles": "CC:CN"
+  },
+  {
+   "bit": 546,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C:C-[#1]",
+   "description": "N-C:C-[#1]",
+   "smiles": "[H]C:CN"
+  },
+  {
+   "bit": 547,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C:C-N",
+   "description": "N-C:C-N",
+   "smiles": "NC:CN"
+  },
+  {
+   "bit": 548,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C:C",
+   "description": "O-C-C:C",
+   "smiles": "C:CCO"
+  },
+  {
+   "bit": 549,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C-C:C",
+   "description": "N-C-C:C",
+   "smiles": "C:CCN"
+  },
+  {
+   "bit": 550,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "Cl-C-C-C",
+   "description": "Cl-C-C-C",
+   "smiles": "CCCCl"
+  },
+  {
+   "bit": 551,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "Cl-C-C-O",
+   "description": "Cl-C-C-O",
+   "smiles": "OCCCl"
+  },
+  {
+   "bit": 552,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C:C-C:C",
+   "description": "C:C-C:C",
+   "smiles": "C:CC:C"
+  },
+  {
+   "bit": 553,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C=C",
+   "description": "O=C-C=C",
+   "smiles": "C=CC=O"
+  },
+  {
+   "bit": 554,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "Br-C-C-C",
+   "description": "Br-C-C-C",
+   "smiles": "CCCBr"
+  },
+  {
+   "bit": 555,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N=C-C=C",
+   "description": "N=C-C=C",
+   "smiles": "C=CC=N"
+  },
+  {
+   "bit": 556,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C=C-C-C",
+   "description": "C=C-C-C",
+   "smiles": "C=CCC"
+  },
+  {
+   "bit": 557,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N:C-O-[#1]",
+   "description": "N:C-O-[#1]",
+   "smiles": "[H]OC:N"
+  },
+  {
+   "bit": 558,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=N-C:C",
+   "description": "O=N-C:C",
+   "smiles": "C:CN=O"
+  },
+  {
+   "bit": 559,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-N-[#1]",
+   "description": "O-C-N-[#1]",
+   "smiles": "[H]NCO"
+  },
+  {
+   "bit": 560,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C-N-C",
+   "description": "N-C-N-C",
+   "smiles": "CNCN"
+  },
+  {
+   "bit": 561,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "Cl-C-C=O",
+   "description": "Cl-C-C=O",
+   "smiles": "O=CCCl"
+  },
+  {
+   "bit": 562,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "Br-C-C=O",
+   "description": "Br-C-C=O",
+   "smiles": "O=CCBr"
+  },
+  {
+   "bit": 563,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-O-C",
+   "description": "O-C-O-C",
+   "smiles": "COCO"
+  },
+  {
+   "bit": 564,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C=C-C=C",
+   "description": "C=C-C=C",
+   "smiles": "C=CC=C"
+  },
+  {
+   "bit": 565,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C:C-O-C",
+   "description": "C:C-O-C",
+   "smiles": "C:COC"
+  },
+  {
+   "bit": 566,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C-N",
+   "description": "O-C-C-N",
+   "smiles": "NCCO"
+  },
+  {
+   "bit": 567,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C-O",
+   "description": "O-C-C-O",
+   "smiles": "OCCO"
+  },
+  {
+   "bit": 568,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N#C-C-C",
+   "description": "N#C-C-C",
+   "smiles": "CCC#N"
+  },
+  {
+   "bit": 569,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C-C-N",
+   "description": "N-C-C-N",
+   "smiles": "NCCN"
+  },
+  {
+   "bit": 570,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C:C-C-C",
+   "description": "C:C-C-C",
+   "smiles": "C:CCC"
+  },
+  {
+   "bit": 571,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "[#1]-C-O-[#1]",
+   "description": "[#1]-C-O-[#1]",
+   "smiles": "[H]CO[H]"
+  },
+  {
+   "bit": 572,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N:C:N:C",
+   "description": "N:C:N:C",
+   "smiles": "C:N:C:N"
+  },
+  {
+   "bit": 573,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C=C",
+   "description": "O-C-C=C",
+   "smiles": "C=CCO"
+  },
+  {
+   "bit": 574,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C:C-C",
+   "description": "O-C-C:C-C",
+   "smiles": "CC:CCO"
+  },
+  {
+   "bit": 575,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C:C-O",
+   "description": "O-C-C:C-O",
+   "smiles": "OC:CCO"
+  },
+  {
+   "bit": 576,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N=C-C:C-[#1]",
+   "description": "N=C-C:C-[#1]",
+   "smiles": "[H]C:CC=N"
+  },
+  {
+   "bit": 577,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C:C-N-C:C",
+   "description": "C:C-N-C:C",
+   "smiles": "C:CNC:C"
+  },
+  {
+   "bit": 578,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C:C-C:C",
+   "description": "C-C:C-C:C",
+   "smiles": "C:CC:CC"
+  },
+  {
+   "bit": 579,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C-C-C",
+   "description": "O=C-C-C-C",
+   "smiles": "CCCC=O"
+  },
+  {
+   "bit": 580,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C-C-N",
+   "description": "O=C-C-C-N",
+   "smiles": "NCCC=O"
+  },
+  {
+   "bit": 581,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C-C-O",
+   "description": "O=C-C-C-O",
+   "smiles": "O=CCCO"
+  },
+  {
+   "bit": 582,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C-C-C-C",
+   "description": "C-C-C-C-C",
+   "smiles": "CCCCC"
+  },
+  {
+   "bit": 583,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "Cl-C:C-O-C",
+   "description": "Cl-C:C-O-C",
+   "smiles": "COC:CCl"
+  },
+  {
+   "bit": 584,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C:C-C=C-C",
+   "description": "C:C-C=C-C",
+   "smiles": "C:CC=CC"
+  },
+  {
+   "bit": 585,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C:C-N-C",
+   "description": "C-C:C-N-C",
+   "smiles": "CC:CNC"
+  },
+  {
+   "bit": 586,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-S-C-C-C",
+   "description": "C-S-C-C-C",
+   "smiles": "CCCSC"
+  },
+  {
+   "bit": 587,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C:C-O-[#1]",
+   "description": "N-C:C-O-[#1]",
+   "smiles": "[H]OC:CN"
+  },
+  {
+   "bit": 588,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C-C=O",
+   "description": "O=C-C-C=O",
+   "smiles": "O=CCC=O"
+  },
+  {
+   "bit": 589,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C:C-O-C",
+   "description": "C-C:C-O-C",
+   "smiles": "CC:COC"
+  },
+  {
+   "bit": 590,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C:C-O-[#1]",
+   "description": "C-C:C-O-[#1]",
+   "smiles": "[H]OC:CC"
+  },
+  {
+   "bit": 591,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "Cl-C-C-C-C",
+   "description": "Cl-C-C-C-C",
+   "smiles": "CCCCCl"
+  },
+  {
+   "bit": 592,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C-C-C-C",
+   "description": "N-C-C-C-C",
+   "smiles": "CCCCN"
+  },
+  {
+   "bit": 593,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C-C-C-N",
+   "description": "N-C-C-C-N",
+   "smiles": "NCCCN"
+  },
+  {
+   "bit": 594,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-O-C-C=C",
+   "description": "C-O-C-C=C",
+   "smiles": "C=CCOC"
+  },
+  {
+   "bit": 595,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C:C-C-C-C",
+   "description": "C:C-C-C-C",
+   "smiles": "C:CCCC"
+  },
+  {
+   "bit": 596,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N=C-N-C-C",
+   "description": "N=C-N-C-C",
+   "smiles": "CCNC=N"
+  },
+  {
+   "bit": 597,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C-C:C",
+   "description": "O=C-C-C:C",
+   "smiles": "C:CCC=O"
+  },
+  {
+   "bit": 598,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "Cl-C:C:C-C",
+   "description": "Cl-C:C:C-C",
+   "smiles": "CC:C:CCl"
+  },
+  {
+   "bit": 599,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "[#1]-C-C=C-[#1]",
+   "description": "[#1]-C-C=C-[#1]",
+   "smiles": "[H]C=CC[H]"
+  },
+  {
+   "bit": 600,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C:C:C-C",
+   "description": "N-C:C:C-C",
+   "smiles": "CC:C:CN"
+  },
+  {
+   "bit": 601,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C:C:C-N",
+   "description": "N-C:C:C-N",
+   "smiles": "NC:C:CN"
+  },
+  {
+   "bit": 602,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C-N-C",
+   "description": "O=C-C-N-C",
+   "smiles": "CNCC=O"
+  },
+  {
+   "bit": 603,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C:C:C-C",
+   "description": "C-C:C:C-C",
+   "smiles": "CC:C:CC"
+  },
+  {
+   "bit": 604,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-O-C-C:C",
+   "description": "C-O-C-C:C",
+   "smiles": "C:CCOC"
+  },
+  {
+   "bit": 605,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C-O-C",
+   "description": "O=C-C-O-C",
+   "smiles": "COCC=O"
+  },
+  {
+   "bit": 606,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C:C-C-C",
+   "description": "O-C:C-C-C",
+   "smiles": "CCC:CO"
+  },
+  {
+   "bit": 607,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C-C-C:C",
+   "description": "N-C-C-C:C",
+   "smiles": "C:CCCN"
+  },
+  {
+   "bit": 608,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C-C-C:C",
+   "description": "C-C-C-C:C",
+   "smiles": "C:CCCC"
+  },
+  {
+   "bit": 609,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "Cl-C-C-N-C",
+   "description": "Cl-C-C-N-C",
+   "smiles": "CNCCCl"
+  },
+  {
+   "bit": 610,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-O-C-O-C",
+   "description": "C-O-C-O-C",
+   "smiles": "COCOC"
+  },
+  {
+   "bit": 611,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C-C-N-C",
+   "description": "N-C-C-N-C",
+   "smiles": "CNCCN"
+  },
+  {
+   "bit": 612,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C-O-C-C",
+   "description": "N-C-O-C-C",
+   "smiles": "CCOCN"
+  },
+  {
+   "bit": 613,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-N-C-C-C",
+   "description": "C-N-C-C-C",
+   "smiles": "CCCNC"
+  },
+  {
+   "bit": 614,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C-O-C-C",
+   "description": "C-C-O-C-C",
+   "smiles": "CCOCC"
+  },
+  {
+   "bit": 615,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C-C-O-C",
+   "description": "N-C-C-O-C",
+   "smiles": "COCCN"
+  },
+  {
+   "bit": 616,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C:C:N:N:C",
+   "description": "C:C:N:N:C",
+   "smiles": "C:C:N:N:C"
+  },
+  {
+   "bit": 617,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C-C-O-[#1]",
+   "description": "C-C-C-O-[#1]",
+   "smiles": "[H]OCCC"
+  },
+  {
+   "bit": 618,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C:C-C-C:C",
+   "description": "C:C-C-C:C",
+   "smiles": "C:CCC:C"
+  },
+  {
+   "bit": 619,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C=C-C",
+   "description": "O-C-C=C-C",
+   "smiles": "CC=CCO"
+  },
+  {
+   "bit": 620,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C:C-O-C-C",
+   "description": "C:C-O-C-C",
+   "smiles": "C:COCC"
+  },
+  {
+   "bit": 621,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C:C:C:N",
+   "description": "N-C:C:C:N",
+   "smiles": "N:C:C:CN"
+  },
+  {
+   "bit": 622,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-O-C:C",
+   "description": "O=C-O-C:C",
+   "smiles": "C:COC=O"
+  },
+  {
+   "bit": 623,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C:C-C",
+   "description": "O=C-C:C-C",
+   "smiles": "CC:CC=O"
+  },
+  {
+   "bit": 624,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C:C-N",
+   "description": "O=C-C:C-N",
+   "smiles": "NC:CC=O"
+  },
+  {
+   "bit": 625,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C:C-O",
+   "description": "O=C-C:C-O",
+   "smiles": "O=CC:CO"
+  },
+  {
+   "bit": 626,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-O-C:C-C",
+   "description": "C-O-C:C-C",
+   "smiles": "CC:COC"
+  },
+  {
+   "bit": 627,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=[As]-C:C:C",
+   "description": "O=[As]-C:C:C",
+   "smiles": "C:C:C[As]=O"
+  },
+  {
+   "bit": 628,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-N-C-C:C",
+   "description": "C-N-C-C:C",
+   "smiles": "C:CCNC"
+  },
+  {
+   "bit": 629,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "S-C:C:C-N",
+   "description": "S-C:C:C-N",
+   "smiles": "NC:C:CS"
+  },
+  {
+   "bit": 630,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C:C-O-C",
+   "description": "O-C:C-O-C",
+   "smiles": "COC:CO"
+  },
+  {
+   "bit": 631,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C:C-O-[#1]",
+   "description": "O-C:C-O-[#1]",
+   "smiles": "[H]OC:CO"
+  },
+  {
+   "bit": 632,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C-O-C:C",
+   "description": "C-C-O-C:C",
+   "smiles": "C:COCC"
+  },
+  {
+   "bit": 633,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C-C:C-C",
+   "description": "N-C-C:C-C",
+   "smiles": "CC:CCN"
+  },
+  {
+   "bit": 634,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C-C:C-C",
+   "description": "C-C-C:C-C",
+   "smiles": "CC:CCC"
+  },
+  {
+   "bit": 635,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-N-C-N-[#1]",
+   "description": "N-N-C-N-[#1]",
+   "smiles": "[H]NCNN"
+  },
+  {
+   "bit": 636,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-N-C-N-C",
+   "description": "C-N-C-N-C",
+   "smiles": "CNCNC"
+  },
+  {
+   "bit": 637,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C-C-C",
+   "description": "O-C-C-C-C",
+   "smiles": "CCCCO"
+  },
+  {
+   "bit": 638,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C-C-N",
+   "description": "O-C-C-C-N",
+   "smiles": "NCCCO"
+  },
+  {
+   "bit": 639,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C-C-O",
+   "description": "O-C-C-C-O",
+   "smiles": "OCCCO"
+  },
+  {
+   "bit": 640,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C=C-C-C-C",
+   "description": "C=C-C-C-C",
+   "smiles": "C=CCCC"
+  },
+  {
+   "bit": 641,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C-C=C",
+   "description": "O-C-C-C=C",
+   "smiles": "C=CCCO"
+  },
+  {
+   "bit": 642,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C-C=O",
+   "description": "O-C-C-C=O",
+   "smiles": "O=CCCO"
+  },
+  {
+   "bit": 643,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "[#1]-C-C-N-[#1]",
+   "description": "[#1]-C-C-N-[#1]",
+   "smiles": "[H]CCN[H]"
+  },
+  {
+   "bit": 644,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C=N-N-C",
+   "description": "C-C=N-N-C",
+   "smiles": "CC=NNC"
+  },
+  {
+   "bit": 645,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-N-C-C",
+   "description": "O=C-N-C-C",
+   "smiles": "CCNC=O"
+  },
+  {
+   "bit": 646,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-N-C-[#1]",
+   "description": "O=C-N-C-[#1]",
+   "smiles": "[H]CNC=O"
+  },
+  {
+   "bit": 647,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-N-C-N",
+   "description": "O=C-N-C-N",
+   "smiles": "NCNC=O"
+  },
+  {
+   "bit": 648,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=N-C:C-N",
+   "description": "O=N-C:C-N",
+   "smiles": "NC:CN=O"
+  },
+  {
+   "bit": 649,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=N-C:C-O",
+   "description": "O=N-C:C-O",
+   "smiles": "O=NC:CO"
+  },
+  {
+   "bit": 650,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-N-C=O",
+   "description": "O=C-N-C=O",
+   "smiles": "O=CNC=O"
+  },
+  {
+   "bit": 651,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C:C:C-C",
+   "description": "O-C:C:C-C",
+   "smiles": "CC:C:CO"
+  },
+  {
+   "bit": 652,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C:C:C-N",
+   "description": "O-C:C:C-N",
+   "smiles": "NC:C:CO"
+  },
+  {
+   "bit": 653,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C:C:C-O",
+   "description": "O-C:C:C-O",
+   "smiles": "OC:C:CO"
+  },
+  {
+   "bit": 654,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C-N-C-C",
+   "description": "N-C-N-C-C",
+   "smiles": "CCNCN"
+  },
+  {
+   "bit": 655,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C-C:C",
+   "description": "O-C-C-C:C",
+   "smiles": "C:CCCO"
+  },
+  {
+   "bit": 656,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C-N-C-C",
+   "description": "C-C-N-C-C",
+   "smiles": "CCNCC"
+  },
+  {
+   "bit": 657,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-N-C:C-C",
+   "description": "C-N-C:C-C",
+   "smiles": "CC:CNC"
+  },
+  {
+   "bit": 658,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C-S-C-C",
+   "description": "C-C-S-C-C",
+   "smiles": "CCSCC"
+  },
+  {
+   "bit": 659,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C-N-C",
+   "description": "O-C-C-N-C",
+   "smiles": "CNCCO"
+  },
+  {
+   "bit": 660,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C=C-C-C",
+   "description": "C-C=C-C-C",
+   "smiles": "CC=CCC"
+  },
+  {
+   "bit": 661,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-O-C-C",
+   "description": "O-C-O-C-C",
+   "smiles": "CCOCO"
+  },
+  {
+   "bit": 662,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C-O-C",
+   "description": "O-C-C-O-C",
+   "smiles": "COCCO"
+  },
+  {
+   "bit": 663,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C-O-[#1]",
+   "description": "O-C-C-O-[#1]",
+   "smiles": "[H]OCCO"
+  },
+  {
+   "bit": 664,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C=C-C=C",
+   "description": "C-C=C-C=C",
+   "smiles": "C=CC=CC"
+  },
+  {
+   "bit": 665,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C:C-C-C",
+   "description": "N-C:C-C-C",
+   "smiles": "CCC:CN"
+  },
+  {
+   "bit": 666,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C=C-C-O-C",
+   "description": "C=C-C-O-C",
+   "smiles": "C=CCOC"
+  },
+  {
+   "bit": 667,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C=C-C-O-[#1]",
+   "description": "C=C-C-O-[#1]",
+   "smiles": "[H]OCC=C"
+  },
+  {
+   "bit": 668,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C:C-C-C",
+   "description": "C-C:C-C-C",
+   "smiles": "CC:CCC"
+  },
+  {
+   "bit": 669,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "Cl-C:C-C=O",
+   "description": "Cl-C:C-C=O",
+   "smiles": "O=CC:CCl"
+  },
+  {
+   "bit": 670,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "Br-C:C:C-C",
+   "description": "Br-C:C:C-C",
+   "smiles": "CC:C:CBr"
+  },
+  {
+   "bit": 671,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C=C-C",
+   "description": "O=C-C=C-C",
+   "smiles": "CC=CC=O"
+  },
+  {
+   "bit": 672,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C=C-[#1]",
+   "description": "O=C-C=C-[#1]",
+   "smiles": "[H]C=CC=O"
+  },
+  {
+   "bit": 673,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C=C-N",
+   "description": "O=C-C=C-N",
+   "smiles": "NC=CC=O"
+  },
+  {
+   "bit": 674,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C-N-C:C",
+   "description": "N-C-N-C:C",
+   "smiles": "C:CNCN"
+  },
+  {
+   "bit": 675,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "Br-C-C-C:C",
+   "description": "Br-C-C-C:C",
+   "smiles": "C:CCCBr"
+  },
+  {
+   "bit": 676,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N#C-C-C-C",
+   "description": "N#C-C-C-C",
+   "smiles": "CCCC#N"
+  },
+  {
+   "bit": 677,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C=C-C:C",
+   "description": "C-C=C-C:C",
+   "smiles": "C:CC=CC"
+  },
+  {
+   "bit": 678,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C-C=C-C",
+   "description": "C-C-C=C-C",
+   "smiles": "CC=CCC"
+  },
+  {
+   "bit": 679,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C-C-C-C-C",
+   "description": "C-C-C-C-C-C",
+   "smiles": "CCCCCC"
+  },
+  {
+   "bit": 680,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C-C-C-C",
+   "description": "O-C-C-C-C-C",
+   "smiles": "CCCCCO"
+  },
+  {
+   "bit": 681,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C-C-C-O",
+   "description": "O-C-C-C-C-O",
+   "smiles": "OCCCCO"
+  },
+  {
+   "bit": 682,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C-C-C-N",
+   "description": "O-C-C-C-C-N",
+   "smiles": "NCCCCO"
+  },
+  {
+   "bit": 683,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "N-C-C-C-C-C",
+   "description": "N-C-C-C-C-C",
+   "smiles": "CCCCCN"
+  },
+  {
+   "bit": 684,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C-C-C-C",
+   "description": "O=C-C-C-C-C",
+   "smiles": "CCCCC=O"
+  },
+  {
+   "bit": 685,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C-C-C-N",
+   "description": "O=C-C-C-C-N",
+   "smiles": "NCCCC=O"
+  },
+  {
+   "bit": 686,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C-C-C-O",
+   "description": "O=C-C-C-C-O",
+   "smiles": "O=CCCCO"
+  },
+  {
+   "bit": 687,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C-C-C=O",
+   "description": "O=C-C-C-C=O",
+   "smiles": "O=CCCC=O"
+  },
+  {
+   "bit": 688,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C-C-C-C-C-C",
+   "description": "C-C-C-C-C-C-C",
+   "smiles": "CCCCCCC"
+  },
+  {
+   "bit": 689,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C-C-C-C-C",
+   "description": "O-C-C-C-C-C-C",
+   "smiles": "CCCCCCO"
+  },
+  {
+   "bit": 690,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C-C-C-C-O",
+   "description": "O-C-C-C-C-C-O",
+   "smiles": "OCCCCCO"
+  },
+  {
+   "bit": 691,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C-C-C-C-N",
+   "description": "O-C-C-C-C-C-N",
+   "smiles": "NCCCCCO"
+  },
+  {
+   "bit": 692,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C-C-C-C-C",
+   "description": "O=C-C-C-C-C-C",
+   "smiles": "CCCCCC=O"
+  },
+  {
+   "bit": 693,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C-C-C-C-O",
+   "description": "O=C-C-C-C-C-O",
+   "smiles": "O=CCCCCO"
+  },
+  {
+   "bit": 694,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C-C-C-C=O",
+   "description": "O=C-C-C-C-C=O",
+   "smiles": "O=CCCCC=O"
+  },
+  {
+   "bit": 695,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C-C-C-C-N",
+   "description": "O=C-C-C-C-C-N",
+   "smiles": "NCCCCC=O"
+  },
+  {
+   "bit": 696,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C-C-C-C-C-C-C",
+   "description": "C-C-C-C-C-C-C-C",
+   "smiles": "CCCCCCCC"
+  },
+  {
+   "bit": 697,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C-C-C-C-C(C)-C",
+   "description": "C-C-C-C-C-C(C)-C",
+   "smiles": "CC(C)CCCCC"
+  },
+  {
+   "bit": 698,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C-C-C-C-C-C",
+   "description": "O-C-C-C-C-C-C-C",
+   "smiles": "CCCCCCCO"
+  },
+  {
+   "bit": 699,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C-C-C-C(C)-C",
+   "description": "O-C-C-C-C-C(C)-C",
+   "smiles": "CC(C)CCCCO"
+  },
+  {
+   "bit": 700,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C-C-C-C-O-C",
+   "description": "O-C-C-C-C-C-O-C",
+   "smiles": "COCCCCCO"
+  },
+  {
+   "bit": 701,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C-C-C-C(O)-C",
+   "description": "O-C-C-C-C-C(O)-C",
+   "smiles": "CC(O)CCCCO"
+  },
+  {
+   "bit": 702,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C-C-C-C-N-C",
+   "description": "O-C-C-C-C-C-N-C",
+   "smiles": "CNCCCCCO"
+  },
+  {
+   "bit": 703,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O-C-C-C-C-C(N)-C",
+   "description": "O-C-C-C-C-C(N)-C",
+   "smiles": "CC(N)CCCCO"
+  },
+  {
+   "bit": 704,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C-C-C-C-C-C",
+   "description": "O=C-C-C-C-C-C-C",
+   "smiles": "CCCCCCC=O"
+  },
+  {
+   "bit": 705,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C-C-C-C(O)-C",
+   "description": "O=C-C-C-C-C(O)-C",
+   "smiles": "CC(O)CCCC=O"
+  },
+  {
+   "bit": 706,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C-C-C-C(=O)-C",
+   "description": "O=C-C-C-C-C(=O)-C",
+   "smiles": "CC(=O)CCCC=O"
+  },
+  {
+   "bit": 707,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "O=C-C-C-C-C(N)-C",
+   "description": "O=C-C-C-C-C(N)-C",
+   "smiles": "CC(N)CCCC=O"
+  },
+  {
+   "bit": 708,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C(C)-C-C",
+   "description": "C-C(C)-C-C",
+   "smiles": "CC(C)CC"
+  },
+  {
+   "bit": 709,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C(C)-C-C-C",
+   "description": "C-C(C)-C-C-C",
+   "smiles": "CC(C)CCC"
+  },
+  {
+   "bit": 710,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C-C(C)-C-C",
+   "description": "C-C-C(C)-C-C",
+   "smiles": "CC(CC)CC"
+  },
+  {
+   "bit": 711,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C(C)(C)-C-C",
+   "description": "C-C(C)(C)-C-C",
+   "smiles": "CC(C)(C)CC"
+  },
+  {
+   "bit": 712,
+   "section": 6,
+   "kind": "simple_smarts",
+   "drawable": true,
+   "smarts": "C-C(C)-C(C)-C",
+   "description": "C-C(C)-C(C)-C",
+   "smiles": "CC(C)C(C)C"
+  },
+  {
+   "bit": 713,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Cc1ccc(C)cc1",
+   "description": "Cc1ccc(C)cc1",
+   "smiles": "Cc1ccc(C)cc1"
+  },
+  {
+   "bit": 714,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Cc1ccc(O)cc1",
+   "description": "Cc1ccc(O)cc1",
+   "smiles": "Cc1ccc(O)cc1"
+  },
+  {
+   "bit": 715,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Cc1ccc(S)cc1",
+   "description": "Cc1ccc(S)cc1",
+   "smiles": "Cc1ccc(S)cc1"
+  },
+  {
+   "bit": 716,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Cc1ccc(N)cc1",
+   "description": "Cc1ccc(N)cc1",
+   "smiles": "Cc1ccc(N)cc1"
+  },
+  {
+   "bit": 717,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Cc1ccc(Cl)cc1",
+   "description": "Cc1ccc(Cl)cc1",
+   "smiles": "Cc1ccc(Cl)cc1"
+  },
+  {
+   "bit": 718,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Cc1ccc(Br)cc1",
+   "description": "Cc1ccc(Br)cc1",
+   "smiles": "Cc1ccc(Br)cc1"
+  },
+  {
+   "bit": 719,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Oc1ccc(O)cc1",
+   "description": "Oc1ccc(O)cc1",
+   "smiles": "Oc1ccc(O)cc1"
+  },
+  {
+   "bit": 720,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Oc1ccc(S)cc1",
+   "description": "Oc1ccc(S)cc1",
+   "smiles": "Oc1ccc(S)cc1"
+  },
+  {
+   "bit": 721,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Oc1ccc(N)cc1",
+   "description": "Oc1ccc(N)cc1",
+   "smiles": "Nc1ccc(O)cc1"
+  },
+  {
+   "bit": 722,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Oc1ccc(Cl)cc1",
+   "description": "Oc1ccc(Cl)cc1",
+   "smiles": "Oc1ccc(Cl)cc1"
+  },
+  {
+   "bit": 723,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Oc1ccc(Br)cc1",
+   "description": "Oc1ccc(Br)cc1",
+   "smiles": "Oc1ccc(Br)cc1"
+  },
+  {
+   "bit": 724,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Sc1ccc(S)cc1",
+   "description": "Sc1ccc(S)cc1",
+   "smiles": "Sc1ccc(S)cc1"
+  },
+  {
+   "bit": 725,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Sc1ccc(N)cc1",
+   "description": "Sc1ccc(N)cc1",
+   "smiles": "Nc1ccc(S)cc1"
+  },
+  {
+   "bit": 726,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Sc1ccc(Cl)cc1",
+   "description": "Sc1ccc(Cl)cc1",
+   "smiles": "Sc1ccc(Cl)cc1"
+  },
+  {
+   "bit": 727,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Sc1ccc(Br)cc1",
+   "description": "Sc1ccc(Br)cc1",
+   "smiles": "Sc1ccc(Br)cc1"
+  },
+  {
+   "bit": 728,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Nc1ccc(N)cc1",
+   "description": "Nc1ccc(N)cc1",
+   "smiles": "Nc1ccc(N)cc1"
+  },
+  {
+   "bit": 729,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Nc1ccc(Cl)cc1",
+   "description": "Nc1ccc(Cl)cc1",
+   "smiles": "Nc1ccc(Cl)cc1"
+  },
+  {
+   "bit": 730,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Nc1ccc(Br)cc1",
+   "description": "Nc1ccc(Br)cc1",
+   "smiles": "Nc1ccc(Br)cc1"
+  },
+  {
+   "bit": 731,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Clc1ccc(Cl)cc1",
+   "description": "Clc1ccc(Cl)cc1",
+   "smiles": "Clc1ccc(Cl)cc1"
+  },
+  {
+   "bit": 732,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Clc1ccc(Br)cc1",
+   "description": "Clc1ccc(Br)cc1",
+   "smiles": "Clc1ccc(Br)cc1"
+  },
+  {
+   "bit": 733,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Brc1ccc(Br)cc1",
+   "description": "Brc1ccc(Br)cc1",
+   "smiles": "Brc1ccc(Br)cc1"
+  },
+  {
+   "bit": 734,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Cc1cc(C)ccc1",
+   "description": "Cc1cc(C)ccc1",
+   "smiles": "Cc1cccc(C)c1"
+  },
+  {
+   "bit": 735,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Cc1cc(O)ccc1",
+   "description": "Cc1cc(O)ccc1",
+   "smiles": "Cc1cccc(O)c1"
+  },
+  {
+   "bit": 736,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Cc1cc(S)ccc1",
+   "description": "Cc1cc(S)ccc1",
+   "smiles": "Cc1cccc(S)c1"
+  },
+  {
+   "bit": 737,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Cc1cc(N)ccc1",
+   "description": "Cc1cc(N)ccc1",
+   "smiles": "Cc1cccc(N)c1"
+  },
+  {
+   "bit": 738,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Cc1cc(Cl)ccc1",
+   "description": "Cc1cc(Cl)ccc1",
+   "smiles": "Cc1cccc(Cl)c1"
+  },
+  {
+   "bit": 739,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Cc1cc(Br)ccc1",
+   "description": "Cc1cc(Br)ccc1",
+   "smiles": "Cc1cccc(Br)c1"
+  },
+  {
+   "bit": 740,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Oc1cc(O)ccc1",
+   "description": "Oc1cc(O)ccc1",
+   "smiles": "Oc1cccc(O)c1"
+  },
+  {
+   "bit": 741,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Oc1cc(S)ccc1",
+   "description": "Oc1cc(S)ccc1",
+   "smiles": "Oc1cccc(S)c1"
+  },
+  {
+   "bit": 742,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Oc1cc(N)ccc1",
+   "description": "Oc1cc(N)ccc1",
+   "smiles": "Nc1cccc(O)c1"
+  },
+  {
+   "bit": 743,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Oc1cc(Cl)ccc1",
+   "description": "Oc1cc(Cl)ccc1",
+   "smiles": "Oc1cccc(Cl)c1"
+  },
+  {
+   "bit": 744,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Oc1cc(Br)ccc1",
+   "description": "Oc1cc(Br)ccc1",
+   "smiles": "Oc1cccc(Br)c1"
+  },
+  {
+   "bit": 745,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Sc1cc(S)ccc1",
+   "description": "Sc1cc(S)ccc1",
+   "smiles": "Sc1cccc(S)c1"
+  },
+  {
+   "bit": 746,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Sc1cc(N)ccc1",
+   "description": "Sc1cc(N)ccc1",
+   "smiles": "Nc1cccc(S)c1"
+  },
+  {
+   "bit": 747,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Sc1cc(Cl)ccc1",
+   "description": "Sc1cc(Cl)ccc1",
+   "smiles": "Sc1cccc(Cl)c1"
+  },
+  {
+   "bit": 748,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Sc1cc(Br)ccc1",
+   "description": "Sc1cc(Br)ccc1",
+   "smiles": "Sc1cccc(Br)c1"
+  },
+  {
+   "bit": 749,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Nc1cc(N)ccc1",
+   "description": "Nc1cc(N)ccc1",
+   "smiles": "Nc1cccc(N)c1"
+  },
+  {
+   "bit": 750,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Nc1cc(Cl)ccc1",
+   "description": "Nc1cc(Cl)ccc1",
+   "smiles": "Nc1cccc(Cl)c1"
+  },
+  {
+   "bit": 751,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Nc1cc(Br)ccc1",
+   "description": "Nc1cc(Br)ccc1",
+   "smiles": "Nc1cccc(Br)c1"
+  },
+  {
+   "bit": 752,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Clc1cc(Cl)ccc1",
+   "description": "Clc1cc(Cl)ccc1",
+   "smiles": "Clc1cccc(Cl)c1"
+  },
+  {
+   "bit": 753,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Clc1cc(Br)ccc1",
+   "description": "Clc1cc(Br)ccc1",
+   "smiles": "Clc1cccc(Br)c1"
+  },
+  {
+   "bit": 754,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Brc1cc(Br)ccc1",
+   "description": "Brc1cc(Br)ccc1",
+   "smiles": "Brc1cccc(Br)c1"
+  },
+  {
+   "bit": 755,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Cc1c(C)cccc1",
+   "description": "Cc1c(C)cccc1",
+   "smiles": "Cc1ccccc1C"
+  },
+  {
+   "bit": 756,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Cc1c(O)cccc1",
+   "description": "Cc1c(O)cccc1",
+   "smiles": "Cc1ccccc1O"
+  },
+  {
+   "bit": 757,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Cc1c(S)cccc1",
+   "description": "Cc1c(S)cccc1",
+   "smiles": "Cc1ccccc1S"
+  },
+  {
+   "bit": 758,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Cc1c(N)cccc1",
+   "description": "Cc1c(N)cccc1",
+   "smiles": "Cc1ccccc1N"
+  },
+  {
+   "bit": 759,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Cc1c(Cl)cccc1",
+   "description": "Cc1c(Cl)cccc1",
+   "smiles": "Cc1ccccc1Cl"
+  },
+  {
+   "bit": 760,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Cc1c(Br)cccc1",
+   "description": "Cc1c(Br)cccc1",
+   "smiles": "Cc1ccccc1Br"
+  },
+  {
+   "bit": 761,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Oc1c(O)cccc1",
+   "description": "Oc1c(O)cccc1",
+   "smiles": "Oc1ccccc1O"
+  },
+  {
+   "bit": 762,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Oc1c(S)cccc1",
+   "description": "Oc1c(S)cccc1",
+   "smiles": "Oc1ccccc1S"
+  },
+  {
+   "bit": 763,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Oc1c(N)cccc1",
+   "description": "Oc1c(N)cccc1",
+   "smiles": "Nc1ccccc1O"
+  },
+  {
+   "bit": 764,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Oc1c(Cl)cccc1",
+   "description": "Oc1c(Cl)cccc1",
+   "smiles": "Oc1ccccc1Cl"
+  },
+  {
+   "bit": 765,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Oc1c(Br)cccc1",
+   "description": "Oc1c(Br)cccc1",
+   "smiles": "Oc1ccccc1Br"
+  },
+  {
+   "bit": 766,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Sc1c(S)cccc1",
+   "description": "Sc1c(S)cccc1",
+   "smiles": "Sc1ccccc1S"
+  },
+  {
+   "bit": 767,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Sc1c(N)cccc1",
+   "description": "Sc1c(N)cccc1",
+   "smiles": "Nc1ccccc1S"
+  },
+  {
+   "bit": 768,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Sc1c(Cl)cccc1",
+   "description": "Sc1c(Cl)cccc1",
+   "smiles": "Sc1ccccc1Cl"
+  },
+  {
+   "bit": 769,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Sc1c(Br)cccc1",
+   "description": "Sc1c(Br)cccc1",
+   "smiles": "Sc1ccccc1Br"
+  },
+  {
+   "bit": 770,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Nc1c(N)cccc1",
+   "description": "Nc1c(N)cccc1",
+   "smiles": "Nc1ccccc1N"
+  },
+  {
+   "bit": 771,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Nc1c(Cl)cccc1",
+   "description": "Nc1c(Cl)cccc1",
+   "smiles": "Nc1ccccc1Cl"
+  },
+  {
+   "bit": 772,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Nc1c(Br)cccc1",
+   "description": "Nc1c(Br)cccc1",
+   "smiles": "Nc1ccccc1Br"
+  },
+  {
+   "bit": 773,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Clc1c(Cl)cccc1",
+   "description": "Clc1c(Cl)cccc1",
+   "smiles": "Clc1ccccc1Cl"
+  },
+  {
+   "bit": 774,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Clc1c(Br)cccc1",
+   "description": "Clc1c(Br)cccc1",
+   "smiles": "Clc1ccccc1Br"
+  },
+  {
+   "bit": 775,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "Brc1c(Br)cccc1",
+   "description": "Brc1c(Br)cccc1",
+   "smiles": "Brc1ccccc1Br"
+  },
+  {
+   "bit": 776,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1CCC(C)CC1",
+   "description": "CC1CCC(C)CC1",
+   "smiles": "CC1CCC(C)CC1"
+  },
+  {
+   "bit": 777,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1CCC(O)CC1",
+   "description": "CC1CCC(O)CC1",
+   "smiles": "CC1CCC(O)CC1"
+  },
+  {
+   "bit": 778,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1CCC(S)CC1",
+   "description": "CC1CCC(S)CC1",
+   "smiles": "CC1CCC(S)CC1"
+  },
+  {
+   "bit": 779,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1CCC(N)CC1",
+   "description": "CC1CCC(N)CC1",
+   "smiles": "CC1CCC(N)CC1"
+  },
+  {
+   "bit": 780,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1CCC(Cl)CC1",
+   "description": "CC1CCC(Cl)CC1",
+   "smiles": "CC1CCC(Cl)CC1"
+  },
+  {
+   "bit": 781,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1CCC(Br)CC1",
+   "description": "CC1CCC(Br)CC1",
+   "smiles": "CC1CCC(Br)CC1"
+  },
+  {
+   "bit": 782,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "OC1CCC(O)CC1",
+   "description": "OC1CCC(O)CC1",
+   "smiles": "OC1CCC(O)CC1"
+  },
+  {
+   "bit": 783,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "OC1CCC(S)CC1",
+   "description": "OC1CCC(S)CC1",
+   "smiles": "OC1CCC(S)CC1"
+  },
+  {
+   "bit": 784,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "OC1CCC(N)CC1",
+   "description": "OC1CCC(N)CC1",
+   "smiles": "NC1CCC(O)CC1"
+  },
+  {
+   "bit": 785,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "OC1CCC(Cl)CC1",
+   "description": "OC1CCC(Cl)CC1",
+   "smiles": "OC1CCC(Cl)CC1"
+  },
+  {
+   "bit": 786,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "OC1CCC(Br)CC1",
+   "description": "OC1CCC(Br)CC1",
+   "smiles": "OC1CCC(Br)CC1"
+  },
+  {
+   "bit": 787,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "SC1CCC(S)CC1",
+   "description": "SC1CCC(S)CC1",
+   "smiles": "SC1CCC(S)CC1"
+  },
+  {
+   "bit": 788,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "SC1CCC(N)CC1",
+   "description": "SC1CCC(N)CC1",
+   "smiles": "NC1CCC(S)CC1"
+  },
+  {
+   "bit": 789,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "SC1CCC(Cl)CC1",
+   "description": "SC1CCC(Cl)CC1",
+   "smiles": "SC1CCC(Cl)CC1"
+  },
+  {
+   "bit": 790,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "SC1CCC(Br)CC1",
+   "description": "SC1CCC(Br)CC1",
+   "smiles": "SC1CCC(Br)CC1"
+  },
+  {
+   "bit": 791,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "NC1CCC(N)CC1",
+   "description": "NC1CCC(N)CC1",
+   "smiles": "NC1CCC(N)CC1"
+  },
+  {
+   "bit": 792,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "NC1CCC(Cl)CC1",
+   "description": "NC1CCC(Cl)CC1",
+   "smiles": "NC1CCC(Cl)CC1"
+  },
+  {
+   "bit": 793,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "NC1CCC(Br)CC1",
+   "description": "NC1CCC(Br)CC1",
+   "smiles": "NC1CCC(Br)CC1"
+  },
+  {
+   "bit": 794,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "ClC1CCC(Cl)CC1",
+   "description": "ClC1CCC(Cl)CC1",
+   "smiles": "ClC1CCC(Cl)CC1"
+  },
+  {
+   "bit": 795,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "ClC1CCC(Br)CC1",
+   "description": "ClC1CCC(Br)CC1",
+   "smiles": "ClC1CCC(Br)CC1"
+  },
+  {
+   "bit": 796,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "BrC1CCC(Br)CC1",
+   "description": "BrC1CCC(Br)CC1",
+   "smiles": "BrC1CCC(Br)CC1"
+  },
+  {
+   "bit": 797,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1CC(C)CCC1",
+   "description": "CC1CC(C)CCC1",
+   "smiles": "CC1CCCC(C)C1"
+  },
+  {
+   "bit": 798,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1CC(O)CCC1",
+   "description": "CC1CC(O)CCC1",
+   "smiles": "CC1CCCC(O)C1"
+  },
+  {
+   "bit": 799,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1CC(S)CCC1",
+   "description": "CC1CC(S)CCC1",
+   "smiles": "CC1CCCC(S)C1"
+  },
+  {
+   "bit": 800,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1CC(N)CCC1",
+   "description": "CC1CC(N)CCC1",
+   "smiles": "CC1CCCC(N)C1"
+  },
+  {
+   "bit": 801,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1CC(Cl)CCC1",
+   "description": "CC1CC(Cl)CCC1",
+   "smiles": "CC1CCCC(Cl)C1"
+  },
+  {
+   "bit": 802,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1CC(Br)CCC1",
+   "description": "CC1CC(Br)CCC1",
+   "smiles": "CC1CCCC(Br)C1"
+  },
+  {
+   "bit": 803,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "OC1CC(O)CCC1",
+   "description": "OC1CC(O)CCC1",
+   "smiles": "OC1CCCC(O)C1"
+  },
+  {
+   "bit": 804,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "OC1CC(S)CCC1",
+   "description": "OC1CC(S)CCC1",
+   "smiles": "OC1CCCC(S)C1"
+  },
+  {
+   "bit": 805,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "OC1CC(N)CCC1",
+   "description": "OC1CC(N)CCC1",
+   "smiles": "NC1CCCC(O)C1"
+  },
+  {
+   "bit": 806,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "OC1CC(Cl)CCC1",
+   "description": "OC1CC(Cl)CCC1",
+   "smiles": "OC1CCCC(Cl)C1"
+  },
+  {
+   "bit": 807,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "OC1CC(Br)CCC1",
+   "description": "OC1CC(Br)CCC1",
+   "smiles": "OC1CCCC(Br)C1"
+  },
+  {
+   "bit": 808,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "SC1CC(S)CCC1",
+   "description": "SC1CC(S)CCC1",
+   "smiles": "SC1CCCC(S)C1"
+  },
+  {
+   "bit": 809,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "SC1CC(N)CCC1",
+   "description": "SC1CC(N)CCC1",
+   "smiles": "NC1CCCC(S)C1"
+  },
+  {
+   "bit": 810,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "SC1CC(Cl)CCC1",
+   "description": "SC1CC(Cl)CCC1",
+   "smiles": "SC1CCCC(Cl)C1"
+  },
+  {
+   "bit": 811,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "SC1CC(Br)CCC1",
+   "description": "SC1CC(Br)CCC1",
+   "smiles": "SC1CCCC(Br)C1"
+  },
+  {
+   "bit": 812,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "NC1CC(N)CCC1",
+   "description": "NC1CC(N)CCC1",
+   "smiles": "NC1CCCC(N)C1"
+  },
+  {
+   "bit": 813,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "NC1CC(Cl)CCC1",
+   "description": "NC1CC(Cl)CCC1",
+   "smiles": "NC1CCCC(Cl)C1"
+  },
+  {
+   "bit": 814,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "NC1CC(Br)CCC1",
+   "description": "NC1CC(Br)CCC1",
+   "smiles": "NC1CCCC(Br)C1"
+  },
+  {
+   "bit": 815,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "ClC1CC(Cl)CCC1",
+   "description": "ClC1CC(Cl)CCC1",
+   "smiles": "ClC1CCCC(Cl)C1"
+  },
+  {
+   "bit": 816,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "ClC1CC(Br)CCC1",
+   "description": "ClC1CC(Br)CCC1",
+   "smiles": "ClC1CCCC(Br)C1"
+  },
+  {
+   "bit": 817,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "BrC1CC(Br)CCC1",
+   "description": "BrC1CC(Br)CCC1",
+   "smiles": "BrC1CCCC(Br)C1"
+  },
+  {
+   "bit": 818,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1C(C)CCCC1",
+   "description": "CC1C(C)CCCC1",
+   "smiles": "CC1CCCCC1C"
+  },
+  {
+   "bit": 819,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1C(O)CCCC1",
+   "description": "CC1C(O)CCCC1",
+   "smiles": "CC1CCCCC1O"
+  },
+  {
+   "bit": 820,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1C(S)CCCC1",
+   "description": "CC1C(S)CCCC1",
+   "smiles": "CC1CCCCC1S"
+  },
+  {
+   "bit": 821,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1C(N)CCCC1",
+   "description": "CC1C(N)CCCC1",
+   "smiles": "CC1CCCCC1N"
+  },
+  {
+   "bit": 822,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1C(Cl)CCCC1",
+   "description": "CC1C(Cl)CCCC1",
+   "smiles": "CC1CCCCC1Cl"
+  },
+  {
+   "bit": 823,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1C(Br)CCCC1",
+   "description": "CC1C(Br)CCCC1",
+   "smiles": "CC1CCCCC1Br"
+  },
+  {
+   "bit": 824,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "OC1C(O)CCCC1",
+   "description": "OC1C(O)CCCC1",
+   "smiles": "OC1CCCCC1O"
+  },
+  {
+   "bit": 825,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "OC1C(S)CCCC1",
+   "description": "OC1C(S)CCCC1",
+   "smiles": "OC1CCCCC1S"
+  },
+  {
+   "bit": 826,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "OC1C(N)CCCC1",
+   "description": "OC1C(N)CCCC1",
+   "smiles": "NC1CCCCC1O"
+  },
+  {
+   "bit": 827,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "OC1C(Cl)CCCC1",
+   "description": "OC1C(Cl)CCCC1",
+   "smiles": "OC1CCCCC1Cl"
+  },
+  {
+   "bit": 828,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "OC1C(Br)CCCC1",
+   "description": "OC1C(Br)CCCC1",
+   "smiles": "OC1CCCCC1Br"
+  },
+  {
+   "bit": 829,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "SC1C(S)CCCC1",
+   "description": "SC1C(S)CCCC1",
+   "smiles": "SC1CCCCC1S"
+  },
+  {
+   "bit": 830,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "SC1C(N)CCCC1",
+   "description": "SC1C(N)CCCC1",
+   "smiles": "NC1CCCCC1S"
+  },
+  {
+   "bit": 831,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "SC1C(Cl)CCCC1",
+   "description": "SC1C(Cl)CCCC1",
+   "smiles": "SC1CCCCC1Cl"
+  },
+  {
+   "bit": 832,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "SC1C(Br)CCCC1",
+   "description": "SC1C(Br)CCCC1",
+   "smiles": "SC1CCCCC1Br"
+  },
+  {
+   "bit": 833,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "NC1C(N)CCCC1",
+   "description": "NC1C(N)CCCC1",
+   "smiles": "NC1CCCCC1N"
+  },
+  {
+   "bit": 834,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "NC1C(Cl)CCCC1",
+   "description": "NC1C(Cl)CCCC1",
+   "smiles": "NC1CCCCC1Cl"
+  },
+  {
+   "bit": 835,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "NC1C(Br)CCCC1",
+   "description": "NC1C(Br)CCCC1",
+   "smiles": "NC1CCCCC1Br"
+  },
+  {
+   "bit": 836,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "ClC1C(Cl)CCCC1",
+   "description": "ClC1C(Cl)CCCC1",
+   "smiles": "ClC1CCCCC1Cl"
+  },
+  {
+   "bit": 837,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "ClC1C(Br)CCCC1",
+   "description": "ClC1C(Br)CCCC1",
+   "smiles": "ClC1CCCCC1Br"
+  },
+  {
+   "bit": 838,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "BrC1C(Br)CCCC1",
+   "description": "BrC1C(Br)CCCC1",
+   "smiles": "BrC1CCCCC1Br"
+  },
+  {
+   "bit": 839,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1CC(C)CC1",
+   "description": "CC1CC(C)CC1",
+   "smiles": "CC1CCC(C)C1"
+  },
+  {
+   "bit": 840,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1CC(O)CC1",
+   "description": "CC1CC(O)CC1",
+   "smiles": "CC1CCC(O)C1"
+  },
+  {
+   "bit": 841,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1CC(S)CC1",
+   "description": "CC1CC(S)CC1",
+   "smiles": "CC1CCC(S)C1"
+  },
+  {
+   "bit": 842,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1CC(N)CC1",
+   "description": "CC1CC(N)CC1",
+   "smiles": "CC1CCC(N)C1"
+  },
+  {
+   "bit": 843,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1CC(Cl)CC1",
+   "description": "CC1CC(Cl)CC1",
+   "smiles": "CC1CCC(Cl)C1"
+  },
+  {
+   "bit": 844,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1CC(Br)CC1",
+   "description": "CC1CC(Br)CC1",
+   "smiles": "CC1CCC(Br)C1"
+  },
+  {
+   "bit": 845,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "OC1CC(O)CC1",
+   "description": "OC1CC(O)CC1",
+   "smiles": "OC1CCC(O)C1"
+  },
+  {
+   "bit": 846,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "OC1CC(S)CC1",
+   "description": "OC1CC(S)CC1",
+   "smiles": "OC1CCC(S)C1"
+  },
+  {
+   "bit": 847,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "OC1CC(N)CC1",
+   "description": "OC1CC(N)CC1",
+   "smiles": "NC1CCC(O)C1"
+  },
+  {
+   "bit": 848,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "OC1CC(Cl)CC1",
+   "description": "OC1CC(Cl)CC1",
+   "smiles": "OC1CCC(Cl)C1"
+  },
+  {
+   "bit": 849,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "OC1CC(Br)CC1",
+   "description": "OC1CC(Br)CC1",
+   "smiles": "OC1CCC(Br)C1"
+  },
+  {
+   "bit": 850,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "SC1CC(S)CC1",
+   "description": "SC1CC(S)CC1",
+   "smiles": "SC1CCC(S)C1"
+  },
+  {
+   "bit": 851,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "SC1CC(N)CC1",
+   "description": "SC1CC(N)CC1",
+   "smiles": "NC1CCC(S)C1"
+  },
+  {
+   "bit": 852,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "SC1CC(Cl)CC1",
+   "description": "SC1CC(Cl)CC1",
+   "smiles": "SC1CCC(Cl)C1"
+  },
+  {
+   "bit": 853,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "SC1CC(Br)CC1",
+   "description": "SC1CC(Br)CC1",
+   "smiles": "SC1CCC(Br)C1"
+  },
+  {
+   "bit": 854,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "NC1CC(N)CC1",
+   "description": "NC1CC(N)CC1",
+   "smiles": "NC1CCC(N)C1"
+  },
+  {
+   "bit": 855,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "NC1CC(Cl)CC1",
+   "description": "NC1CC(Cl)CC1",
+   "smiles": "NC1CCC(Cl)C1"
+  },
+  {
+   "bit": 856,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "NC1CC(Br)CC1",
+   "description": "NC1CC(Br)CC1",
+   "smiles": "NC1CCC(Br)C1"
+  },
+  {
+   "bit": 857,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "ClC1CC(Cl)CC1",
+   "description": "ClC1CC(Cl)CC1",
+   "smiles": "ClC1CCC(Cl)C1"
+  },
+  {
+   "bit": 858,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "ClC1CC(Br)CC1",
+   "description": "ClC1CC(Br)CC1",
+   "smiles": "ClC1CCC(Br)C1"
+  },
+  {
+   "bit": 859,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "BrC1CC(Br)CC1",
+   "description": "BrC1CC(Br)CC1",
+   "smiles": "BrC1CCC(Br)C1"
+  },
+  {
+   "bit": 860,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1C(C)CCC1",
+   "description": "CC1C(C)CCC1",
+   "smiles": "CC1CCCC1C"
+  },
+  {
+   "bit": 861,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1C(O)CCC1",
+   "description": "CC1C(O)CCC1",
+   "smiles": "CC1CCCC1O"
+  },
+  {
+   "bit": 862,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1C(S)CCC1",
+   "description": "CC1C(S)CCC1",
+   "smiles": "CC1CCCC1S"
+  },
+  {
+   "bit": 863,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1C(N)CCC1",
+   "description": "CC1C(N)CCC1",
+   "smiles": "CC1CCCC1N"
+  },
+  {
+   "bit": 864,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1C(Cl)CCC1",
+   "description": "CC1C(Cl)CCC1",
+   "smiles": "CC1CCCC1Cl"
+  },
+  {
+   "bit": 865,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "CC1C(Br)CCC1",
+   "description": "CC1C(Br)CCC1",
+   "smiles": "CC1CCCC1Br"
+  },
+  {
+   "bit": 866,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "OC1C(O)CCC1",
+   "description": "OC1C(O)CCC1",
+   "smiles": "OC1CCCC1O"
+  },
+  {
+   "bit": 867,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "OC1C(S)CCC1",
+   "description": "OC1C(S)CCC1",
+   "smiles": "OC1CCCC1S"
+  },
+  {
+   "bit": 868,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "OC1C(N)CCC1",
+   "description": "OC1C(N)CCC1",
+   "smiles": "NC1CCCC1O"
+  },
+  {
+   "bit": 869,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "OC1C(Cl)CCC1",
+   "description": "OC1C(Cl)CCC1",
+   "smiles": "OC1CCCC1Cl"
+  },
+  {
+   "bit": 870,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "OC1C(Br)CCC1",
+   "description": "OC1C(Br)CCC1",
+   "smiles": "OC1CCCC1Br"
+  },
+  {
+   "bit": 871,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "SC1C(S)CCC1",
+   "description": "SC1C(S)CCC1",
+   "smiles": "SC1CCCC1S"
+  },
+  {
+   "bit": 872,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "SC1C(N)CCC1",
+   "description": "SC1C(N)CCC1",
+   "smiles": "NC1CCCC1S"
+  },
+  {
+   "bit": 873,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "SC1C(Cl)CCC1",
+   "description": "SC1C(Cl)CCC1",
+   "smiles": "SC1CCCC1Cl"
+  },
+  {
+   "bit": 874,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "SC1C(Br)CCC1",
+   "description": "SC1C(Br)CCC1",
+   "smiles": "SC1CCCC1Br"
+  },
+  {
+   "bit": 875,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "NC1C(N)CCC1",
+   "description": "NC1C(N)CCC1",
+   "smiles": "NC1CCCC1N"
+  },
+  {
+   "bit": 876,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "NC1C(Cl)CC1",
+   "description": "NC1C(Cl)CC1",
+   "smiles": "NC1CCC1Cl"
+  },
+  {
+   "bit": 877,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "NC1C(Br)CCC1",
+   "description": "NC1C(Br)CCC1",
+   "smiles": "NC1CCCC1Br"
+  },
+  {
+   "bit": 878,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "ClC1C(Cl)CCC1",
+   "description": "ClC1C(Cl)CCC1",
+   "smiles": "ClC1CCCC1Cl"
+  },
+  {
+   "bit": 879,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "ClC1C(Br)CCC1",
+   "description": "ClC1C(Br)CCC1",
+   "smiles": "ClC1CCCC1Br"
+  },
+  {
+   "bit": 880,
+   "section": 7,
+   "kind": "complex_smarts",
+   "drawable": true,
+   "smarts": "BrC1C(Br)CCC1",
+   "description": "BrC1C(Br)CCC1",
+   "smiles": "BrC1CCCC1Br"
+  }
+ ]
+}
