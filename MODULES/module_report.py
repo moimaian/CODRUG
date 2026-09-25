@@ -1456,6 +1456,27 @@ _STEP4_ML_TEXTS = {
         "highlighted in the Feature Importance chart above was identified - the substructure "
         "corresponding to each descriptor is presented below:"
     ),
+    "yrand_intro_pt": (
+        "Como verificação de robustez recomendada pelas diretrizes da OECD para modelos (Q)SAR, "
+        "foi realizado o teste de Y-Scrambling sobre o modelo {model}: a coluna resposta foi "
+        "embaralhada aleatoriamente {n} vezes e o modelo foi retreinado sobre cada versão "
+        "embaralhada, usando o mesmo esquema de validação cruzada ({folds} folds) e a mesma "
+        "métrica {metric} do modelo real. O modelo real obteve {metric} = {real:.3g}, contra "
+        "{metric} = {mean:.3g} ± {std:.3g} (média ± desvio-padrão) dos modelos "
+        "embaralhados (cR²p = {crp2}; p-valor empírico = {pvalue:.3g}), evidenciando que o "
+        "desempenho do modelo real não é fruto de correlação ao acaso."
+    ),
+    "yrand_intro_en": (
+        "As an OECD-recommended robustness check for (Q)SAR models, a Y-Scrambling test was "
+        "performed on the {model} model: the response column was randomly shuffled {n} times and "
+        "the model was retrained on each shuffled version, using the same cross-validation scheme "
+        "({folds} folds) and the same {metric} metric as the real model. The real model achieved "
+        "{metric} = {real:.3g}, against {metric} = {mean:.3g} ± {std:.3g} (mean ± SD) for "
+        "the scrambled models (cR²p = {crp2}; empirical p-value = {pvalue:.3g}), showing that "
+        "the real model's performance is not chance correlation."
+    ),
+    "table_yrand_caption_pt": "Tabela. Resumo do teste de Y-Scrambling para o modelo {model}.",
+    "table_yrand_caption_en": "Table. Y-Scrambling test summary for the {model} model.",
 }
 
 # Same shading used in the methodology template's STEP 4 tables (screening/tuning/cross-
@@ -1497,6 +1518,15 @@ def _find_feature_structures_csv(midia_dir: str, model_name: str, usi: str) -> O
     """CSV saved alongside the Feature Importance chart by
     CODRUG._save_feature_importance_structures: <model>_feature_importance_structures_<usi>.csv."""
     candidate = os.path.join(midia_dir, f"{model_name}_feature_importance_structures_{usi}.csv")
+    return candidate if os.path.isfile(candidate) else None
+
+
+def _find_yrandomization_csv(data_dir: str, model_name: str, usi: str) -> Optional[str]:
+    """CSV saved by CODRUG.run_skl_yrandomization under this USI's DATA folder (the chart itself
+    goes to MIDIA, found separately via _find_skl_image): <model>_yrandomization_<usi>.csv - one
+    row per permutation, with the real/summary stats (real_metric, scrambled_mean/std, crp2,
+    p_value) repeated on every row."""
+    candidate = os.path.join(data_dir, f"{model_name}_yrandomization_{usi}.csv")
     return candidate if os.path.isfile(candidate) else None
 
 
@@ -1738,6 +1768,32 @@ def _add_step5_section(document: Any, job_dir: str, state: dict[str, Any], idiom
                     _add_image(document, struct_png)
                 display_cols = [c for c in ("rank", "descriptor", "family", "smiles", "smarts", "exact") if c in struct_df.columns]
                 _add_dataframe_table(document, struct_df[display_cols] if display_cols else struct_df, max_rows=15)
+
+            # Y-Scrambling (CODRUG.run_skl_yrandomization) - CSV in DATA, chart in MIDIA; one row
+            # per permutation, with the real/summary stats repeated on every row (only the first
+            # row is needed here).
+            yrand_csv = _find_yrandomization_csv(data_dir, model_name, usi)
+            yrand_df = _read_csv(yrand_csv)
+            if yrand_df is not None and not yrand_df.empty:
+                first = yrand_df.iloc[0]
+                crp2_val = first.get("crp2")
+                try:
+                    crp2_text = f"{float(crp2_val):.3g}" if crp2_val == crp2_val else "N/A"  # NaN != NaN
+                except (TypeError, ValueError):
+                    crp2_text = "N/A"
+                _para(document).add_run(
+                    texts["yrand_intro_pt" if lang == "pt" else "yrand_intro_en"].format(
+                        model=model_name, n=int(first.get("n_permutations", len(yrand_df))),
+                        folds=int(first.get("n_folds", 5)),
+                        metric=first.get("metric_label", "score"), real=float(first.get("real_metric", 0.0)),
+                        mean=float(first.get("scrambled_mean", 0.0)), std=float(first.get("scrambled_std", 0.0)),
+                        crp2=crp2_text, pvalue=float(first.get("p_value", 0.0)),
+                    )
+                )
+                yrand_png = _find_skl_image(midia_dir, model_name, "yrandomization", usi)
+                if yrand_png:
+                    _add_caption(document, texts["table_yrand_caption_pt" if lang == "pt" else "table_yrand_caption_en"].format(model=model_name))
+                    _add_image(document, yrand_png)
 
         added_any = True
         document.add_paragraph()

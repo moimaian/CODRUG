@@ -10534,6 +10534,45 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, i18n.t("msg_title_error", self._idioma), f"Error selecting/managing structures:\n{e}")
 
+    def _aggregate_3d_descriptor_csv(self, csv_path, weights_by_row):
+        """Colapsa o CSV de um descritor 3D calculado sobre um ENSEMBLE conformacional (várias
+        linhas por composto, uma por conformação sobrevivente, na mesma ordem em que foram
+        escritas no SDF combinado - ver _get_or_build_3d_mol_dir) de volta para UMA linha por
+        composto, via média ponderada por Boltzmann (`weights_by_row`, mesma ordem/tamanho das
+        linhas originais - garantida por retainorder=True no PaDEL). Composto com uma única
+        conformação (3D nativo, ou ensemble que caiu no fallback de 1 conformação) simplesmente
+        reduz à sua própria linha, sem alterar nada. Sobrescreve `csv_path` no lugar; nunca lança -
+        uma falha aqui não deve derrubar a geração de descritores inteira, só deixar o CSV como o
+        PaDEL o gerou (várias linhas por composto, que o merge por 'Name' mais à frente ainda
+        consegue usar, só que sem o benefício do ensemble)."""
+        try:
+            df = pd.read_csv(csv_path)
+            name_col = "Name" if "Name" in df.columns else ("name" if "name" in df.columns else None)
+            if name_col is None or len(df) != len(weights_by_row):
+                return
+            df["_conf_weight"] = weights_by_row
+            numeric_cols = [c for c in df.columns if c not in (name_col, "_conf_weight")
+                             and pd.api.types.is_numeric_dtype(df[c])]
+
+            def _weighted_row(group):
+                w = group["_conf_weight"].to_numpy(dtype=float)
+                out = {name_col: group[name_col].iloc[0]}
+                for col in numeric_cols:
+                    vals = group[col].to_numpy(dtype=float)
+                    mask = np.isfinite(vals) & np.isfinite(w)
+                    if not mask.any():
+                        out[col] = np.nan
+                        continue
+                    w_ok = w[mask]
+                    total = w_ok.sum()
+                    out[col] = float(np.average(vals[mask], weights=w_ok)) if total > 0 else float(np.mean(vals[mask]))
+                return pd.Series(out)
+
+            df_agg = df.groupby(name_col, sort=False, as_index=False).apply(_weighted_row).reset_index(drop=True)
+            df_agg.to_csv(csv_path, index=False)
+        except Exception:
+            import traceback; traceback.print_exc()
+
     def run_generate_descriptors(self):
         try:
             import os
@@ -10757,16 +10796,23 @@ class MainWindow(QMainWindow):
                 _padel_writer.write(_mol)
             _padel_writer.close()
 
-            # ================== Geometria 3D real p/ o grupo "3D" (Retain 3D coordinates) ======
+            # ================== Geometria 3D real p/ o grupo "3D" (Retain/Convert to 3D) ========
             # Construído sob demanda (só se algum descritor 3D for de fato processado com "Retain
-            # 3D coordinates" marcado): um único SDF combinado, um composto por linha de
-            # source_pairs, usando a geometria NATIVA de native_3d_map quando existir; para quem
-            # não tem 3D nativo (ex.: veio de .smi, ou de um .sdf/.mol2/.pdb/.pdbqt 2D), gera um
-            # embedding 3D a partir do SMILES (mesma lógica de "Or Select Structures File"), para
-            # que nenhum composto seja perdido no merge final por falta de 3D nativo.
+            # 3D coordinates" e/ou "Convert to 3D" marcado): um SDF combinado usando a geometria
+            # NATIVA de native_3d_map quando existir; para quem não tem 3D nativo (ex.: veio de
+            # .smi, ou de uma fonte 2D), em vez de confiar numa única conformação embedada
+            # arbitrariamente (ruidosa para descritores 3D - WHIM, MoRSE, GETAWAY etc. variam
+            # bastante entre confôrmeros de um mesmo composto flexível), gera um pequeno ENSEMBLE
+            # conformacional (ETKDGv3 + otimização MMFF/UFF + pruning de duplicatas por RMSD) e
+            # escreve TODAS as conformações sobrevivente sob o mesmo Name - o PaDEL calcula o
+            # descritor para cada uma, e _aggregate_3d_descriptor_csv() depois as recombina em UMA
+            # linha por composto via média ponderada por Boltzmann (pop_i ∝ exp(-ΔE_i / RT)).
             three_d_stats = {}
+            _RT_298K = 0.0019872041 * 298.15  # kcal/(mol·K) × K -> kcal/mol, a 298.15 K
 
-            def _embed_3d_gd(mol):
+            def _embed_3d_single(mol):
+                """Fallback de último recurso (comportamento antigo, 1 única conformação) para
+                quando o ensemble falha completamente em embedar o composto."""
                 try:
                     m = Chem.AddHs(mol)
                     params = AllChem.ETKDGv3()
@@ -10787,21 +10833,76 @@ class MainWindow(QMainWindow):
                 except Exception:
                     return None
 
+            def _embed_3d_ensemble(mol, n_confs=20, rmsd_thresh=1.0, random_seed=0xC0D):
+                """Gera até n_confs conformações (ETKDGv3), otimiza cada uma (MMFF94, com
+                fallback para UFF) e descarta quase-duplicatas por RMSD (pós-otimização, mantendo
+                sempre a de menor energia em cada cluster). Retorna [(mol_sem_H, peso_boltzmann),
+                ...] com os pesos somando 1.0, ou [] se o embedding falhar por completo."""
+                try:
+                    m = Chem.AddHs(mol)
+                    params = AllChem.ETKDGv3()
+                    params.randomSeed = random_seed
+                    params.numThreads = 0
+                    cids = list(AllChem.EmbedMultipleConfs(m, numConfs=n_confs, params=params))
+                    if not cids:
+                        params2 = AllChem.ETKDG()
+                        params2.randomSeed = random_seed
+                        cids = list(AllChem.EmbedMultipleConfs(m, numConfs=n_confs, params=params2))
+                    if not cids:
+                        return []
+
+                    energies = {}
+                    try:
+                        if AllChem.MMFFHasAllMoleculeParams(m):
+                            opt_results = AllChem.MMFFOptimizeMoleculeConfs(m, maxIters=500, numThreads=0)
+                        else:
+                            opt_results = AllChem.UFFOptimizeMoleculeConfs(m, maxIters=500, numThreads=0)
+                    except Exception:
+                        return []
+                    for cid, (_converged, energy) in zip(cids, opt_results):
+                        energies[cid] = energy
+
+                    # Pruning por RMSD pós-otimização: dos mais estáveis para os menos, descarta
+                    # quem estiver a menos de rmsd_thresh Å de uma conformação já mantida.
+                    ordered = sorted(cids, key=lambda c: energies.get(c, float("inf")))
+                    kept = []
+                    for cid in ordered:
+                        if all(AllChem.GetConformerRMS(m, cid, kcid, prealigned=False) >= rmsd_thresh
+                               for kcid in kept):
+                            kept.append(cid)
+
+                    min_e = min(energies[c] for c in kept)
+                    weights_raw = {c: float(np.exp(-(energies[c] - min_e) / _RT_298K)) for c in kept}
+                    total_w = sum(weights_raw.values()) or 1.0
+
+                    out = []
+                    for cid in kept:
+                        try:
+                            conf_mol = Chem.RemoveHs(Chem.Mol(m, confId=cid))
+                        except Exception:
+                            continue
+                        out.append((conf_mol, weights_raw[cid] / total_w))
+                    return out
+                except Exception:
+                    return []
+
             def _get_or_build_3d_mol_dir():
                 if "path" in three_d_stats:
-                    return three_d_stats["path"]
+                    return three_d_stats["path"], three_d_stats["weights"]
                 out_dir_3d = os.path.join(self.job_dir, "DATA_BASES", "STRUCTURES", "3D")
                 os.makedirs(out_dir_3d, exist_ok=True)
                 combined_path = os.path.join(
                     out_dir_3d, f"multiligand_3d_{self.ed_target_chembl_id.text().strip()}.sdf"
                 )
                 native_count = embedded_count = failed_count = 0
+                conf_counts = []  # tamanho do ensemble mantido por composto embedado (p/ relatório)
+                weights_by_row = []
                 writer = Chem.SDWriter(combined_path)
                 try:
                     for _, row in source_pairs.iterrows():
                         nm, smi = row["Name"], row["SMILES"]
-                        mol3d = None
                         native_path = native_3d_map.get(nm)
+                        conformers = []  # [(mol, weight), ...]
                         if native_path:
                             try:
                                 supp = Chem.SDMolSupplier(native_path, removeHs=False)
@@ -10810,24 +10911,35 @@ class MainWindow(QMainWindow):
                                 mol3d = None
                             if mol3d is not None:
                                 native_count += 1
-                        if mol3d is None:
+                                conformers = [(mol3d, 1.0)]
+                        if not conformers:
                             base = _safe_parse_smiles(smi)
-                            mol3d = _embed_3d_gd(base) if base is not None else None
-                            if mol3d is not None:
+                            if base is not None:
+                                conformers = _embed_3d_ensemble(base)
+                                if not conformers:
+                                    # Ensemble falhou por completo (ex.: topologia difícil) - volta
+                                    # ao embedding único, para não perder o composto no merge final.
+                                    single = _embed_3d_single(base)
+                                    conformers = [(single, 1.0)] if single is not None else []
+                            if conformers:
                                 embedded_count += 1
-                        if mol3d is None:
+                                conf_counts.append(len(conformers))
+                        if not conformers:
                             failed_count += 1
                             continue
                         try:
-                            mol3d.SetProp("_Name", nm)
-                            writer.write(mol3d)
+                            for conf_mol, weight in conformers:
+                                conf_mol.SetProp("_Name", nm)
+                                writer.write(conf_mol)
+                                weights_by_row.append(weight)
                         except Exception:
                             failed_count += 1
                 finally:
                     writer.close()
-                three_d_stats.update(path=combined_path, native=native_count,
-                                      embedded=embedded_count, failed=failed_count)
-                return combined_path
+                three_d_stats.update(path=combined_path, weights=weights_by_row, native=native_count,
+                                      embedded=embedded_count, failed=failed_count,
+                                      avg_ensemble_size=(sum(conf_counts) / len(conf_counts)) if conf_counts else 0.0)
+                return combined_path, weights_by_row
 
             if repaired_count or invalid_count:
                 msg_lines = []
@@ -10983,13 +11095,17 @@ class MainWindow(QMainWindow):
                 retain3d    = bool(getattr(self, "chk_3dcoord", None)      and self.chk_3dcoord.isChecked())
                 convert3d   = bool(getattr(self, "chk_3dconvert", None)    and self.chk_3dconvert.isChecked())
 
-                # Grupo "3D" + "Retain 3D coordinates" marcado: usa a geometria 3D real (nativa
-                # de .sdf/.mol2/.pdb/.pdbqt/.xyz, com embedding só como reserva para quem não tem
-                # 3D nativo) em vez do .smi achatado - só nesse caso "retain3d" tem algo a reter.
-                use_native_3d = (group == "3D") and retain3d
+                # Grupo "3D": se "Retain 3D coordinates" e/ou "Convert to 3D" estiverem marcados,
+                # o CODRUG assume a geometria 3D (nativa de .sdf/.mol2/.pdb/.pdbqt/.xyz quando
+                # disponível; senão, ensemble conformacional ETKDGv3 + MMFF/UFF + pruning por RMSD
+                # + descritores como média ponderada por Boltzmann - ver _get_or_build_3d_mol_dir)
+                # em vez do .smi achatado. Só quando os DOIS checkboxes estão desmarcados o PaDEL
+                # continua gerando a 3D internamente sozinho (comportamento original, intocado).
+                use_codrug_3d = (group == "3D") and (retain3d or convert3d)
                 mol_dir_group = smi_path
-                if use_native_3d:
-                    mol_dir_group = _get_or_build_3d_mol_dir()
+                conf_weights = None
+                if use_codrug_3d:
+                    mol_dir_group, conf_weights = _get_or_build_3d_mol_dir()
 
                 kwargs = dict(
                     mol_dir=mol_dir_group,
@@ -11004,8 +11120,13 @@ class MainWindow(QMainWindow):
                     retainorder=True,
                     d_2d=False,
                     d_3d=False,
-                    retain3d=True if use_native_3d else bool(retain3d),
-                    convert3d=False if use_native_3d else bool(convert3d),
+                    # A geometria já vem pronta (nativa ou ensemble) quando use_codrug_3d - dizemos
+                    # ao PaDEL para preservá-la (retain3d=True) e não converter de novo
+                    # (convert3d=False); só o caso "nenhum checkbox marcado" chega ao else, onde
+                    # convert3d já é sempre False mesmo (a rigor nunca chega marcado sem cair em
+                    # use_codrug_3d, já que este é justamente "retain3d or convert3d").
+                    retain3d=True if use_codrug_3d else False,
+                    convert3d=False if use_codrug_3d else bool(convert3d),
                     fingerprints=False
                 )
                 if group in ("1D2D", "2D"):
@@ -11091,6 +11212,15 @@ class MainWindow(QMainWindow):
                 if not os.path.exists(csv_out) or os.path.getsize(csv_out) == 0:
                     QMessageBox.warning(self, i18n.t("msg_title_warning", self._idioma), f"PaDEL did not produce CSV for: {dname}\nCheck XML and .smi.")
                     continue
+
+                # Compostos sem 3D nativo tiveram VÁRIAS conformações (ensemble) escritas sob o
+                # mesmo Name em mol_dir_group - o PaDEL calculou o descritor 3D para cada uma
+                # (retainorder=True preserva a correspondência 1:1 com as linhas de conf_weights).
+                # Colapsa de volta para 1 linha por composto via média ponderada por Boltzmann
+                # antes de seguir para o merge por 'Name' - o resto do pipeline nunca precisa saber
+                # que existiu um ensemble.
+                if conf_weights is not None:
+                    self._aggregate_3d_descriptor_csv(csv_out, conf_weights)
 
                 csv_paths.append((dname, csv_out, group))
 
@@ -11188,9 +11318,14 @@ class MainWindow(QMainWindow):
 
             if three_d_stats:
                 report_lines.append("")
-                report_lines.append("3D descriptors - geometry source (Retain 3D coordinates):")
+                report_lines.append("3D descriptors - geometry source:")
                 report_lines.append(f"- Native 3D structure (from .sdf/.mol2/.pdb/.pdbqt/.xyz): {three_d_stats.get('native', 0)}")
-                report_lines.append(f"- Embedded from SMILES (no native 3D available): {three_d_stats.get('embedded', 0)}")
+                report_lines.append(f"- Embedded from SMILES (no native 3D available), conformational "
+                                     f"ensemble (ETKDGv3 + MMFF/UFF + RMSD pruning, Boltzmann-weighted "
+                                     f"descriptors): {three_d_stats.get('embedded', 0)}")
+                if three_d_stats.get("embedded"):
+                    report_lines.append(f"  - Average ensemble size kept per embedded compound: "
+                                         f"{three_d_stats.get('avg_ensemble_size', 0.0):.1f} conformer(s)")
                 if three_d_stats.get("failed"):
                     report_lines.append(f"- Failed to obtain a 3D conformer: {three_d_stats['failed']}")
 
@@ -18078,6 +18213,7 @@ class MainWindow(QMainWindow):
             self.chk_3dcoord = QCheckBox(); self._tr("s4_chk_retain_3d", self.chk_3dcoord.setText); self.chk_3dcoord.setChecked(False)
             self._tr("s4_tooltip_retain_3d", self.chk_3dcoord.setToolTip)
             self.chk_3dconvert = QCheckBox(); self._tr("s4_chk_convert_3d", self.chk_3dconvert.setText); self.chk_3dconvert.setChecked(False)
+            self._tr("s4_tooltip_convert_3d", self.chk_3dconvert.setToolTip)
             # Duas colunas lado a lado (3 e 3) em vez de uma única coluna com 6 linhas:
             option_descriptor_layout = QGridLayout()
             option_descriptor_layout.addWidget(self.chk_salt, 0, 0)
@@ -18877,6 +19013,14 @@ class MainWindow(QMainWindow):
             eval_row2.addWidget(self._trL("s6_lbl_p_leave_p_out"))
             self.sp_skl_cv_p = QSpinBox(); self.sp_skl_cv_p.setRange(1, 10); self.sp_skl_cv_p.setValue(2)
             eval_row2.addWidget(self.sp_skl_cv_p)
+            eval_row2.addSpacing(20)
+            eval_row2.addWidget(self._trL("s6_lbl_yrand_n"))
+            self.sp_skl_yrand_n = QSpinBox()
+            self.sp_skl_yrand_n.setRange(10, 2000)
+            self.sp_skl_yrand_n.setSingleStep(10)
+            self.sp_skl_yrand_n.setValue(100)
+            self._tr("s6_tooltip_yrand_n", self.sp_skl_yrand_n.setToolTip)
+            eval_row2.addWidget(self.sp_skl_yrand_n)
             eval_row2.addStretch()
             lay_skl_eval.addLayout(eval_row2)
 
@@ -18889,10 +19033,27 @@ class MainWindow(QMainWindow):
             self.tbl_skl_cv.setMinimumHeight(110)
             lay_skl_eval.addWidget(self.tbl_skl_cv, 1)
 
+            eval_btn_row = QHBoxLayout()
+            eval_btn_row.addStretch()
             self.btn_skl_run_eval = QPushButton(); self._tr("s6_btn_run_cross_validation", self.btn_skl_run_eval.setText)
             self.btn_skl_run_eval.setProperty("role", "primary")
             self.btn_skl_run_eval.setFixedWidth(180)
-            lay_skl_eval.addWidget(self.btn_skl_run_eval, alignment=Qt.AlignCenter)
+            eval_btn_row.addWidget(self.btn_skl_run_eval)
+
+            self.btn_skl_yrand_run = QPushButton(); self._tr("s6_btn_yrand_run", self.btn_skl_yrand_run.setText)
+            self.btn_skl_yrand_run.setProperty("role", "secondary")
+            self.btn_skl_yrand_run.setFixedWidth(180)
+            self._tr("s6_tooltip_yrand_run", self.btn_skl_yrand_run.setToolTip)
+            self.btn_skl_yrand_run.clicked.connect(self.run_skl_yrandomization)
+            eval_btn_row.addWidget(self.btn_skl_yrand_run)
+            eval_btn_row.addStretch()
+            lay_skl_eval.addLayout(eval_btn_row)
+
+            self.lbl_skl_yrand_summary = QLabel("")
+            self.lbl_skl_yrand_summary.setStyleSheet("color: #C9D1D9; font-size: 9pt;")
+            self.lbl_skl_yrand_summary.setWordWrap(True)
+            self.lbl_skl_yrand_summary.setAlignment(Qt.AlignCenter)
+            lay_skl_eval.addWidget(self.lbl_skl_yrand_summary)
 
             # ---------- LINHA: HYPERPARAMETER TUNING (esquerda, metade) + VALIDATION (direita, metade) ----------
             row_tune_eval_lay = QHBoxLayout()
@@ -20891,6 +21052,31 @@ class MainWindow(QMainWindow):
         except Exception:
             return 123
 
+    def _skl_scoring_for_metric(self, selected_metric):
+        """Maps the 'Sort metric' combobox (Model Screening) to a native sklearn scorer name, so
+        every CV-based chart (Learning Curve, Y-Randomization) stays consistent with whatever
+        metric the user picked there instead of silently falling back to sklearn's own default
+        score. Returns (scoring, sign, label): `sign` is -1 for sklearn's 'neg_*' scorers (which
+        are internally inverted so 'larger is better' holds across the whole scikit-learn API) so
+        callers can flip results back to the metric's usual, human-readable sign/scale (e.g.
+        positive RMSE); `label` is the metric name for axis/report labels, or the generic
+        fallback 'Score' when nothing matches (e.g. clustering metrics have no CV scorer here)."""
+        metric_scoring_map = {
+            "R2 Test": "r2", "R2": "r2",
+            "RMSE": "neg_root_mean_squared_error",
+            "MAE": "neg_mean_absolute_error",
+            "MSE": "neg_mean_squared_error",
+            "Accuracy Test": "accuracy", "Accuracy": "accuracy",
+            "F1": "f1_weighted",
+            "Precision": "precision_weighted",
+            "Recall": "recall_weighted",
+            "AUC": "roc_auc_ovr_weighted",
+        }
+        scoring = metric_scoring_map.get(selected_metric)
+        sign = -1.0 if scoring and scoring.startswith("neg_") else 1.0
+        label = selected_metric if scoring else "Score"
+        return scoring, sign, label
+
     def _get_current_sklearn_usi(self, fallback="LOAD"):
         raw = ""
         if hasattr(self, "ed_skl_USI") and self.ed_skl_USI is not None:
@@ -22187,6 +22373,183 @@ class MainWindow(QMainWindow):
             import traceback; traceback.print_exc()
             QMessageBox.critical(self, i18n.t("msg_title_plot_error", self._idioma), str(e))
 
+    def run_skl_yrandomization(self):
+        """STEP 4 'Validation and Model Robustness' group, 'Run Y-Scrambling' button:
+        OECD-recommended check that the selected model's performance isn't chance correlation.
+        Retrains the model 'n' times with the response column shuffled (same X, same CV scheme -
+        same number of Folds as 'Run Cross-Validation' above, same 'Sort metric' as Learning
+        Curve), then compares that distribution against the real (unshuffled) model evaluated the
+        same way. The n permutations run in parallel (joblib, one process per permutation - each
+        internal cross_val_score stays single-threaded to avoid oversubscription)."""
+        try:
+            model_name = self.cb_skl_tune_model.currentText().strip() if hasattr(self, "cb_skl_tune_model") else ""
+            model = getattr(self, "skl_trained_models", {}).get(model_name) if model_name else None
+            if model is None:
+                QMessageBox.warning(self, i18n.t("msg_title_plot", self._idioma),
+                    "Select a model in the Hyperparameter Tuning group's 'Model' combobox "
+                    "(Run Screening first to populate it)."
+                )
+                return
+
+            _registry, task = self._get_skl_registry()
+            if task not in ("regression", "classification"):
+                QMessageBox.warning(self, i18n.t("msg_title_plot", self._idioma),
+                    "Y-Scrambling applies to regression/classification models only (not clustering, "
+                    "which has no response column to shuffle)."
+                )
+                return
+
+            x = getattr(self, "skl_x", None); y = getattr(self, "skl_y", None)
+            if x is None or y is None:
+                QMessageBox.warning(self, i18n.t("msg_title_plot", self._idioma),
+                    "This chart needs the X/y from Run Screening. Run Screening at least once in "
+                    "this session before running Y-Scrambling."
+                )
+                return
+
+            n_perm = self.sp_skl_yrand_n.value() if hasattr(self, "sp_skl_yrand_n") else 100
+            selected_metric = self.cb_skl_metric.currentText().strip() if hasattr(self, "cb_skl_metric") else ""
+            scoring, sign, metric_label = self._skl_scoring_for_metric(selected_metric)
+            higher_is_better = not (scoring and scoring.startswith("neg_"))
+            random_state = self._get_skl_random_state()
+
+            # Mesmo nº de Folds do grupo Cross-Validation (sp_skl_cv_folds) - fixos para o modelo
+            # real e para TODAS as permutações, isolando o efeito do embaralhamento de Y do ruído
+            # de qual composto cai em qual fold.
+            n_folds = self.sp_skl_cv_folds.value() if hasattr(self, "sp_skl_cv_folds") else 10
+            n_folds = max(2, min(n_folds, len(y)))
+            if task == "classification":
+                cv = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=random_state)
+            else:
+                cv = KFold(n_splits=n_folds, shuffle=True, random_state=random_state)
+
+            self._set_current_sklearn_usi_context()
+
+            y_arr = np.asarray(y)
+            # Proxy numérico de y para o eixo de correlação do gráfico de dispersão: o valor
+            # contínuo real em regressão; para classificação (rótulos não numéricos), um código
+            # inteiro por classe via factorize - não é uma "distância" real entre classes, mas
+            # basta para o diagnóstico visual (compostos com o mesmo rótulo após embaralhar
+            # colam nos mesmos códigos, medindo o quanto a ordem de Y sobreviveu ao embaralhamento).
+            if task == "classification":
+                y_codes = pd.factorize(pd.Series(y_arr))[0].astype(float)
+            else:
+                y_codes = y_arr.astype(float)
+            y_codes_std = float(np.std(y_codes))
+
+            base_rng = np.random.RandomState(random_state)
+            seeds = base_rng.randint(0, 2_000_000_000, size=int(n_perm)).tolist()
+            n_jobs = -1
+
+            def _yrand_single_run(seed):
+                rng = np.random.RandomState(seed)
+                perm_idx = rng.permutation(len(y_arr))
+                y_perm = y_arr[perm_idx]
+                corr = float(np.corrcoef(y_codes[perm_idx], y_codes)[0, 1]) if y_codes_std > 0 else 0.0
+                scores = cross_val_score(clone(model), x, y_perm, cv=cv, scoring=scoring, n_jobs=1)
+                return sign * float(np.mean(scores)), corr
+
+            dlg = self.show_wait_message_dialog(
+                "Y-Scrambling", f"Running {n_perm} permutations (parallel)... Please wait for it to finish!"
+            )
+            try:
+                t0 = time.time()
+                real_scores = cross_val_score(clone(model), x, y_arr, cv=cv, scoring=scoring, n_jobs=-1)
+                real_metric = sign * float(np.mean(real_scores))
+                results = joblib.Parallel(n_jobs=n_jobs)(
+                    joblib.delayed(_yrand_single_run)(seed) for seed in seeds
+                )
+                elapsed = time.time() - t0
+            finally:
+                dlg.close()
+
+            scrambled_metrics = np.array([r[0] for r in results], dtype=float)
+            correlations = np.array([r[1] for r in results], dtype=float)
+            mean_scr = float(scrambled_metrics.mean())
+            std_scr = float(scrambled_metrics.std())
+
+            # cRp² (Tropsha): só faz sentido para métricas "maior é melhor" limitadas a ~[0, 1]
+            # (R², Accuracy) - para as demais (RMSE/MAE/MSE, ou quando a média embaralhada já
+            # supera o real) fica None/"N/A".
+            crp2 = None
+            if scoring in ("r2", "accuracy") and real_metric > mean_scr:
+                crp2 = real_metric * float(np.sqrt(real_metric - mean_scr))
+
+            # p-valor empírico: fração de modelos embaralhados que igualam/superam o real - para
+            # métricas "menor é melhor" (RMSE/MAE/MSE) a comparação se inverte.
+            if higher_is_better:
+                p_value = float(np.mean(scrambled_metrics >= real_metric))
+            else:
+                p_value = float(np.mean(scrambled_metrics <= real_metric))
+
+            # ---------------- Figura: histograma + gráfico de dispersão ----------------
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+            ax1.hist(scrambled_metrics, bins=min(30, max(10, int(n_perm) // 5)), color="#bd5e5e", alpha=0.75,
+                      label=f"Scrambled (n={n_perm})")
+            ax1.axvline(real_metric, color="#2ECC71", lw=2.4,
+                        label=f"Real model ({metric_label} = {real_metric:.3g})")
+            ax1.set_xlabel(metric_label); ax1.set_ylabel("Count")
+            ax1.set_title("Scrambled metric distribution")
+            ax1.legend(fontsize=8, loc="best")
+
+            ax2.scatter(correlations, scrambled_metrics, s=18, alpha=0.55, color="#7aa6c2",
+                        label=f"Scrambled (n={n_perm})")
+            ax2.scatter([1.0], [real_metric], marker="*", s=260, color="#2ECC71", edgecolor="black",
+                        linewidths=0.8, zorder=5, label="Real model")
+            ax2.set_xlabel("Correlation with original Y"); ax2.set_ylabel(metric_label)
+            ax2.set_title("Y-Scrambling plot")
+            ax2.legend(fontsize=8, loc="best")
+
+            crp2_text = f"{crp2:.3g}" if crp2 is not None else "N/A"
+            fig.suptitle(f"{model_name}: Y-Scrambling (n={n_perm})", fontweight="bold")
+            fig.text(0.5, 0.01,
+                f"Scrambled {metric_label}: {mean_scr:.3g} ± {std_scr:.3g}  |  cR²p: {crp2_text}  |  "
+                f"empirical p-value: {p_value:.3g}  |  {n_jobs if n_jobs > 0 else 'all'} cores, {elapsed:.1f}s",
+                ha="center", fontsize=8.5, style="italic")
+            fig.tight_layout(rect=[0, 0.04, 1, 1])
+
+            # Convenção das demais figuras de STEP 4: imagem em MIDIA, dado tabular em DATA.
+            file_stem = f"{model_name}_yrandomization_{self.skl_usi_key}"
+            auto_path = os.path.join(self.skl_plot_path, f"{file_stem}.png")
+            try:
+                os.makedirs(self.skl_plot_path, exist_ok=True)
+                fig.savefig(auto_path, dpi=300, bbox_inches="tight", facecolor="white")
+            except Exception:
+                pass
+
+            csv_path = os.path.join(self.skl_out_data, f"{file_stem}.csv")
+            try:
+                os.makedirs(self.skl_out_data, exist_ok=True)
+                pd.DataFrame({
+                    "iteration": np.arange(1, int(n_perm) + 1),
+                    "seed": seeds,
+                    "correlation_with_y": correlations,
+                    "scrambled_metric": scrambled_metrics,
+                    "real_metric": real_metric,
+                    "scrambled_mean": mean_scr,
+                    "scrambled_std": std_scr,
+                    "crp2": crp2 if crp2 is not None else np.nan,
+                    "p_value": p_value,
+                    "n_permutations": int(n_perm),
+                    "n_folds": int(n_folds),
+                    "metric_label": metric_label,
+                    "elapsed_seconds": elapsed,
+                }).to_csv(csv_path, index=False)
+            except Exception:
+                pass
+
+            summary_text = (
+                f"Real {metric_label} = {real_metric:.3g}  |  Scrambled = {mean_scr:.3g} ± {std_scr:.3g}  |  "
+                f"cR²p = {crp2_text}  |  p-value = {p_value:.3g}  |  n = {n_perm} ({elapsed:.1f}s)"
+            )
+            if hasattr(self, "lbl_skl_yrand_summary"):
+                self.lbl_skl_yrand_summary.setText(summary_text)
+
+            self._show_skl_plot_dialog(fig, "yrandomization", file_stem)
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            QMessageBox.critical(self, i18n.t("msg_title_plot_error", self._idioma), str(e))
+
     def _save_feature_importance_structures(self, model_name, feat_names, order, importances):
         """Side artifact of the STEP 4 'Feature Importance' chart (Performance Charts group,
         'Plot Model'): for each of the Top 15 highlighted features, identifies its structural
@@ -22382,24 +22745,8 @@ class MainWindow(QMainWindow):
             # mapeada para os scorers nativos do sklearn, que já fazem a validação cruzada
             # internamente. Métricas sem equivalente direto (ex.: as de clustering) caem
             # no comportamento anterior (scoring=None -> score padrão do modelo).
-            metric_scoring_map = {
-                "R2 Test": "r2", "R2": "r2",
-                "RMSE": "neg_root_mean_squared_error",
-                "MAE": "neg_mean_absolute_error",
-                "MSE": "neg_mean_squared_error",
-                "Accuracy Test": "accuracy", "Accuracy": "accuracy",
-                "F1": "f1_weighted",
-                "Precision": "precision_weighted",
-                "Recall": "recall_weighted",
-                "AUC": "roc_auc_ovr_weighted",
-            }
             selected_metric = self.cb_skl_metric.currentText().strip() if hasattr(self, "cb_skl_metric") else ""
-            scoring = metric_scoring_map.get(selected_metric)
-            # Métricas "neg_*" do sklearn vêm com sinal invertido (convenção interna para
-            # manter "maior é melhor" em toda a API) - invertido de volta para exibir na
-            # escala usual (ex.: RMSE positivo).
-            sign = -1.0 if scoring and scoring.startswith("neg_") else 1.0
-            y_label = selected_metric if scoring else "Score"
+            scoring, sign, y_label = self._skl_scoring_for_metric(selected_metric)
 
             try:
                 # shuffle=True: por padrão o sklearn NÃO embaralha antes de repartir os 5 folds

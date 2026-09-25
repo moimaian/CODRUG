@@ -446,10 +446,34 @@ _TEXTOS = {
     "s4_chk_standardize_nitro": {"en": "Standardize Nitro Groups", "pt": "Padronizar Grupos Nitro"},
     "s4_chk_retain_3d": {"en": "Retain 3D coordinates", "pt": "Manter coordenadas 3D"},
     "s4_tooltip_retain_3d": {
-        "en": "Only affects the '3D' descriptor group. When checked, compounds loaded via 'Or Select Structures File' from a real 3D source (.sdf/.mol2/.pdb/.pdbqt/.xyz with actual 3D coordinates) use that ORIGINAL geometry instead of one re-embedded from SMILES; compounds without a native 3D structure still get an embedded conformer so no row is lost. Unchecked (default): 3D descriptors are always computed from an embedding of the SMILES, like before.",
-        "pt": "Só afeta o grupo de descritores '3D'. Quando marcado, compostos carregados via 'Or Select Structures File' a partir de uma fonte 3D real (.sdf/.mol2/.pdb/.pdbqt/.xyz com coordenadas 3D de fato) usam essa geometria ORIGINAL em vez de uma reconstruída a partir do SMILES; compostos sem estrutura 3D nativa ainda recebem um embedding, para nenhuma linha ser perdida. Desmarcado (padrão): os descritores 3D continuam sempre calculados a partir de um embedding do SMILES, como antes.",
+        "en": "Only affects the '3D' descriptor group. When EITHER this or 'Convert to 3D' is "
+              "checked: compounds loaded via 'Or Select Structures File' from a real 3D source "
+              "(.sdf/.mol2/.pdb/.pdbqt/.xyz with actual 3D coordinates) use that ORIGINAL "
+              "geometry; compounds without native 3D instead get a small conformational ensemble "
+              "(ETKDGv3 + MMFF/UFF optimization + RMSD-based pruning of near-duplicates), and the "
+              "3D descriptors are computed as a Boltzmann-weighted average over that ensemble - "
+              "not a single arbitrary conformer. When BOTH are unchecked (default): PaDEL "
+              "generates a single 3D conformer internally, like before.",
+        "pt": "Só afeta o grupo de descritores '3D'. Quando ESTE ou 'Convert to 3D' estiver "
+              "marcado: compostos carregados via 'Or Select Structures File' a partir de uma "
+              "fonte 3D real (.sdf/.mol2/.pdb/.pdbqt/.xyz com coordenadas 3D de fato) usam essa "
+              "geometria ORIGINAL; compostos sem 3D nativo recebem em vez disso um pequeno "
+              "ensemble conformacional (ETKDGv3 + otimização MMFF/UFF + pruning de "
+              "quase-duplicatas por RMSD), e os descritores 3D são calculados como uma média "
+              "ponderada por Boltzmann sobre esse ensemble - não uma única conformação "
+              "arbitrária. Quando AMBOS estiverem desmarcados (padrão): o PaDEL gera uma única "
+              "conformação 3D internamente, como antes.",
     },
     "s4_chk_convert_3d": {"en": "Convert to 3D", "pt": "Converter para 3D"},
+    "s4_tooltip_convert_3d": {
+        "en": "Only affects the '3D' descriptor group. Has the same effect as 'Retain 3D "
+              "coordinates' above (checking either one is enough) - see its tooltip for details "
+              "on the native-geometry/conformational-ensemble behavior this triggers.",
+        "pt": "Só afeta o grupo de descritores '3D'. Tem o mesmo efeito de 'Manter coordenadas 3D' "
+              "acima (marcar qualquer um dos dois já basta) - veja o tooltip dele para os "
+              "detalhes do comportamento de geometria nativa/ensemble conformacional que isso "
+              "aciona.",
+    },
     "s4_btn_generate_descriptors": {"en": "Generate \nDescriptors", "pt": "Gerar \nDescritores"},
     "s4_grp_dimensionality_reduction": {"en": "Dimensionality Reduction", "pt": "Redução de Dimensionalidade"},
     "s4_lbl_feature_columns_range": {"en": "Feature Columns Range:", "pt": "Intervalo de Colunas de Atributos:"},
@@ -530,7 +554,7 @@ _TEXTOS = {
     "s6_btn_remove_hyperparam_row": {"en": "− Remove row", "pt": "− Remover linha"},
     "lbl_parameter": {"en": "Parameter:", "pt": "Parâmetro:"},
     "btn_plot": {"en": "Plot", "pt": "Plotar"},
-    "s6_grp_validation": {"en": "Validation", "pt": "Validação"},
+    "s6_grp_validation": {"en": "Validation and Model Robustness", "pt": "Validação e Robustez do Modelo"},
     "s6_lbl_folds": {"en": "Folds:", "pt": "Folds:"},
     "s6_lbl_p_leave_p_out": {"en": "p (Leave-P-Out):", "pt": "p (Leave-P-Out):"},
     "s6_btn_run_cross_validation": {"en": "Run Cross-Validation", "pt": "Executar Validação Cruzada"},
@@ -542,6 +566,34 @@ _TEXTOS = {
     "s6_tooltip_metric_legend": {
         "en": "Add R2, MAE, RMSE and MSE to the chart legend (regression charts only).",
         "pt": "Adiciona R2, MAE, RMSE e MSE à legenda do gráfico (somente gráficos de regressão).",
+    },
+    "s6_lbl_yrand_n": {"en": "Permutations (n):", "pt": "Permutações (n):"},
+    "s6_tooltip_yrand_n": {
+        "en": "Number of Y-scrambling runs. Each run shuffles the response column, retrains the "
+              "selected model with the same cross-validation scheme (same 'Folds' as "
+              "Cross-Validation, above), and records its score. 100 is the standard literature "
+              "default.",
+        "pt": "Número de execuções da Y-scrambling. Cada execução embaralha a coluna resposta, "
+              "retreina o modelo selecionado com o mesmo esquema de validação cruzada (mesmo "
+              "'Folds' do Cross-Validation, acima), e registra sua métrica. 100 é o padrão usual "
+              "na literatura.",
+    },
+    "s6_btn_yrand_run": {"en": "Run Y-Scrambling", "pt": "Executar Y-Scrambling"},
+    "s6_tooltip_yrand_run": {
+        "en": "OECD-recommended robustness check: retrains the model selected in Hyperparameter "
+              "Tuning's 'Model' combobox n times with the response column shuffled (same X, same "
+              "number of Folds as Cross-Validation above, same 'Sort metric'), and compares the "
+              "resulting metric distribution against the real (unshuffled) model - a clear gap is "
+              "evidence the real model isn't just chance correlation. Requires Run Screening to "
+              "have been run first (uses the same X/y). Runs the n permutations in parallel "
+              "across CPU cores.",
+        "pt": "Verificação de robustez recomendada pela OECD: retreina o modelo selecionado na caixa "
+              "'Model' do Hyperparameter Tuning n vezes com a coluna resposta embaralhada (mesmo X, "
+              "mesmo número de Folds do Cross-Validation acima, mesma 'Sort metric'), e compara a "
+              "distribuição de métricas resultante contra o modelo real (não embaralhado) - uma "
+              "diferença clara é evidência de que o modelo real não é fruto de correlação ao "
+              "acaso. Requer ter rodado Run Screening antes (usa o mesmo X/y). Executa as n "
+              "permutações em paralelo entre os núcleos da CPU.",
     },
     "msg_step6_build_error_title": {"en": "STEP 6 build error", "pt": "Erro ao construir a ETAPA 6"},
     "msg_step6_build_error": {
