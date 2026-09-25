@@ -231,7 +231,7 @@ try:
     from sklearn.base import clone
     from sklearn.metrics import (
         accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, roc_curve, auc, classification_report, confusion_matrix, mean_squared_error as mse, mean_absolute_error as mae, r2_score,
-        silhouette_score, silhouette_samples, davies_bouldin_score, calinski_harabasz_score, precision_recall_curve,
+        silhouette_score, silhouette_samples, davies_bouldin_score, calinski_harabasz_score, precision_recall_curve, matthews_corrcoef,
     )
     from sklearn.calibration import calibration_curve
     from sklearn.manifold import TSNE
@@ -2224,6 +2224,7 @@ class SklScreeningWorker(QThread): # type: ignore
                             row["F1"] = float(f1_score(self.y_test, y_test_pred, average="weighted"))
                             row["Precision"] = float(precision_score(self.y_test, y_test_pred, average="weighted", zero_division=0))
                             row["Recall"] = float(recall_score(self.y_test, y_test_pred, average="weighted"))
+                            row["MCC"] = float(matthews_corrcoef(self.y_test, y_test_pred))
                             try:
                                 if hasattr(model, "predict_proba"):
                                     proba = model.predict_proba(self.x_test)
@@ -2349,6 +2350,8 @@ def _skl_curve_compute_metric(metric, y_true, y_pred, model=None, x=None):
         return float(precision_score(y_true, y_pred, average="weighted", zero_division=0))
     if metric == "Recall":
         return float(recall_score(y_true, y_pred, average="weighted"))
+    if metric == "MCC":
+        return float(matthews_corrcoef(y_true, y_pred))
     if metric == "AUC":
         if model is None or x is None or not hasattr(model, "predict_proba"):
             return float("nan")
@@ -10204,6 +10207,15 @@ class MainWindow(QMainWindow):
             "FP": self.chk_Fingerprint.isChecked(),
         }[dtype]
 
+        if dtype == "3D" and checked:
+            # "3D" ligado: marca "Retain 3D coordinates"/"Convert to 3D" por padrão - são eles
+            # que acionam a geometria 3D real/ensemble conformacional em vez de deixar o PaDEL
+            # embutir uma única conformação arbitrária sozinho (ver _get_or_build_3d_mol_dir).
+            if hasattr(self, "chk_3dcoord"):
+                self.chk_3dcoord.setChecked(True)
+            if hasattr(self, "chk_3dconvert"):
+                self.chk_3dconvert.setChecked(True)
+
         if checked:
             # lista alvo para esse tipo
             pool = self._padel_catalog.get(dtype, [])
@@ -10220,11 +10232,27 @@ class MainWindow(QMainWindow):
             self._remove_items_from_qListWidget(self.list_descriptors, self._shown_by_type[dtype])
             self._shown_by_type[dtype].clear()
 
+            # "3D" desligado e nenhum descritor 3D restou selecionado na lista: desmarca "Retain
+            # 3D coordinates"/"Convert to 3D" junto, para não deixá-los marcados sem nenhum
+            # descritor 3D ativo.
+            if dtype == "3D" and not self._has_3d_descriptor_selected():
+                if hasattr(self, "chk_3dcoord"):
+                    self.chk_3dcoord.setChecked(False)
+                if hasattr(self, "chk_3dconvert"):
+                    self.chk_3dconvert.setChecked(False)
+
         # mantém ordenado
         try:
             self.list_descriptors.sortItems()
         except Exception:
             pass
+
+    def _has_3d_descriptor_selected(self) -> bool:
+        """True se algum item atualmente selecionado (destacado) em 'Select Descriptors'
+        pertence ao catálogo de descritores 3D - usado para decidir se é seguro desmarcar
+        automaticamente 'Retain 3D coordinates'/'Convert to 3D' junto com o checkbox '3D'."""
+        pool_3d = set(self._padel_catalog.get("3D", []))
+        return any(item.text() in pool_3d for item in self.list_descriptors.selectedItems())
 
     def _qListWidget_items(self, lw) -> list[str]:
         return [lw.item(i).text() for i in range(lw.count())]
@@ -10252,8 +10280,10 @@ class MainWindow(QMainWindow):
         """
         try:
             # ---------- Seleção de pasta ----------
+            initial_dir = os.path.join(self.job_dir, "DATA_BASES") if getattr(self, "job_dir", None) else ""
             directory = QFileDialog.getExistingDirectory(
-                self, "Selecione a pasta com estruturas (.smi, .sdf, .mol, .mol2, .pdb, .pdbqt, .xyz)"
+                self, "Selecione a pasta com estruturas (.smi, .sdf, .mol, .mol2, .pdb, .pdbqt, .xyz)",
+                initial_dir
             )
             if not directory:
                 return
@@ -10415,50 +10445,51 @@ class MainWindow(QMainWindow):
                 if not mols:
                     continue
 
-                # Detecta 2D/3D amostrando a 1ª mol válida do arquivo
-                sample_is_3d = _is_3d_mol(mols[0])
+                # Detecta 2D/3D POR MOLÉCULA - não amostrando só a 1ª do arquivo. Um arquivo
+                # multiligante pode legitimamente misturar entradas 2D e 3D (ou a 1ª molécula
+                # calhar de ser 2D/degenerada mesmo com o resto genuinamente 3D); decidir para o
+                # arquivo INTEIRO com base numa única amostra descartava coordenadas 3D reais de
+                # todas as demais moléculas sempre que a amostra desse "errado".
+                any_3d = False
+                out_smi_lines = []
+                for idx, m in enumerate(mols, start=1):
+                    if m is None:
+                        continue
+                    nm = _safe_name(m, f"{Path(struct_path).stem}_{idx}")
+                    if _is_3d_mol(m):
+                        # 3D nativa → grava a geometria original (usada por Generate Descriptors).
+                        any_3d = True
+                        _register(nm, _canonical(Chem.Mol(m)), _save_native_3d(m, nm))
+                    elif convert_3d:
+                        # 2D + "Convert to 3D": embedding novo (geometria GERADA, não nativa).
+                        m3d = _embed_optimize_3d(m) or m
+                        out_file = os.path.join(out_3d_dir, f"{nm}.sdf")
+                        try:
+                            w = Chem.SDWriter(out_file)
+                            w.write(m3d)
+                            w.close()
+                        except Exception:
+                            pass
+                        _register(nm, _canonical(Chem.Mol(m)))
+                    else:
+                        # 2D, sem conversão: só o SMILES (1D) - nada de 3D a preservar/gerar.
+                        can = _canonical(Chem.Mol(m))
+                        if can:
+                            out_smi_lines.append((can, nm))
+                            _register(nm, can)
 
-                if sample_is_3d:
-                    # 3D → mantém uma cópia do arquivo original (registro bruto, multiligante) e
-                    # grava também uma geometria nativa por composto (usada por Generate Descriptors).
+                if any_3d:
+                    # Mantém uma cópia do arquivo original (registro bruto, multiligante) - útil
+                    # mesmo quando só parte das moléculas do arquivo é de fato 3D.
                     try:
                         shutil.copy2(struct_path, os.path.join(out_3d_dir, os.path.basename(struct_path)))
                     except Exception:
                         pass
-                    for idx, m in enumerate(mols, start=1):
-                        nm = _safe_name(m, f"{Path(struct_path).stem}_{idx}")
-                        _register(nm, _canonical(Chem.Mol(m)), _save_native_3d(m, nm))
-                else:
-                    # 2D
-                    if convert_3d:
-                        # Converte cada molécula em 3D (embedding) e salva como SDF individual em
-                        # 3D - geometria GERADA, não nativa, então native_3d_sdf fica vazio.
-                        for idx, m in enumerate(mols, start=1):
-                            if m is None:
-                                continue
-                            nm = _safe_name(m, f"{Path(struct_path).stem}_{idx}")
-                            m3d = _embed_optimize_3d(m) or m
-                            out_file = os.path.join(out_3d_dir, f"{nm}.sdf")
-                            try:
-                                w = Chem.SDWriter(out_file)
-                                w.write(m3d)
-                                w.close()
-                            except Exception:
-                                pass
-                            _register(nm, _canonical(Chem.Mol(m)))
-                    else:
-                        # Não converter 3D → gerar canonical SMILES e salvar .smi individuais em 1D
-                        out_smi = os.path.join(out_1d_dir, f"{Path(struct_path).stem}_canonical.smi")
-                        with open(out_smi, "w", encoding="utf-8") as fw:
-                            for idx, m in enumerate(mols, start=1):
-                                if m is None:
-                                    continue
-                                nm = _safe_name(m, f"{Path(struct_path).stem}_{idx}")
-                                can = _canonical(Chem.Mol(m))
-                                if not can:
-                                    continue
-                                fw.write(f"{can}\t{nm}\n")
-                                _register(nm, can)
+                if out_smi_lines:
+                    out_smi = os.path.join(out_1d_dir, f"{Path(struct_path).stem}_canonical.smi")
+                    with open(out_smi, "w", encoding="utf-8") as fw:
+                        for can, nm in out_smi_lines:
+                            fw.write(f"{can}\t{nm}\n")
 
             # ---------- Processa .mol2 / .pdb / .pdbqt / .xyz (via OpenBabel) ----------
             ob_paths = [(p, ext) for p, ext in found_files if ext in OB_EXTS]
@@ -11271,6 +11302,17 @@ class MainWindow(QMainWindow):
 
             df_final = pd.merge(source_pairs, df_final, on="Name", how="inner")
 
+            # Composto cujos descritores vieram TODOS NaN (ex.: PaDEL/CDK falhou em calculá-los
+            # para aquele composto, mesmo a linha existindo) conta como "sem descritores finais"
+            # tanto quanto um composto ausente do merge - removido aqui para não sobreviver
+            # silenciosamente cheio de NaN, e para entrar na auditoria abaixo
+            # ("Compounds removed after descriptor generation"/"without final descriptors").
+            # Só remove se TODAS as colunas de descritor estiverem NaN - um composto com só ALGUNS
+            # descritores NaN (ex.: 3D falhou mas 2D/fingerprint calcularam bem) é mantido.
+            _descriptor_cols = [c for c in df_final.columns if c not in {"Name", "SMILES", "_name_key"}]
+            if _descriptor_cols:
+                df_final = df_final.loc[~df_final[_descriptor_cols].isna().all(axis=1)].copy()
+
             missing_after_generation = source_pairs.loc[~source_pairs["Name"].isin(df_final["Name"])].copy()
 
             ordered_cols = ["Name", "SMILES"] + [col for col in df_final.columns if col not in {"Name", "SMILES", "_name_key"}]
@@ -11416,6 +11458,11 @@ class MainWindow(QMainWindow):
             df1_name = os.path.basename(self.file_path1)
             self.ed_internal_dataset_list1.setText(df1_name)
 
+            # "Select Index": populado automaticamente com o primeiro (0) e o último índice de
+            # coluna do dataframe carregado - o usuário edita a partir daí, se quiser um subconjunto.
+            self.ed_feature1_first_column.setText("0")
+            self.ed_feature1_last_column.setText(str(len(self.df1.columns) - 1))
+
             QMessageBox.information(self, i18n.t("msg_title_success", self._idioma), f"Dataset loaded from:\n{self.file_path1}")
 
         except Exception as e:
@@ -11455,6 +11502,11 @@ class MainWindow(QMainWindow):
             # Atualiza o campo de nome do dataset
             df2_name = os.path.basename(self.file_path2)
             self.ed_internal_dataset_list2.setText(df2_name)
+
+            # "Select Index": populado automaticamente com o primeiro (0) e o último índice de
+            # coluna do dataframe carregado - o usuário edita a partir daí, se quiser um subconjunto.
+            self.ed_feature2_first_column.setText("0")
+            self.ed_feature2_last_column.setText(str(len(self.df2.columns) - 1))
 
             QMessageBox.information(self, i18n.t("msg_title_success", self._idioma), f"Dataset loaded from:\n{self.file_path2}")
 
@@ -21070,6 +21122,7 @@ class MainWindow(QMainWindow):
             "F1": "f1_weighted",
             "Precision": "precision_weighted",
             "Recall": "recall_weighted",
+            "MCC": "matthews_corrcoef",
             "AUC": "roc_auc_ovr_weighted",
         }
         scoring = metric_scoring_map.get(selected_metric)
@@ -21331,7 +21384,7 @@ class MainWindow(QMainWindow):
         if task == "regression":
             self.cb_skl_metric.addItems(["R2 Test", "RMSE", "MAE", "MSE"])
         elif task == "classification":
-            self.cb_skl_metric.addItems(["Accuracy Test", "F1", "Precision", "Recall", "AUC"])
+            self.cb_skl_metric.addItems(["Accuracy Test", "F1", "Precision", "Recall", "MCC", "AUC"])
         elif task == "clustering":
             self.cb_skl_metric.addItems(["Silhouette", "Davies-Bouldin", "Calinski-Harabasz"])
 
