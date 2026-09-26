@@ -10084,6 +10084,10 @@ class MainWindow(QMainWindow):
             "ECFP4 (RDkit classic)",
             "FCFP6 (RDkit)",
             "ECFP4 counting (without 1D2D)",
+            "Avalon FP (RDKit)",
+            "Topological Torsion (RDKit)",
+            "Pattern FP (RDKit)",
+            "Atom Pair (RDKit)",
         ]
 
         # guarda para referência (opcional)
@@ -10613,9 +10617,13 @@ class MainWindow(QMainWindow):
             from PyQt5.QtWidgets import QMessageBox, QProgressDialog, QApplication
 
             rdkit_fp_set = {
-                "ECFP4 (RDkit clsssic)",
+                "ECFP4 (RDkit classic)",
                 "FCFP6 (RDkit)",
                 "ECFP4 counting (without 1D2D)",
+                "Avalon FP (RDKit)",
+                "Topological Torsion (RDKit)",
+                "Pattern FP (RDKit)",
+                "Atom Pair (RDKit)",
             }
 
             # ================== UI selections ==================
@@ -12281,10 +12289,11 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, i18n.t("msg_title_attention", self._idioma), msg)
 
     def _compute_rdkit_fp_single_mode(self, mode, structure_col, name_col, fp_bits=2048, fp_chirality=True):
-        
-        
+
+
         from rdkit import Chem
         from rdkit.Chem import rdMolDescriptors
+        from rdkit.Avalon import pyAvalonTools
 
         def _molf(s):
             try:
@@ -12306,6 +12315,14 @@ class MainWindow(QMainWindow):
                 atomInvariantsGenerator=atom_inv_gen
                 # (demais parâmetros ficam nos defaults: countSimulation=False etc.)
             )
+
+        @lru_cache(maxsize=4)
+        def _get_tt_gen(n_bits: int, include_chirality: bool):
+            return rfg.GetTopologicalTorsionGenerator(fpSize=n_bits, includeChirality=include_chirality)
+
+        @lru_cache(maxsize=4)
+        def _get_ap_gen(n_bits: int, include_chirality: bool):
+            return rfg.GetAtomPairGenerator(fpSize=n_bits, includeChirality=include_chirality)
 
         def _ecfp4_bits(m):
             """ECFP4 (raio=2) como vetor binário 0/1."""
@@ -12338,18 +12355,72 @@ class MainWindow(QMainWindow):
                 arr[int(idx)] = int(cnt)      # índices já dentro de [0, fp_bits]
             return arr
 
+        def _avalon_bits(m):
+            """Avalon fingerprint (pyAvalonTools) como vetor binário 0/1."""
+            if m is None:
+                return np.zeros(fp_bits, dtype=np.int8)
+            bv = pyAvalonTools.GetAvalonFP(m, nBits=fp_bits)
+            arr = np.zeros((fp_bits,), dtype=np.int8)
+            DataStructs.ConvertToNumpyArray(bv, arr)
+            return arr
+
+        def _pattern_bits(m):
+            """Pattern fingerprint (usado originalmente para triagem de substrutura) como vetor
+            binário 0/1."""
+            if m is None:
+                return np.zeros(fp_bits, dtype=np.int8)
+            bv = Chem.PatternFingerprint(m, fpSize=fp_bits)
+            arr = np.zeros((fp_bits,), dtype=np.int8)
+            DataStructs.ConvertToNumpyArray(bv, arr)
+            return arr
+
+        def _tt_bits(m):
+            """Topological Torsion fingerprint (caminhos de 4 átomos) como vetor binário 0/1."""
+            if m is None:
+                return np.zeros(fp_bits, dtype=np.int8)
+            gen = _get_tt_gen(fp_bits, bool(fp_chirality))
+            bv = gen.GetFingerprint(m)
+            arr = np.zeros((fp_bits,), dtype=np.int8)
+            DataStructs.ConvertToNumpyArray(bv, arr)
+            return arr
+
+        def _atom_pair_bits(m):
+            """Atom Pair fingerprint (pares de átomos por distância topológica) como vetor
+            binário 0/1."""
+            if m is None:
+                return np.zeros(fp_bits, dtype=np.int8)
+            gen = _get_ap_gen(fp_bits, bool(fp_chirality))
+            bv = gen.GetFingerprint(m)
+            arr = np.zeros((fp_bits,), dtype=np.int8)
+            DataStructs.ConvertToNumpyArray(bv, arr)
+            return arr
+
         df = self.df_selecionado.dropna(subset=[structure_col]).copy()
         names = df[name_col].astype(str).tolist()
         mols  = [ _molf(s) for s in df[structure_col].astype(str).tolist() ]
 
-        rows = []
-        if mode == "ECFP4 (RDkit clsssic)":
+        if mode == "ECFP4 (RDkit classic)":
             rows = [_ecfp4_bits(m) for m in mols]
             cols = [f"ECFP4_{i}" for i in range(fp_bits)]
         elif mode == "FCFP6 (RDkit)":
             rows = [_fcfp6_bits(m) for m in mols]
             cols = [f"FCFP6_{i}" for i in range(fp_bits)]
-        else:  # counting
+        elif mode == "ECFP4 counting (without 1D2D)":
+            rows = [_ecfp4_count(m) for m in mols]
+            cols = [f"ECFP4_count_{i}" for i in range(fp_bits)]
+        elif mode == "Avalon FP (RDKit)":
+            rows = [_avalon_bits(m) for m in mols]
+            cols = [f"AvalonFP_{i}" for i in range(fp_bits)]
+        elif mode == "Pattern FP (RDKit)":
+            rows = [_pattern_bits(m) for m in mols]
+            cols = [f"PatternFP_{i}" for i in range(fp_bits)]
+        elif mode == "Topological Torsion (RDKit)":
+            rows = [_tt_bits(m) for m in mols]
+            cols = [f"TopTorsionFP_{i}" for i in range(fp_bits)]
+        elif mode == "Atom Pair (RDKit)":
+            rows = [_atom_pair_bits(m) for m in mols]
+            cols = [f"AtomPairFP_{i}" for i in range(fp_bits)]
+        else:  # fallback conservador (comportamento antigo) para um mode não reconhecido
             rows = [_ecfp4_count(m) for m in mols]
             cols = [f"ECFP4_count_{i}" for i in range(fp_bits)]
 
