@@ -4044,7 +4044,6 @@ class MainWindow(QMainWindow):
     STEP2_FIELD_SPEC = [
         ("selected_dataframe", "df_name_view"),
         ("filter_columns_selected", "list_columns"),
-        ("type_column", "list_types"),
         ("unit_column", "list_units"),
         ("rep_group_column", "list_columns_rep"),
         ("rep_method", "list_methods_rep"),
@@ -4098,6 +4097,13 @@ class MainWindow(QMainWindow):
     def _collect_step2_state(self):
         state = self._collect_state_from_spec(self.STEP2_FIELD_SPEC)
         state.update(self._collect_plain_attrs(self.STEP2_PLAIN_SPEC))
+        # "2. Select standard type" (list_types) fica de fora do FIELD_SPEC genérico de propósito:
+        # esse mecanismo descarta valores em branco (trata como "campo ainda não preenchido"), mas
+        # aqui um branco DELIBERADO (o usuário apagou "IC50" para cair no fallback de
+        # standard_value/value em "Run selected method") é uma escolha real que precisa
+        # sobreviver ao salvar/reabrir o job - por isso sempre incluído, mesmo vazio.
+        if hasattr(self, "list_types"):
+            state["type_column"] = self.list_types.currentText().strip()
         return state
 
     def _apply_step2_state(self, state):
@@ -4120,6 +4126,12 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
         self._apply_state_from_spec(self.STEP2_FIELD_SPEC, state)
+        # Restaura "2. Select standard type" por fora do FIELD_SPEC (ver _collect_step2_state) -
+        # roda DEPOIS de _refresh_step2_dataframe_widgets (chamado acima), então um branco salvo
+        # de propósito sobrescreve corretamente o valor predominante que o refresh acabou de
+        # auto-selecionar, em vez de ser ignorado por ele.
+        if "type_column" in state and hasattr(self, "list_types"):
+            self._set_combo_text(self.list_types, state["type_column"])
         return True
 
     def _save_step2_state(self):
@@ -4611,7 +4623,8 @@ class MainWindow(QMainWindow):
             "cell_name": self.ed_cell_name.text().strip() if hasattr(self, "ed_cell_name") else "",
             "cell_source_tissue": self.ed_cell_source_tissue.text().strip() if hasattr(self, "ed_cell_source_tissue") else "",
             "cell_description": self.ed_cell_description.text().strip() if hasattr(self, "ed_cell_description") else "",
-            "assay_type": self.cb_assay_type.currentText().strip() if hasattr(self, "cb_assay_type") else "",
+            "assay_type_options": self._list_widget_all_items(getattr(self, "list_assay_type", None)),
+            "assay_type_selected": self._list_widget_selected_items(getattr(self, "list_assay_type", None)),
             "assay_metric_options": self._list_widget_all_items(getattr(self, "list_assay_metric", None)),
             "assay_metric_selected": self._list_widget_selected_items(getattr(self, "list_assay_metric", None)),
             "assay_unit_options": self._list_widget_all_items(getattr(self, "list_assay_units", None)),
@@ -4655,7 +4668,11 @@ class MainWindow(QMainWindow):
             self.ed_cell_source_tissue.setText(str(state.get("cell_source_tissue", "") or ""))
         if hasattr(self, "ed_cell_description"):
             self.ed_cell_description.setText(str(state.get("cell_description", "") or ""))
-        self._set_combo_text(getattr(self, "cb_assay_type", None), state.get("assay_type", ""))
+        self._set_list_widget_items_and_selection(
+            getattr(self, "list_assay_type", None),
+            state.get("assay_type_options", []),
+            state.get("assay_type_selected", []),
+        )
         self._set_list_widget_items_and_selection(
             getattr(self, "list_assay_metric", None),
             state.get("assay_metric_options", []),
@@ -4714,10 +4731,14 @@ class MainWindow(QMainWindow):
         """Blanks every STEP1 (Dataset Preparation) field. This tab's state isn't tracked via
         a generic FIELD_SPEC (see _collect_dataset_preparation_state) - it needs its own
         dedicated reset when starting a brand New Project (see _reset_ui_for_new_job)."""
-        for attr in ("cb_target_type", "cb_assay_type"):
+        for attr in ("cb_target_type",):
             combo = getattr(self, attr, None)
             if combo is not None and combo.count() > 0:
                 combo.setCurrentIndex(0)
+        if hasattr(self, "list_assay_type"):
+            # Itens fixos (Functional/Binding/Toxicity/ADME/Unassigned) - só a seleção é
+            # limpa, ao contrário de list_assay_metric/units/chembl_id (dinâmicos, ver abaixo).
+            self.list_assay_type.clearSelection()
         for attr in (
             "ed_organism_name", "ed_target_pref_name", "ed_target_chembl_id",
             "ed_cell_chembl_id", "ed_cell_name", "ed_cell_source_tissue", "ed_cell_description",
@@ -4904,8 +4925,6 @@ class MainWindow(QMainWindow):
         self.target_worker.start()
 
     def run_by_activity(self):
-        assay_type_full = self.cb_assay_type.currentText().strip()
-        assay_type_name = assay_type_full.split('-')[0].strip() if '-' in assay_type_full else assay_type_full
         target_chembl_id = self.ed_target_chembl_id.text().strip()
         activity_chembl_id = self.ed_activity_chembl_id.text().strip()
         target_organism = self.ed_organism_name.text().strip()
@@ -4939,8 +4958,6 @@ class MainWindow(QMainWindow):
                         filter_kwargs['target_organism'] = target_organism
                     if target_pref_name:
                         filter_kwargs['target_pref_name'] = target_pref_name
-                    # if assay_type_name:
-                    #     filter_kwargs['assay_type'] = assay_type_name
                     if target_chembl_id:
                         filter_kwargs['target_chembl_id'] = target_chembl_id
 
@@ -5179,8 +5196,10 @@ class MainWindow(QMainWindow):
         self.cell_worker.start()
 
     def run_assay_explore(self):
-        assay_type_full = self.cb_assay_type.currentText().strip()
-        assay_type_name = assay_type_full.split('-')[0].strip() if '-' in assay_type_full else assay_type_full
+        assay_type_selected = [
+            item.text().split('-')[0].strip() if '-' in item.text() else item.text().strip()
+            for item in self.list_assay_type.selectedItems()
+        ]
         assay_chembl_id = [item.text() for item in self.list_assay_chembl_id.selectedItems()]
         assay_description_included = self.ed_assay_description_included.text().strip()
         assay_description_excluded = self.ed_assay_description_excluded.text().strip()
@@ -5222,8 +5241,13 @@ class MainWindow(QMainWindow):
                         filter_kwargs['assay_organism__icontains'] = target_organism
                     if assay_description_included:
                         filter_kwargs['description__icontains'] = assay_description_included
-                    if assay_type_name:
-                        filter_kwargs['assay_type'] = assay_type_name
+                    if assay_type_selected:
+                        # Mesmo padrão do assay_chembl_id acima: um único tipo selecionado usa
+                        # igualdade simples; 2+ usam o lookup "__in" do webresource_client.
+                        if len(assay_type_selected) == 1:
+                            filter_kwargs['assay_type'] = assay_type_selected[0]
+                        else:
+                            filter_kwargs['assay_type__in'] = assay_type_selected
                     if target_chembl_id:
                         filter_kwargs['target_chembl_id'] = target_chembl_id
                     if assay_strain:
@@ -5688,8 +5712,16 @@ class MainWindow(QMainWindow):
 
     def generate_end_dataset(self):
         try:
-            assay_type_full = self.cb_assay_type.currentText().strip()
-            assay_type_name = assay_type_full.split('-')[0].strip() if '-' in assay_type_full else assay_type_full
+            # Cada item selecionado vira só a letra do código (ex.: "B - Binding" -> "B"), tanto
+            # para o filtro (lista, ver filter_kwargs['assay_type'] abaixo - o loop genérico de
+            # filtro já trata listas via _split_terms + isin()) quanto para o nome do arquivo
+            # (assay_type_letters), que passa a incorporar as letras de todos os selecionados
+            # (ex.: B e F marcados -> "BF"), em vez de só um único tipo antes.
+            assay_type_selected = [
+                item.text().split('-')[0].strip() if '-' in item.text() else item.text().strip()
+                for item in self.list_assay_type.selectedItems()
+            ]
+            assay_type_letters = "".join(sorted(assay_type_selected))
             target_chembl_id = self.ed_target_chembl_id.text().strip()
             target_organism = self.ed_organism_name.text().strip()
             target_pref_name = self.ed_target_pref_name.text().strip()
@@ -5735,8 +5767,8 @@ class MainWindow(QMainWindow):
                 filter_kwargs['target_organism'] = target_organism
             if target_pref_name:
                 filter_kwargs['target_pref_name'] = target_pref_name
-            if assay_type_name:
-                filter_kwargs['assay_type'] = assay_type_name
+            if assay_type_selected:
+                filter_kwargs['assay_type'] = assay_type_selected
             if target_chembl_id:
                 filter_kwargs['target_chembl_id'] = target_chembl_id
             if assay_description_included:
@@ -5799,7 +5831,7 @@ class MainWindow(QMainWindow):
                     df_selecionado = df_selecionado[~col_series.isin(terms_lower)]
 
             # Salvando o dataframe na pasta de trabalho atual:
-            file_path = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA", f'df1_base_{target_chembl_id}_{target_organism}_{assay_type_name}_{assay_metric}.csv')
+            file_path = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA", f'df1_base_{target_chembl_id}_{target_organism}_{assay_type_letters}_{assay_metric}.csv')
             df_selecionado.to_csv(file_path, index=False)
             self._save_dataset_preparation_state()
             self.show_dataframe(df_selecionado)
@@ -7001,11 +7033,25 @@ class MainWindow(QMainWindow):
             return
 
         col_rep = self.list_columns_rep.currentText()
-        col_type = self.list_types.currentText()
+        col_type = self.list_types.currentText().strip()
         method = self.list_methods_rep.currentText()
 
-        if not col_rep or not col_type or not method:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select column, type, and method.")
+        if not col_type:
+            # "Select value type" fica vazio quando o DataFrame não tem uma coluna 'type'
+            # reconhecida (IC50/MIC/...) - ex.: Convert type ainda não rodou, ou o dataframe só
+            # trouxe standard_value/value diretamente. Cai para standard_value (se "Use Standard
+            # values" estiver marcado) ou value (se desmarcado), mesma convenção usada em
+            # Convert type/Convert units.
+            use_standard = getattr(self, "chk_use_standard_values", None) is not None and self.chk_use_standard_values.isChecked()
+            col_type = "standard_value" if use_standard else "value"
+
+        if not col_rep or not method:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select column and method.")
+            return
+        if col_type not in self.df_selecionado.columns:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma),
+                f"Value column '{col_type}' not found in the DataFrame."
+            )
             return
 
         df = self.df_selecionado.copy()
@@ -7271,6 +7317,16 @@ class MainWindow(QMainWindow):
             return t  # esperado: 'ic50', 'pic50', 'mic', 'pmic', etc.
 
         type_name = str(self.list_types.currentText()).strip()
+        if not type_name:
+            # Ao contrário de "Run selected method" (que tem um fallback de conteúdo para
+            # value/standard_value), "Convert type" precisa de um nome de tipo real para renomear
+            # a coluna de valor - "2. Select standard type" agora pode ficar em branco de
+            # propósito (ver _collect_step2_state), então essa checagem evita renomear a coluna
+            # para uma string vazia.
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma),
+                'Select a value in "2. Select standard type" (e.g. IC50, MIC) first.'
+            )
+            return
 
         df = self.df_selecionado
         if df is None:
@@ -17160,19 +17216,20 @@ class MainWindow(QMainWindow):
                 'Generate Dataset by activity' deixa pronto para uso em 'Generate Base Dataset'.
                 Cada campo só é preenchido se a coluna correspondente existir no dataset."""
                 if "assay_type" in df.columns:
-                    raw_assay_type = _local_data_mode_value(df["assay_type"])
-                    if raw_assay_type:
-                        match_idx = -1
-                        for i in range(self.cb_assay_type.count()):
-                            item_text = self.cb_assay_type.itemText(i)
+                    # Seleção múltipla: marca TODOS os tipos (F/B/T/A/U) efetivamente presentes no
+                    # dataset carregado, não só o mais frequente - equivalente a "Generate Dataset
+                    # by activity" já deixar pronto para manter várias letras ao mesmo tempo.
+                    raw_assay_types = {
+                        v.strip().upper() for v in df["assay_type"].dropna().astype(str) if v.strip()
+                    }
+                    if raw_assay_types:
+                        self.list_assay_type.clearSelection()
+                        for i in range(self.list_assay_type.count()):
+                            item = self.list_assay_type.item(i)
+                            item_text = item.text()
                             prefix = item_text.split('-')[0].strip() if '-' in item_text else item_text
-                            if prefix.strip().upper() == raw_assay_type.upper():
-                                match_idx = i
-                                break
-                        if match_idx >= 0:
-                            self.cb_assay_type.setCurrentIndex(match_idx)
-                        else:
-                            self.cb_assay_type.setCurrentText(raw_assay_type)
+                            if prefix.strip().upper() in raw_assay_types:
+                                item.setSelected(True)
 
                 # Assay Metric/Assay Unit/Assay ChEMBL ID/Validity Comment/Validity Description:
                 # mesmo helper usado ao final de "Generate Dataset by activity" (colunas 'type',
@@ -17359,13 +17416,13 @@ class MainWindow(QMainWindow):
             # terceiro grid:
             gL2_widget = QWidget()
             gL2 = QGridLayout(gL2_widget)
-            self.cb_assay_type = QComboBox(); self.cb_assay_type.addItems(["","F - Functional","B - Binding","T - Toxicity","A - ADME","U - Unssingned"]); self.cb_assay_type.setEditable(True)
+            self.list_assay_type = QListWidget(); self.list_assay_type.addItems(["F - Functional","B - Binding","T - Toxicity","A - ADME","U - Unssingned"]); self.list_assay_type.setSelectionMode(QAbstractItemView.MultiSelection); self.list_assay_type.setFixedHeight(100); self.list_assay_type.setFixedWidth(200)
             self.list_assay_metric = QListWidget(); self.list_assay_metric.addItems(["","MIC", "pMIC", "-logMIC","MIC50","MIC90","MIC99","MIC>90","MIC>99","IC50", "pIC50","-logIC50","IC90","DE50","% - Inhibition", "%", "Percent Effect", "GI"]); self.list_assay_metric.setSelectionMode(QAbstractItemView.MultiSelection); self.list_assay_metric.setFixedHeight(100); self.list_assay_metric.setFixedWidth(200)
             self.list_assay_units = QListWidget(); self.list_assay_units.addItems(["","uM","M","mM","nM","ug/mL","ug mL-1","mg/mL", "ng/mL"]); self.list_assay_units.setSelectionMode(QAbstractItemView.MultiSelection); self.list_assay_units.setFixedHeight(100); self.list_assay_units.setFixedWidth(200)
             self.ed_assay_strain = QLineEdit(); self.ed_assay_strain.setPlaceholderText("Ex.: H37Rv")
             self.list_assay_chembl_id = QListWidget(); self.list_assay_chembl_id.setSelectionMode(QAbstractItemView.MultiSelection); self.list_assay_chembl_id.setFixedHeight(100); self.list_assay_chembl_id.setFixedWidth(200)
             gL2.addWidget(self._trL("s1_lbl_assay_type"),0,0); gL2.addWidget(self._trL("s1_lbl_assay_metric"),0,1); gL2.addWidget(self._trL("s1_lbl_assay_unit"),0,2); gL2.addWidget(self._trL("s1_lbl_assay_strain"),0,3); gL2.addWidget(self._trL("s1_lbl_assay_chembl_id"),0,4)
-            gL2.addWidget(self.cb_assay_type,1,0); gL2.addWidget(self.list_assay_metric,1,1); gL2.addWidget(self.list_assay_units,1,2); gL2.addWidget(self.ed_assay_strain,1,3); gL2.addWidget(self.list_assay_chembl_id,1,4)
+            gL2.addWidget(self.list_assay_type,1,0); gL2.addWidget(self.list_assay_metric,1,1); gL2.addWidget(self.list_assay_units,1,2); gL2.addWidget(self.ed_assay_strain,1,3); gL2.addWidget(self.list_assay_chembl_id,1,4)
             gL2.setColumnStretch(0, 1); gL2.setColumnStretch(1, 2); gL2.setColumnStretch(2, 2); gL2.setColumnStretch(3, 1); gL2.setColumnStretch(4, 1)
             g1_assay_layout.addWidget(gL2_widget)
 
@@ -17397,7 +17454,7 @@ class MainWindow(QMainWindow):
             assay_btn.addWidget(btn_description_assay)
             g1_assay_layout.addLayout(assay_btn)
             chembl_controls.extend([
-                self.cb_assay_type,
+                self.list_assay_type,
                 self.list_assay_metric,
                 self.list_assay_units,
                 self.ed_assay_strain,
@@ -17672,7 +17729,7 @@ class MainWindow(QMainWindow):
             gL7_widget = QWidget()
             gL7 = QGridLayout(gL7_widget)
             label_select_types = self._trL("s2_lbl_select_standard_type"); label_select_types.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;");
-            self.list_types = QComboBox(); self.list_types.addItems([]);
+            self.list_types = QComboBox(); self.list_types.addItems([]); self.list_types.setEditable(True)
             btn_convert_types = QPushButton(); self._tr("s2_btn_convert_type", btn_convert_types.setText); btn_convert_types.setProperty("role", "secondary"); btn_convert_types.setFixedWidth(150); btn_convert_types.clicked.connect(self.run_convert_types)
             gL7.addWidget(label_select_types,0,0); gL7.addWidget(self.list_types,0,1); gL7.addWidget(btn_convert_types,0,2)
             gL7.setColumnStretch(0, 1); gL7.setColumnStretch(1, 2); gL7.setColumnStretch(2, 2)
