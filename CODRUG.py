@@ -4216,6 +4216,8 @@ class MainWindow(QMainWindow):
         ("descriptors_3d", "chk_3D"),
         ("descriptors_fingerprint", "chk_Fingerprint"),
         ("descriptors_selected", "list_descriptors"),
+        ("descriptors_bits_number", "spn_ecfp_bits"),
+        ("descriptors_fp_chirality", "chk_fp_chirality"),
         ("prep_remove_salt", "chk_salt"),
         ("prep_aromaticity", "chk_aromaticity"),
         ("prep_tautomers", "chk_tautomers"),
@@ -4297,6 +4299,12 @@ class MainWindow(QMainWindow):
         self._apply_state_from_spec(self.STEP4_FIELD_SPEC, state)
         self._apply_plain_attrs(self.STEP4_PLAIN_SPEC, state)
         self._apply_proj_table_state(state.get("projection_parameters_table"))
+        # _set_list_widget_items_and_selection (acima, via STEP4_FIELD_SPEC's "descriptors_selected")
+        # restaura a seleção de list_descriptors com blockSignals - itemSelectionChanged não
+        # dispara, então "Bits number" não seria reabilitado sozinho mesmo que a seleção
+        # restaurada inclua um descritor RDKit; sincroniza explicitamente aqui.
+        if hasattr(self, "_update_bits_number_enabled"):
+            self._update_bits_number_enabled()
         return True
 
     def _save_step4_state(self):
@@ -10102,6 +10110,24 @@ class MainWindow(QMainWindow):
                 cb_tb_label_col.clear()
             QMessageBox.critical(self, i18n.t("msg_title_error_list_columns_csv", self._idioma), str(e))
 
+    # Descritores calculados diretamente pelo RDKit (não pelo PaDEL) via
+    # _compute_rdkit_fp_single_mode - os únicos que aceitam o parâmetro "Bits number" (fp_bits),
+    # já que os fingerprints do próprio PaDEL (MACCS, PubchemFingerprinter, Fingerprinter,
+    # KlekotaRoth etc.) têm tamanho fixo, não configurável via padelpy. Única fonte da verdade
+    # para esse conjunto - reaproveitada tanto para popular a categoria "Fingerprint" quanto para
+    # decidir quando habilitar o spinner "Bits number" e para rotear o cálculo em
+    # run_generate_descriptors, evitando o tipo de divergência de nomes (typo) já visto antes.
+    RDKIT_FP_ITEMS = [
+        "ECFP4 (RDkit classic)",
+        "FCFP6 (RDkit)",
+        "ECFP4 counting (without 1D2D)",
+        "Avalon FP (RDKit)",
+        "Topological Torsion (RDKit)",
+        "Pattern FP (RDKit)",
+        "Atom Pair (RDKit)",
+    ]
+    RDKIT_FP_BITS_MODES = frozenset(RDKIT_FP_ITEMS)
+
     def _init_descriptor_checkbox_logic(self):
         """
         Descobre o caminho de descriptors.xml no Python em execução (base, venv),
@@ -10136,15 +10162,7 @@ class MainWindow(QMainWindow):
         self._padel_catalog = {"1D2D": one_two_d, "3D": three_d, "FP": fps}
 
         # após construir `fps` a partir do descriptors.xml (PaDEL)
-        rdkit_fp_items = [
-            "ECFP4 (RDkit classic)",
-            "FCFP6 (RDkit)",
-            "ECFP4 counting (without 1D2D)",
-            "Avalon FP (RDKit)",
-            "Topological Torsion (RDKit)",
-            "Pattern FP (RDKit)",
-            "Atom Pair (RDKit)",
-        ]
+        rdkit_fp_items = self.RDKIT_FP_ITEMS
 
         # guarda para referência (opcional)
         self._rdkit_fp_items = rdkit_fp_items
@@ -10313,6 +10331,17 @@ class MainWindow(QMainWindow):
         automaticamente 'Retain 3D coordinates'/'Convert to 3D' junto com o checkbox '3D'."""
         pool_3d = set(self._padel_catalog.get("3D", []))
         return any(item.text() in pool_3d for item in self.list_descriptors.selectedItems())
+
+    def _update_bits_number_enabled(self):
+        """Habilita 'Bits number'/'Chirality' só quando pelo menos um dos descritores atualmente
+        selecionados em 'Select Descriptors' aceita esses parâmetros (RDKIT_FP_BITS_MODES) - os
+        fingerprints do próprio PaDEL têm tamanho/configuração fixos e ignorariam o valor."""
+        selected = {item.text() for item in self.list_descriptors.selectedItems()}
+        applies = bool(selected & self.RDKIT_FP_BITS_MODES)
+        if hasattr(self, "spn_ecfp_bits"):
+            self.spn_ecfp_bits.setEnabled(applies)
+        if hasattr(self, "chk_fp_chirality"):
+            self.chk_fp_chirality.setEnabled(applies)
 
     def _qListWidget_items(self, lw) -> list[str]:
         return [lw.item(i).text() for i in range(lw.count())]
@@ -10672,15 +10701,7 @@ class MainWindow(QMainWindow):
             from PyQt5.QtCore import QThread, pyqtSignal, QTimer, QEventLoop, Qt
             from PyQt5.QtWidgets import QMessageBox, QProgressDialog, QApplication
 
-            rdkit_fp_set = {
-                "ECFP4 (RDkit classic)",
-                "FCFP6 (RDkit)",
-                "ECFP4 counting (without 1D2D)",
-                "Avalon FP (RDKit)",
-                "Topological Torsion (RDKit)",
-                "Pattern FP (RDKit)",
-                "Atom Pair (RDKit)",
-            }
+            rdkit_fp_set = self.RDKIT_FP_BITS_MODES
 
             # ================== UI selections ==================
             # Colunas obrigatórias
@@ -11130,9 +11151,9 @@ class MainWindow(QMainWindow):
                 if dname in rdkit_fp_set:
                     # gera um CSV para este fingerprint com RDKit e adiciona a csv_paths
                     try:
-                        # decide bits a partir do spinner, se existir
+                        # decide bits/chirality a partir dos widgets, se existirem
                         fp_bits = getattr(self, "spn_ecfp_bits", None).value() if hasattr(self, "spn_ecfp_bits") else 2048
-                        fp_chiral = True  # ou ler de um checkbox seu, se houver
+                        fp_chiral = getattr(self, "chk_fp_chirality", None).isChecked() if hasattr(self, "chk_fp_chirality") else True
 
                         # calcula um DataFrame de FP para este modo
                         df_fp = self._compute_rdkit_fp_single_mode(
@@ -18332,8 +18353,46 @@ class MainWindow(QMainWindow):
             self.list_descriptors.setFixedSize(250, 200)
             self._init_descriptor_checkbox_logic()
 
+            # "Bits number" (fp_bits): só se aplica aos fingerprints calculados pelo próprio
+            # RDKit (RDKIT_FP_BITS_MODES - ECFP4/FCFP6/ECFP4 counting/Avalon/Pattern/Topological
+            # Torsion/Atom Pair). Os fingerprints do PaDEL (MACCS, PubchemFingerprinter,
+            # Fingerprinter, KlekotaRoth etc.) têm tamanho fixo, não configurável via padelpy -
+            # nesses casos (ou com nada/1D2D/3D selecionado) o spinner fica desabilitado.
+            label_bits_number = self._trL("s4_lbl_bits_number")
+            label_bits_number.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
+            label_bits_number.setFixedWidth(150)
+            self.spn_ecfp_bits = QSpinBox()
+            self.spn_ecfp_bits.setRange(128, 16384)
+            self.spn_ecfp_bits.setSingleStep(128)
+            self.spn_ecfp_bits.setValue(2048)
+            self.spn_ecfp_bits.setFixedWidth(100)
+            self.spn_ecfp_bits.setEnabled(False)
+            self._tr("s4_tooltip_bits_number", self.spn_ecfp_bits.setToolTip)
+
+            # "Chirality" (fp_chirality): mesma condição de habilitação de "Bits number" - só os
+            # fingerprints do RDKit usam esse parâmetro (includeChirality dos geradores
+            # ECFP4/FCFP6/ECFP4 counting/Topological Torsion/Atom Pair; Avalon/Pattern o ignoram
+            # internamente, mas manter o mesmo gatilho evita um terceiro conjunto de exceções).
+            self.chk_fp_chirality = QCheckBox()
+            self._tr("s4_chk_fp_chirality", self.chk_fp_chirality.setText)
+            self.chk_fp_chirality.setChecked(True)
+            self.chk_fp_chirality.setEnabled(False)
+            self._tr("s4_tooltip_fp_chirality", self.chk_fp_chirality.setToolTip)
+
+            bits_row_layout = QHBoxLayout()
+            bits_row_layout.addWidget(self.spn_ecfp_bits)
+            bits_row_layout.addSpacing(15)
+            bits_row_layout.addWidget(self.chk_fp_chirality)
+            bits_row_layout.addStretch()
+            bits_row_widget = QWidget()
+            bits_row_widget.setLayout(bits_row_layout)
+
+            self.list_descriptors.itemSelectionChanged.connect(self._update_bits_number_enabled)
+
             gL21.addWidget(label_select_descriptors, 0, 0, alignment=Qt.AlignRight)
             gL21.addWidget(self.list_descriptors, 0, 1, alignment=Qt.AlignLeft)
+            gL21.addWidget(label_bits_number, 1, 0, alignment=Qt.AlignRight)
+            gL21.addWidget(bits_row_widget, 1, 1, alignment=Qt.AlignLeft)
             gL21.setColumnStretch(0, 1)
             gL21.setColumnStretch(1, 3)
 

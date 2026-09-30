@@ -432,6 +432,36 @@ _TEXTOS = {
     "s4_tooltip_session_id": {"en": "Session Id", "pt": "ID da Sessão"},
     "s4_grp_descriptors_builder": {"en": "Descriptors Builder", "pt": "Construtor de Descritores"},
     "s4_lbl_select_descriptors": {"en": "Select Descriptors:", "pt": "Selecione os Descritores:"},
+    "s4_lbl_bits_number": {"en": "Bits number:", "pt": "Número de bits:"},
+    "s4_tooltip_bits_number": {
+        "en": "Fingerprint size (number of bits), only adjustable for descriptors computed "
+              "directly by RDKit: ECFP4, FCFP6, ECFP4 counting, Avalon FP, Topological Torsion, "
+              "Pattern FP and Atom Pair. Disabled for PaDEL's own fingerprints (MACCS, Pubchem, "
+              "Fingerprinter, KlekotaRoth, etc.) and for 1D/2D or 3D descriptors, which have a "
+              "fixed size not configurable through PaDEL. Select at least one of those RDKit "
+              "descriptors above to enable this field.",
+        "pt": "Tamanho do fingerprint (número de bits), ajustável apenas para descritores "
+              "calculados diretamente pelo RDKit: ECFP4, FCFP6, ECFP4 counting, Avalon FP, "
+              "Topological Torsion, Pattern FP e Atom Pair. Fica desabilitado para os "
+              "fingerprints do próprio PaDEL (MACCS, Pubchem, Fingerprinter, KlekotaRoth etc.) e "
+              "para descritores 1D/2D ou 3D, que têm tamanho fixo, não configurável pelo PaDEL. "
+              "Selecione ao menos um desses descritores RDKit acima para habilitar este campo.",
+    },
+    "s4_chk_fp_chirality": {"en": "Chirality", "pt": "Quiralidade"},
+    "s4_tooltip_fp_chirality": {
+        "en": "Include chirality (stereochemistry) as an atom invariant when computing the "
+              "fingerprint - only applies to the same RDKit-computed descriptors as 'Bits "
+              "number' (ECFP4, FCFP6, ECFP4 counting, Topological Torsion, Atom Pair; ignored by "
+              "Avalon FP and Pattern FP). Checked (default) distinguishes stereoisomers that "
+              "would otherwise map to the same bits; uncheck to match RDKit's own default "
+              "(achiral) behavior.",
+        "pt": "Inclui a quiralidade (estereoquímica) como invariante de átomo ao calcular o "
+              "fingerprint - só se aplica aos mesmos descritores calculados pelo RDKit que "
+              "'Bits number' (ECFP4, FCFP6, ECFP4 counting, Topological Torsion, Atom Pair; "
+              "ignorado por Avalon FP e Pattern FP). Marcado (padrão) distingue estereoisômeros "
+              "que de outra forma cairiam nos mesmos bits; desmarque para o comportamento padrão "
+              "do próprio RDKit (aquiral).",
+    },
     "s4_lbl_select_structure_column": {"en": "Structure \nColumn:", "pt": "Coluna \nde Estrutura:"},
     "s4_btn_select_structures_file": {"en": "Or Select \nStructures File", "pt": "Ou Selecione o \nArquivo de Estruturas"},
     "s4_tooltip_select_structures_file": {
