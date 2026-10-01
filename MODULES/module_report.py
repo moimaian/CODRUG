@@ -40,7 +40,7 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Union
 
 try:
     from rdkit import Chem
@@ -1558,16 +1558,21 @@ def _add_skl_results_table(
     document: Any, df, *,
     highlight_col: Optional[int] = None,
     highlight_col_bold: bool = False,
-    overall_row_value: Optional[str] = None,
+    overall_row_value: Optional[Union[str, "tuple[str, ...]"]] = None,
     max_rows: Optional[int] = None,
 ) -> None:
     """Screening/Tuning/Cross-Validation results table, styled to match the methodology
     template: header shaded COLOR_TITLE_BAR + bold; optionally one column (Model/Fold) shaded
-    light blue (_STEP4_COLOR_HIGHLIGHT) throughout; the row whose first cell equals
-    overall_row_value (e.g. "OVERALL") has its other cells shaded yellow
-    (_STEP4_COLOR_OVERALL) and bold, matching the Cross-Validation table's summary row."""
+    light blue (_STEP4_COLOR_HIGHLIGHT) throughout; any row whose first cell matches
+    overall_row_value (a single string, e.g. "Mean", or a tuple of them, e.g.
+    ("Mean", "Std Dev")) has its other cells shaded yellow (_STEP4_COLOR_OVERALL) and bold,
+    matching the Cross-Validation table's summary row(s)."""
     if df is None or df.empty:
         return
+    overall_values = (
+        {overall_row_value} if isinstance(overall_row_value, str)
+        else set(overall_row_value) if overall_row_value else set()
+    )
     cols = list(df.columns)
     rows = df if max_rows is None else df.head(max_rows)
     width = _content_width_cm(document)
@@ -1583,7 +1588,7 @@ def _add_skl_results_table(
         cell.paragraphs[0].add_run(str(name)).bold = True
     for _, record in rows.iterrows():
         cells = table.add_row().cells
-        is_overall = overall_row_value is not None and str(record[cols[0]]) == overall_row_value
+        is_overall = str(record[cols[0]]) in overall_values
         for col_idx, name in enumerate(cols):
             cell = cells[col_idx]
             _set_cell_width(cell, col_width)
@@ -1740,7 +1745,8 @@ def _add_step5_section(document: Any, job_dir: str, state: dict[str, Any], idiom
                     texts["cv_pt" if lang == "pt" else "cv_en"].format(model=model_name, method=method, folds=folds)
                 )
                 fold_col = 0 if list(cv_df.columns)[:1] == ["Fold"] else None
-                _add_skl_results_table(document, cv_df, highlight_col=fold_col, highlight_col_bold=True, overall_row_value="OVERALL")
+                _add_skl_results_table(document, cv_df, highlight_col=fold_col, highlight_col_bold=True,
+                                        overall_row_value=("Mean", "Std Dev"))
 
             chart_paths = [
                 path for path in (_find_skl_image(midia_dir, model_name, kind, usi) for kind in _STEP4_CHART_KINDS)

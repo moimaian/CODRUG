@@ -228,10 +228,10 @@ try:
     )
     from sklearn.experimental import enable_halving_search_cv  # noqa: F401 — habilita HalvingGridSearchCV/HalvingRandomSearchCV
     from sklearn.model_selection import HalvingGridSearchCV, HalvingRandomSearchCV
-    from sklearn.base import clone
+    from sklearn.base import clone, BaseEstimator, ClassifierMixin
     from sklearn.metrics import (
         accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, roc_curve, auc, classification_report, confusion_matrix, mean_squared_error as mse, mean_absolute_error as mae, r2_score,
-        silhouette_score, silhouette_samples, davies_bouldin_score, calinski_harabasz_score, precision_recall_curve, matthews_corrcoef,
+        silhouette_score, silhouette_samples, davies_bouldin_score, calinski_harabasz_score, precision_recall_curve, matthews_corrcoef, make_scorer,
     )
     from sklearn.calibration import calibration_curve
     from sklearn.manifold import TSNE
@@ -369,8 +369,61 @@ SKL_PARAM_GRIDS = {
 }
 
 
+class _LabelEncodingClassifierWrapper(BaseEstimator, ClassifierMixin):
+    """Envolve um classificador que, ao contrário de praticamente todo classificador
+    scikit-learn (incluindo os outros dois modelos de boosting do CODRUG - LGBMClassifier e
+    CatBoostClassifier, confirmados aceitando rótulos de texto diretamente), EXIGE rótulos
+    numéricos contíguos (0..n_classes-1) - é exatamente o caso de XGBClassifier, cuja API
+    sklearn lança "Invalid classes inferred from unique values of `y`. Expected: [0 1], got
+    [...]" para qualquer y que não seja já 0/1/2/... (ex.: 'active'/'inative').
+
+    fit() aplica um LabelEncoder internamente; predict() já devolve os rótulos ORIGINAIS
+    (decodificados de volta) - então nenhum outro lugar do CODRUG (Screening, Cross-Validation,
+    Y-Scrambling, Predict, gráficos) precisa saber que esse de-para está acontecendo. get_params/
+    set_params propagam para o estimador interno SEM prefixo (deep=False retorna só
+    {"base_estimator": ...}, exigido por sklearn.base.clone - mas Hyperparameter Tuning usa
+    deep=True e precisa prefixar o param_grid com "base_estimator__", ver run_skl_tune_models)."""
+
+    def __init__(self, base_estimator=None):
+        self.base_estimator = base_estimator
+
+    def __getattr__(self, name):
+        # Só é chamado quando a busca normal (__dict__/classe) falha - delega para o estimador
+        # interno JÁ TREINADO (ex.: feature_importances_, booster get_booster(), etc.), para que
+        # gráficos/inspeções que esperam atributos nativos do modelo (ex.: Feature Importance)
+        # continuem funcionando sem saber que o modelo está envolvido neste wrapper. Não conflita
+        # com fit/predict/predict_proba/score/base_estimator/classes_ (definidos explicitamente
+        # na classe, então encontrados ANTES de __getattr__ ser acionado).
+        base = self.__dict__.get("base_estimator_")
+        if base is not None and hasattr(base, name):
+            return getattr(base, name)
+        raise AttributeError(name)
+
+    def fit(self, X, y, **fit_params):
+        self._label_encoder_ = LabelEncoder()
+        y_encoded = self._label_encoder_.fit_transform(np.asarray(y))
+        self.classes_ = self._label_encoder_.classes_
+        self.base_estimator_ = clone(self.base_estimator)
+        self.base_estimator_.fit(X, y_encoded, **fit_params)
+        return self
+
+    def predict(self, X):
+        y_pred = self.base_estimator_.predict(X)
+        return self._label_encoder_.inverse_transform(y_pred)
+
+    def predict_proba(self, X):
+        # Colunas já na mesma ordem de self.classes_ (0..n-1 codificado = ordem alfabética do
+        # LabelEncoder), exatamente como o resto do CODRUG já espera de qualquer classificador.
+        return self.base_estimator_.predict_proba(X)
+
+    def score(self, X, y):
+        return float(accuracy_score(y, self.predict(X)))
+
+
 def _skl_instantiate(cls, kwargs, random_state=None):
-    """Instancia um modelo scikit-learn, injetando random_state apenas se a classe aceitar o parâmetro."""
+    """Instancia um modelo scikit-learn, injetando random_state apenas se a classe aceitar o
+    parâmetro. XGBClassifier sai envolvido em _LabelEncodingClassifierWrapper - ver a classe
+    acima para o motivo."""
     kwargs = dict(kwargs or {})
     try:
         sig_params = inspect.signature(cls.__init__).parameters
@@ -378,7 +431,10 @@ def _skl_instantiate(cls, kwargs, random_state=None):
         sig_params = {}
     if random_state is not None and "random_state" in sig_params and "random_state" not in kwargs:
         kwargs["random_state"] = random_state
-    return cls(**kwargs)
+    instance = cls(**kwargs)
+    if cls is xgb.XGBClassifier:
+        instance = _LabelEncodingClassifierWrapper(base_estimator=instance)
+    return instance
 
 
 def _skl_force_single_thread_kwargs(cls, kwargs):
@@ -2225,6 +2281,7 @@ class SklScreeningWorker(QThread): # type: ignore
                             row["Precision"] = float(precision_score(self.y_test, y_test_pred, average="weighted", zero_division=0))
                             row["Recall"] = float(recall_score(self.y_test, y_test_pred, average="weighted"))
                             row["MCC"] = float(matthews_corrcoef(self.y_test, y_test_pred))
+                            row["Specificity"] = _specificity_score(self.y_test, y_test_pred)
                             try:
                                 if hasattr(model, "predict_proba"):
                                     proba = model.predict_proba(self.x_test)
@@ -2284,19 +2341,29 @@ class SklTuneWorker(QThread): # type: ignore
             base_kwargs_st = _skl_force_single_thread_kwargs(cls, base_kwargs)
             base_model = _skl_instantiate(cls, base_kwargs_st, random_state)
 
+            # GridSearchCV/RandomizedSearchCV/Halving* aplicam a grade via set_params() num clone
+            # de base_model - quando este é o _LabelEncodingClassifierWrapper (XGBClassifier), os
+            # nomes nativos (ex.: "n_estimators") precisam do prefixo "base_estimator__" para
+            # chegar ao estimador interno (ver a classe). A Optuna, logo abaixo, NÃO usa
+            # set_params() - reinstancia via _skl_instantiate a cada trial com os nomes nativos
+            # direto em kwargs, então continua usando param_grid sem prefixo.
+            search_param_grid = param_grid
+            if isinstance(base_model, _LabelEncodingClassifierWrapper):
+                search_param_grid = {f"base_estimator__{k}": v for k, v in param_grid.items()}
+
             if method == "RandomizedSearchCV":
-                search = RandomizedSearchCV(base_model, param_grid, n_iter=self.n_iter,
+                search = RandomizedSearchCV(base_model, search_param_grid, n_iter=self.n_iter,
                                               cv=folds, random_state=random_state, n_jobs=-1)
                 search.fit(self.x_train, self.y_train)
                 best_model, best_params = search.best_estimator_, search.best_params_
                 cv_results = _skl_grid_cv_results_to_df(search.cv_results_)
             elif method == "HalvingGridSearchCV":
-                search = HalvingGridSearchCV(base_model, param_grid, cv=folds, random_state=random_state, n_jobs=-1)
+                search = HalvingGridSearchCV(base_model, search_param_grid, cv=folds, random_state=random_state, n_jobs=-1)
                 search.fit(self.x_train, self.y_train)
                 best_model, best_params = search.best_estimator_, search.best_params_
                 cv_results = _skl_grid_cv_results_to_df(search.cv_results_)
             elif method == "HalvingRandomSearchCV":
-                search = HalvingRandomSearchCV(base_model, param_grid, cv=folds, random_state=random_state, n_jobs=-1)
+                search = HalvingRandomSearchCV(base_model, search_param_grid, cv=folds, random_state=random_state, n_jobs=-1)
                 search.fit(self.x_train, self.y_train)
                 best_model, best_params = search.best_estimator_, search.best_params_
                 cv_results = _skl_grid_cv_results_to_df(search.cv_results_)
@@ -2319,16 +2386,40 @@ class SklTuneWorker(QThread): # type: ignore
                 best_model.fit(self.x_train, self.y_train)
                 cv_results = study.trials_dataframe().sort_values("value", ascending=False).reset_index(drop=True)
             else:
-                search = GridSearchCV(base_model, param_grid, cv=folds, n_jobs=-1)
+                search = GridSearchCV(base_model, search_param_grid, cv=folds, n_jobs=-1)
                 search.fit(self.x_train, self.y_train)
                 best_model, best_params = search.best_estimator_, search.best_params_
                 cv_results = _skl_grid_cv_results_to_df(search.cv_results_)
 
+            # Desfaz o prefixo "base_estimator__" (se houver) antes de expor best_params/cv_results
+            # pra fora - quem recebe (mensagens de status, grade salva por modelo, tabela de
+            # Tuning) espera os nomes nativos do hiperparâmetro, não um detalhe interno do
+            # wrapper. Inofensivo/no-op para a Optuna, cujo best_params/cv_results já vêm sem
+            # prefixo (e não tem coluna "param_*" nenhuma, de qualquer forma).
+            if isinstance(base_model, _LabelEncodingClassifierWrapper):
+                best_params = {k.replace("base_estimator__", "", 1): v for k, v in best_params.items()}
+                if hasattr(cv_results, "columns"):
+                    cv_results = cv_results.rename(columns={
+                        c: c.replace("base_estimator__", "", 1) for c in cv_results.columns
+                    })
             self.finished_ok.emit(best_model, best_params, cv_results)
         except Exception as e:
             self.error.emit(str(e))
         finally:
             backend_ctx.__exit__(None, None, None)
+
+
+def _specificity_score(y_true, y_pred):
+    """Specificity / True Negative Rate = TN/(TN+FP) - classificação binária apenas (o
+    equivalente do CODRUG à 'Specificity' reportada pelo POSEIDON; Sensitivity/Recall e Accuracy
+    já são a mesma métrica sob outro nome, e MCC já existe com a mesma fórmula). Como não há um
+    conceito único de "classe negativa" para 3+ classes, retorna NaN fora do caso binário - mesma
+    degradação graciosa já usada para AUC em contextos incompatíveis."""
+    labels = np.unique(np.concatenate([np.asarray(y_true), np.asarray(y_pred)]))
+    if len(labels) != 2:
+        return float("nan")
+    tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=labels).ravel()
+    return float(tn / (tn + fp)) if (tn + fp) > 0 else float("nan")
 
 
 def _skl_curve_compute_metric(metric, y_true, y_pred, model=None, x=None):
@@ -2352,6 +2443,8 @@ def _skl_curve_compute_metric(metric, y_true, y_pred, model=None, x=None):
         return float(recall_score(y_true, y_pred, average="weighted"))
     if metric == "MCC":
         return float(matthews_corrcoef(y_true, y_pred))
+    if metric == "Specificity":
+        return _specificity_score(y_true, y_pred)
     if metric == "AUC":
         if model is None or x is None or not hasattr(model, "predict_proba"):
             return float("nan")
@@ -2548,12 +2641,21 @@ class SklEvaluateWorker(QThread): # type: ignore
                     row["Accuracy Train"] = float(fold_model.score(x_tr, y_tr))
                     row["Accuracy Test"] = float(accuracy_score(y_te, y_pred))
                     row["F1"] = float(f1_score(y_te, y_pred, average="weighted"))
+                    row["MCC"] = float(matthews_corrcoef(y_te, y_pred))
                 else:
                     row["Correct"] = bool(np.mean(np.asarray(y_te) == np.asarray(y_pred)) >= 0.5)
             rows.append(row)
 
         cv_df = pd.DataFrame(rows)
-        summary = {"Fold": "OVERALL", "Test Size": len(all_y_true)}
+        # "Fold" = "Mean" (antes "OVERALL"): a linha de resumo é, de fato, a média entre folds
+        # para as colunas de treino (ex.: Accuracy Train) - para as de teste (Accuracy Test, F1,
+        # MCC, R2 Test, MSE/RMSE/MAE) é a métrica global sobre as predições de todos os folds
+        # agrupadas (mais robusto que a média simples dos folds), mas "Mean" ainda descreve bem
+        # o papel dessa linha em relação aos folds individuais acima. Em inglês de propósito -
+        # mesmo critério já usado para nomes de hiperparâmetros: valor salvo no CSV e exibido na
+        # interface, não um rótulo traduzido via i18n (a interface em si continua seguindo o
+        # idioma selecionado normalmente).
+        summary = {"Fold": "Mean", "Test Size": len(all_y_true)}
         if task == "regression":
             if not small_test_folds:
                 summary["R2 Train"] = float(cv_df["R2 Train"].mean())
@@ -2567,7 +2669,20 @@ class SklEvaluateWorker(QThread): # type: ignore
                 summary["Accuracy Train"] = float(cv_df["Accuracy Train"].mean())
             summary["Accuracy Test"] = float(accuracy_score(all_y_true, all_y_pred))
             summary["F1"] = float(f1_score(all_y_true, all_y_pred, average="weighted"))
-        return pd.concat([cv_df, pd.DataFrame([summary])], ignore_index=True)
+            summary["MCC"] = float(matthews_corrcoef(all_y_true, all_y_pred))
+
+        # Linha extra "Std Dev" (em inglês, mesmo critério de "Mean" acima): desvio padrão ENTRE
+        # folds de cada coluna numérica (ddof=1, padrão do pandas) - complementa a linha "Mean",
+        # que sozinha não comunica o quanto o desempenho variou de fold para fold.
+        std_row = {"Fold": "Std Dev"}
+        for col in cv_df.columns:
+            if col == "Fold":
+                continue
+            try:
+                std_row[col] = float(cv_df[col].astype(float).std())
+            except (TypeError, ValueError):
+                continue
+        return pd.concat([cv_df, pd.DataFrame([summary]), pd.DataFrame([std_row])], ignore_index=True)
 
     def _run_nested(self):
         x_reset, y_reset, task = self.x_reset, self.y_reset, self.task
@@ -2604,6 +2719,7 @@ class SklEvaluateWorker(QThread): # type: ignore
             else:
                 row["Accuracy Test"] = float(accuracy_score(y_te, y_pred))
                 row["F1"] = float(f1_score(y_te, y_pred, average="weighted"))
+                row["MCC"] = float(matthews_corrcoef(y_te, y_pred))
             rows.append(row)
         return pd.DataFrame(rows)
 
@@ -2635,6 +2751,7 @@ class SklEvaluateWorker(QThread): # type: ignore
             else:
                 row["Accuracy Test"] = float(accuracy_score(y_te, y_pred))
                 row["F1"] = float(f1_score(y_te, y_pred, average="weighted"))
+                row["MCC"] = float(matthews_corrcoef(y_te, y_pred))
             rows.append(row)
 
         if not rows:
@@ -10711,6 +10828,22 @@ class MainWindow(QMainWindow):
                 return
 
             name_col = self.cb_select_name_column.currentText().strip()
+            if not name_col:
+                # "Select name column" deixado em branco: gera uma coluna numérica sequencial
+                # "Name" (1, 2, 3, ... preenchendo todas as linhas) em vez de bloquear a geração
+                # de descritores - cobre dataframes externos sem nenhum identificador de
+                # composto usável. Se já existir uma coluna "Name" (só não estava selecionada),
+                # reaproveita em vez de sobrescrever dados reais.
+                if "Name" not in self.df_selecionado.columns:
+                    self.df_selecionado.insert(0, "Name", range(1, len(self.df_selecionado) + 1))
+                name_col = "Name"
+                if hasattr(self, "cb_select_name_column"):
+                    idx = self.cb_select_name_column.findText("Name")
+                    if idx < 0:
+                        self.cb_select_name_column.addItem("Name")
+                        idx = self.cb_select_name_column.findText("Name")
+                    self.cb_select_name_column.setCurrentIndex(idx)
+
             if not name_col or name_col not in self.df_selecionado.columns:
                 QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), 'Please select a valid name column in "Select name column".')
                 return
@@ -21310,11 +21443,14 @@ class MainWindow(QMainWindow):
             "Precision": "precision_weighted",
             "Recall": "recall_weighted",
             "MCC": "matthews_corrcoef",
+            "Specificity": make_scorer(_specificity_score),
             "AUC": "roc_auc_ovr_weighted",
         }
         scoring = metric_scoring_map.get(selected_metric)
-        sign = -1.0 if scoring and scoring.startswith("neg_") else 1.0
-        label = selected_metric if scoring else "Score"
+        # scoring pode ser um objeto scorer (make_scorer), não só uma string nativa do sklearn -
+        # só strings 'neg_*' são invertidas, então checa o tipo antes de chamar .startswith().
+        sign = -1.0 if isinstance(scoring, str) and scoring.startswith("neg_") else 1.0
+        label = selected_metric if scoring is not None else "Score"
         return scoring, sign, label
 
     def _get_current_sklearn_usi(self, fallback="LOAD"):
@@ -21453,6 +21589,12 @@ class MainWindow(QMainWindow):
             "models": model_order,
             "best_model": getattr(self, "skl_screening_best_model_name", None),
             "current_model": getattr(self, "skl_current_model_name", None),
+            # Nome/caminho (relativo ao job) do Internal/External DataFrame em uso no momento desta
+            # gravação - permite que _on_skl_usi_selected recarregue os mesmos DataFrames (e atualize
+            # os rótulos "Select Internal/External DataFrame") ao reabrir esta USI depois, em vez de
+            # deixar esses rótulos mostrando o que estiver carregado de uma sessão/USI anterior.
+            "internal_dataframe_path": getattr(self, "_df_int_path", None),
+            "external_dataframe_path": getattr(self, "_df_ext_path", None),
             "tuned_param_grids": getattr(self, "_skl_tuned_param_grids", {}) or {},
             "tuning_settings": getattr(self, "_skl_tuning_settings", {}) or {},
             "validation_settings": getattr(self, "_skl_validation_settings", {}) or {},
@@ -21507,6 +21649,21 @@ class MainWindow(QMainWindow):
                 f"(CONFIG tab) is '{current_task}'. Loading it anyway, but Tuning/Evaluate may not "
                 "behave correctly until the Task Type matches."
             )
+
+        # Recarrega o(s) próprio(s) DataFrame(s) (não só os modelos/dados de treino-teste) usados
+        # por esta USI, atualizando também os rótulos "Select Internal/External DataFrame" (ambos
+        # compartilhados com a aba Applicability Domain) - sem isso, esses rótulos continuavam
+        # mostrando o que estivesse carregado de uma sessão/USI anterior, não o DataFrame real
+        # desta USI (ver aviso em run_skl_predict, que existia justamente por causa dessa lacuna).
+        internal_path = self._from_job_relative_path(config.get("internal_dataframe_path"))
+        if internal_path and os.path.isfile(internal_path):
+            self._load_internal_dataframe(internal_path, show_preview=False)
+        external_path = self._from_job_relative_path(config.get("external_dataframe_path"))
+        if external_path and os.path.isfile(external_path):
+            self._load_external_dataframe(external_path, show_preview=False)
+        if internal_path or external_path:
+            self._ad_invalidate_result()
+            self._ad_try_load_previous_result()
 
         self.skl_trained_models = {}
         for name in config.get("models", []):
@@ -21571,7 +21728,7 @@ class MainWindow(QMainWindow):
         if task == "regression":
             self.cb_skl_metric.addItems(["R2 Test", "RMSE", "MAE", "MSE"])
         elif task == "classification":
-            self.cb_skl_metric.addItems(["Accuracy Test", "F1", "Precision", "Recall", "MCC", "AUC"])
+            self.cb_skl_metric.addItems(["Accuracy Test", "F1", "Precision", "Recall", "Specificity", "MCC", "AUC"])
         elif task == "clustering":
             self.cb_skl_metric.addItems(["Silhouette", "Davies-Bouldin", "Calinski-Harabasz"])
 
@@ -22432,13 +22589,12 @@ class MainWindow(QMainWindow):
             # Predict roda sempre sobre o External Dataframe.
             df = getattr(self, "df_ext", None)
             if df is None:
-                # Selecionar uma USI no combobox restaura os modelos e os dados de treino/teste, mas
-                # não o DataFrame original — o usuário ainda precisa clicar em "Select External
-                # DataFrame" nesta sessão antes de rodar o Predict.
+                # _on_skl_usi_selected já recarrega o External DataFrame salvo para esta USI (quando
+                # existente) - isto só é alcançado quando a USI selecionada nunca teve um External
+                # DataFrame associado (nenhum Predict foi rodado nela ainda) ou, se salva por uma
+                # versão anterior do CODRUG, não tinha esse caminho persistido no skl_session.json.
                 QMessageBox.warning(self, i18n.t("msg_title_predict", self._idioma),
-                    "Select the External DataFrame first — click 'Select External DataFrame' above. "
-                    "Loading a USI restores the trained models and train/test data, but not the "
-                    "original DataFrame used for Predict."
+                    "Select the External DataFrame first — click 'Select External DataFrame' above."
                 )
                 return
             try:
@@ -22650,7 +22806,10 @@ class MainWindow(QMainWindow):
             n_perm = self.sp_skl_yrand_n.value() if hasattr(self, "sp_skl_yrand_n") else 100
             selected_metric = self.cb_skl_metric.currentText().strip() if hasattr(self, "cb_skl_metric") else ""
             scoring, sign, metric_label = self._skl_scoring_for_metric(selected_metric)
-            higher_is_better = not (scoring and scoring.startswith("neg_"))
+            # sign já reflete se scoring é um 'neg_*' (sign=-1) - evita chamar .startswith() em
+            # scoring diretamente, que agora pode ser um objeto make_scorer (ex.: Specificity),
+            # não só uma string nativa do sklearn.
+            higher_is_better = sign > 0
             random_state = self._get_skl_random_state()
 
             # Mesmo nº de Folds do grupo Cross-Validation (sp_skl_cv_folds) - fixos para o modelo
