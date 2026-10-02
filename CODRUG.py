@@ -55,7 +55,7 @@ try:
     from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QTabWidget, QTabBar, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QTextEdit, QAction, QMessageBox, QLineEdit, QFormLayout,
-    QComboBox as _QtQComboBox, QFileDialog, QCheckBox, QProgressBar, QGroupBox, QGridLayout, QSpinBox, QStackedLayout, QDialog, QTableWidget, QTableWidgetItem, QProgressDialog, QListWidget, QAbstractItemView, QDoubleSpinBox, QScrollArea, QFrame, QStyle, QStylePainter, QStyleOptionTab
+    QComboBox as _QtQComboBox, QFileDialog, QCheckBox, QProgressBar, QGroupBox, QGridLayout, QSpinBox, QStackedLayout, QDialog, QTableWidget, QTableWidgetItem, QProgressDialog, QListWidget, QAbstractItemView, QDoubleSpinBox, QScrollArea, QFrame, QStyle, QStylePainter, QStyleOptionTab, QSizePolicy
     )
 except ImportError as e:
     print("⚠️ PyQt5 libs not found...")
@@ -64,6 +64,97 @@ except ImportError as e:
         "PyQt5 is required to start CODRUG. "
         "Install the PyQt5 dependencies on this machine before running the application."
     ) from e
+
+
+_QtGroupBox = QGroupBox   # classe original do Qt (QGroupBox é rebindado para a versão colapsável abaixo)
+
+
+class CollapsibleGroupBox(_QtGroupBox):
+    """QGroupBox que colapsa/expande ao clicar no título (mesmo comportamento dos grupos da HOME do
+    CODEEP). Todos os QGroupBox do CODRUG são desta classe (ver o rebind logo abaixo), então qualquer
+    grupo com título pode iniciar colapsado via set_collapsed(True) - o que reduz a altura que a janela
+    precisa. Grupos sem título não colapsam (não há onde clicar).
+
+    Ao colapsar, esconde só os widgets FILHOS DIRETOS do grupo (os aninhados somem junto, com o próprio
+    estado de visibilidade preservado) e fixa a altura na do título; ao expandir, reexibe apenas os que
+    estavam visíveis antes e restaura a altura mínima/máxima original (grupos com setFixedSize voltam
+    ao tamanho certo). Um marcador (seta) no título indica o estado."""
+
+    _ARROW_OPEN = "\u25BE "
+    _ARROW_CLOSED = "\u25B8 "
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._collapsed = False
+        self._base_title = _QtGroupBox.title(self)
+        self._restore_visible = []
+        self._restore_min_h = 0
+        self._restore_max_h = 16777215
+        self._refresh_title()
+
+    # ---- título (o texto "limpo" continua acessível via title()) ----
+    def setTitle(self, title):
+        self._base_title = str(title or "")
+        self._refresh_title()
+
+    def title(self):
+        return self._base_title
+
+    def _refresh_title(self):
+        if not self._base_title:
+            _QtGroupBox.setTitle(self, "")
+            return
+        arrow = self._ARROW_CLOSED if self._collapsed else self._ARROW_OPEN
+        _QtGroupBox.setTitle(self, arrow + self._base_title)
+
+    # ---- colapso ----
+    def is_collapsed(self):
+        return self._collapsed
+
+    def _direct_child_widgets(self):
+        return [c for c in self.children() if isinstance(c, QWidget) and not c.isWindow()]
+
+    def _collapsed_height(self):
+        return max(28, self.fontMetrics().height() + 14)
+
+    def set_collapsed(self, collapsed):
+        collapsed = bool(collapsed) and bool(self._base_title)
+        if collapsed == self._collapsed:
+            return
+        if collapsed:
+            children = self._direct_child_widgets()
+            # só conta como "escondido de propósito" quem recebeu hide()/setVisible(False) explícito
+            self._restore_visible = [
+                w for w in children
+                if not (w.isHidden() and w.testAttribute(Qt.WA_WState_ExplicitShowHide))
+            ]
+            self._restore_min_h = self.minimumHeight()
+            self._restore_max_h = self.maximumHeight()
+            for w in children:
+                w.setVisible(False)
+            self._collapsed = True
+            self.setFixedHeight(self._collapsed_height())
+        else:
+            self._collapsed = False
+            self.setMinimumHeight(self._restore_min_h)
+            self.setMaximumHeight(self._restore_max_h)
+            for w in self._restore_visible:
+                w.setVisible(True)
+            self._restore_visible = []
+        self._refresh_title()
+        self.updateGeometry()
+
+    def mousePressEvent(self, event):
+        if (event.button() == Qt.LeftButton and self._base_title
+                and event.pos().y() <= self._collapsed_height()):
+            self.set_collapsed(not self._collapsed)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
+# Todo QGroupBox criado daqui em diante no CODRUG é colapsável.
+QGroupBox = CollapsibleGroupBox
 
 # bibliotecas padrão:
 import csv, re, json, zipfile, tempfile, glob, time, io, contextlib, shutil, subprocess, threading, random, string
@@ -1019,6 +1110,21 @@ QPushButton {
 QPushButton:hover { background: #F0AA9D; color: #0D1B2A; }
 QPushButton:pressed { background: #D98979; color: #FFF; }
 QPushButton:disabled { background: #352323; color: #8D6A66; border-color: #5A4340; }
+"""
+
+# Botão só-símbolo (ex.: "+" / "−" da grade de hiperparâmetros): sem fundo nem contorno.
+_SS_BTN_FLAT = """
+QPushButton {
+    background: transparent;
+    border: none;
+    color: #C9D1D9;
+    font-size: 16pt;
+    font-weight: bold;
+    padding: 0px 4px;
+}
+QPushButton:hover { color: #2ECC71; }
+QPushButton:pressed { color: #27AE60; }
+QPushButton:disabled { color: #4A5A6B; }
 """
 
 _SS_BTN_ORANGE = """
@@ -3477,6 +3583,7 @@ class MainWindow(QMainWindow):
             "danger": _SS_BTN_DANGER,
             "orange": _SS_BTN_ORANGE,
             "nav": _SS_BTN_NAV,
+            "flat": _SS_BTN_FLAT,
         }
         if role in role_map:
             return role_map[role]
@@ -4351,7 +4458,7 @@ class MainWindow(QMainWindow):
         ("class_column_stats", "list_class_column_stats"),
         ("groups_selected", "list_groups"),
         ("confidence_pct", "ed_stats_confidence_pct"),
-        ("confidence_z", "ed_stats_confidence_z"),
+        ("alpha", "ed_stats_alpha"),
         ("power", "ed_stats_power"),
         ("beta", "ed_stats_beta"),
         ("proportion_p1", "ed_stats_p1"),
@@ -8264,30 +8371,39 @@ class MainWindow(QMainWindow):
         try:
             pct = float(self.ed_stats_confidence_pct.text().strip().replace(",", "."))
             alpha = 1 - pct / 100.0
-            z = stats.norm.ppf(1 - alpha / 2)
-            self.ed_stats_confidence_z.setText(f"{z:.4f}")
-            if hasattr(self, "lbl_stats_alpha_value"):
-                self.lbl_stats_alpha_value.setText(f"{alpha:.4f}")
+            if hasattr(self, "ed_stats_alpha"):
+                self.ed_stats_alpha.setText(f"{alpha:.4f}")
         except (ValueError, AttributeError, ZeroDivisionError):
             pass
         finally:
             self._stats_power_sync_guard = False
 
-    def _sync_stats_confidence_from_z(self):
+    def _sync_stats_confidence_from_alpha(self):
+        """Erro Tipo I (α) editável <-> Nível de Confiança (%): α = 1 - NC/100 (mesma informação,
+        em duas escalas). Valor fora de (0, 1) é descartado e α volta ao valor derivado do NC."""
         if getattr(self, "_stats_power_sync_guard", False):
             return
         self._stats_power_sync_guard = True
         try:
-            z = float(self.ed_stats_confidence_z.text().strip().replace(",", "."))
-            alpha = 2 * (1 - stats.norm.cdf(z))
-            pct = (1 - alpha) * 100
-            self.ed_stats_confidence_pct.setText(f"{pct:.2f}")
-            if hasattr(self, "lbl_stats_alpha_value"):
-                self.lbl_stats_alpha_value.setText(f"{alpha:.4f}")
+            alpha = float(self.ed_stats_alpha.text().strip().replace(",", "."))
+            if 0 < alpha < 1:
+                self.ed_stats_confidence_pct.setText(f"{(1 - alpha) * 100:.2f}")
+            else:
+                pct = float(self.ed_stats_confidence_pct.text().strip().replace(",", "."))
+                self.ed_stats_alpha.setText(f"{1 - pct / 100.0:.4f}")
         except (ValueError, AttributeError):
             pass
         finally:
             self._stats_power_sync_guard = False
+
+    def _get_stats_z(self):
+        """Z bilateral do Nível de Confiança atual: z = Φ⁻¹(1 - α/2), com α = 1 - NC/100 (o campo
+        "Confidence Level (Z)" foi removido da interface por ser derivado dele). ValueError se NC inválido."""
+        pct = float(self.ed_stats_confidence_pct.text().strip().replace(",", "."))
+        alpha = 1 - pct / 100.0
+        if not (0 < alpha < 1):
+            raise ValueError("Confidence level must be between 0 and 100 (exclusive).")
+        return float(stats.norm.ppf(1 - alpha / 2))
 
     def _sync_stats_power_from_power(self):
         if getattr(self, "_stats_power_sync_guard", False):
@@ -8324,10 +8440,10 @@ class MainWindow(QMainWindow):
           para comparar 2 proporções com o Poder/α informados (Cohen's h via statsmodels).
         """
         try:
-            z = float(self.ed_stats_confidence_z.text().strip().replace(",", "."))
+            z = self._get_stats_z()
             p1 = float(self.ed_stats_p1.text().strip().replace(",", "."))
         except (ValueError, AttributeError):
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Preencha Nível de Confiança (Z) e Proporção do Grupo 1 (p1) com valores numéricos válidos.")
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Preencha Nível de Confiança (ou Erro Tipo I) e Proporção do Grupo 1 (p1) com valores numéricos válidos.")
             return
 
         if not (0 < p1 < 1):
@@ -8340,7 +8456,7 @@ class MainWindow(QMainWindow):
         if p2_text:
             try:
                 p2 = float(p2_text)
-                alpha = float(self.lbl_stats_alpha_value.text().strip().replace(",", "."))
+                alpha = float(self.ed_stats_alpha.text().strip().replace(",", "."))
                 power = float(self.ed_stats_power.text().strip().replace(",", "."))
             except (ValueError, AttributeError):
                 QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Valores inválidos em Proporção do Grupo 2 (p2), Poder Estatístico ou Erro Tipo I.")
@@ -8432,7 +8548,7 @@ class MainWindow(QMainWindow):
         try:
             p1 = float(self.ed_stats_p1.text().strip().replace(",", "."))
             p2 = float(p2_text)
-            alpha = float(self.lbl_stats_alpha_value.text().strip().replace(",", "."))
+            alpha = float(self.ed_stats_alpha.text().strip().replace(",", "."))
         except (ValueError, AttributeError):
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Valores inválidos em Proporção do Grupo 1 (p1), Proporção do Grupo 2 (p2) ou Erro Tipo I.")
             return
@@ -17928,24 +18044,35 @@ class MainWindow(QMainWindow):
             g1_validity.setStyleSheet("QGroupBox { background-color: #F5F5F5; border: 1px solid #ccc; border-radius: 6px; }")
             g1_validity_layout = QVBoxLayout(g1_validity)
 
+            # Largura mínima das listas do grupo; elas se expandem na horizontal para ocupar o espaço
+            # disponível (itens maiores que a lista rolam - scroll automático do QListWidget).
+            VALIDITY_LIST_W = 150
             # Checkbox + lista múltipla de "data_validity_comment": quando marcado, "Generate
             # Base Dataset" REMOVE as linhas cujo data_validity_comment esteja entre os valores
             # selecionados (ao contrário de Assay Metric/Assay Unit, que mantêm só o que
             # corresponde - aqui os valores marcados sinalizam problema no dado, então são as
             # linhas com esses valores que saem). Desmarcado = sem filtro por essa coluna.
-            self.chk_validity_comment = QCheckBox(); self._tr("s1_chk_validity_comment", self.chk_validity_comment.setText)
+            # Texto do checkbox em duas linhas (ex.: "Validity\nComment"): quebra no primeiro espaço,
+            # para o checkbox ocupar pouca largura (a quebra acompanha o idioma selecionado).
+            def _two_line(setter):
+                return lambda txt: setter(txt.replace(" ", "\n", 1))
+            self.chk_validity_comment = QCheckBox(); self._tr("s1_chk_validity_comment", _two_line(self.chk_validity_comment.setText))
             self._tr("s1_tooltip_validity_comment", self.chk_validity_comment.setToolTip)
-            self.list_validity_comment = QListWidget(); self.list_validity_comment.setSelectionMode(QAbstractItemView.MultiSelection); self.list_validity_comment.setFixedHeight(60)
+            self.list_validity_comment = QListWidget(); self.list_validity_comment.setSelectionMode(QAbstractItemView.MultiSelection); self.list_validity_comment.setFixedHeight(60); self.list_validity_comment.setMinimumWidth(VALIDITY_LIST_W)
             self._tr("s1_tooltip_validity_comment", self.list_validity_comment.setToolTip)
             # Checkbox + lista múltipla de "data_validity_description", mesmo padrão de exclusão:
-            self.chk_validity_description = QCheckBox(); self._tr("s1_chk_validity_description", self.chk_validity_description.setText)
+            self.chk_validity_description = QCheckBox(); self._tr("s1_chk_validity_description", _two_line(self.chk_validity_description.setText))
             self._tr("s1_tooltip_validity_description", self.chk_validity_description.setToolTip)
-            self.list_validity_description = QListWidget(); self.list_validity_description.setSelectionMode(QAbstractItemView.MultiSelection); self.list_validity_description.setFixedHeight(60)
+            self.list_validity_description = QListWidget(); self.list_validity_description.setSelectionMode(QAbstractItemView.MultiSelection); self.list_validity_description.setFixedHeight(60); self.list_validity_description.setMinimumWidth(VALIDITY_LIST_W)
             self._tr("s1_tooltip_validity_description", self.list_validity_description.setToolTip)
 
             # Sem addStretch nas pontas e com stretch factor nas duas listas: elas se expandem
             # para preencher toda a largura disponível do grupo, em vez de ficarem com largura
             # fixa centralizada.
+            # sizeHint padrão do QListWidget (~256 px) é ignorado: as listas só crescem pelo stretch,
+            # sem aumentar a largura preferida da aba.
+            for _lst in (self.list_validity_comment, self.list_validity_description):
+                _lst.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
             validity_row = QHBoxLayout()
             validity_row.addWidget(self.chk_validity_comment)
             validity_row.addWidget(self.list_validity_comment, 1)
@@ -17961,20 +18088,27 @@ class MainWindow(QMainWindow):
             btn_generate_end_dataset.setFixedWidth(200)
             btn_generate_end_dataset.setProperty("role", "primary")
             btn_generate_end_dataset.clicked.connect(self.generate_end_dataset)
-            request_time_label = self._trL("s1_lbl_request_time")
+            # Rótulo em duas linhas ("Request / time (s)"): quebra no primeiro espaço do texto traduzido.
+            request_time_label = QLabel()
+            self._tr("s1_lbl_request_time", lambda txt: request_time_label.setText(txt.replace(" ", "\n", 1)))
             request_time_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             self.ed_request_time = QLineEdit("30")
             self.ed_request_time.setFixedWidth(70)
             self.ed_request_time.setFixedHeight(30)
             self.ed_request_time.setValidator(QIntValidator(1, 999999))
 
+            # "Generate Base Dataset" à direita do grupo "Validity Filter", com "Request time (s)"
+            # ao lado do botão.
+            generate_col = QHBoxLayout()
+            generate_col.addWidget(btn_generate_end_dataset)
+            generate_col.addSpacing(12)
+            generate_col.addWidget(request_time_label)
+            generate_col.addWidget(self.ed_request_time)
+
             generate_row = QHBoxLayout()
-            generate_row.addStretch(1)
-            generate_row.addWidget(btn_generate_end_dataset)
-            generate_row.addSpacing(12)
-            generate_row.addWidget(request_time_label)
-            generate_row.addWidget(self.ed_request_time)
-            generate_row.addStretch(1)
+            generate_row.addWidget(g1_validity, 1)
+            generate_row.addSpacing(24)
+            generate_row.addLayout(generate_col)
 
             # Grupo "Explore Molecules" (não funciona como filtro de "Generate Base Dataset"):
             g1_molecule = QGroupBox(); self._tr("s1_grp_explore_molecules", g1_molecule.setTitle)
@@ -18032,9 +18166,11 @@ class MainWindow(QMainWindow):
             l2.addLayout(activity_btn_layout)
             l2.addWidget(g1_cell)
             l2.addWidget(g1_assay)
-            l2.addWidget(g1_validity)
             l2.addLayout(generate_row)
             l2.addWidget(g1_molecule)
+            # Grupos que iniciam colapsados (reduz a altura inicial da janela):
+            g1_cell.set_collapsed(True)
+            g1_molecule.set_collapsed(True)
             l2.addWidget(g2)
 
             l2.addStretch()       
@@ -18162,7 +18298,7 @@ class MainWindow(QMainWindow):
             gL6_widget = QWidget()
             gL6 = QGridLayout(gL6_widget)
             label_select_columns = self._trL("s2_lbl_select_columns_interest"); label_select_columns.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;");
-            self.list_columns = QListWidget(); self.list_columns.addItems([]); self.list_columns.setSelectionMode(QAbstractItemView.MultiSelection); self.list_columns.setMinimumHeight(60); self.list_columns.setFixedWidth(300)
+            self.list_columns = QListWidget(); self.list_columns.addItems([]); self.list_columns.setSelectionMode(QAbstractItemView.MultiSelection); self.list_columns.setMinimumHeight(60); self.list_columns.setFixedWidth(200)
             self.chk_use_standard_values = QCheckBox(); self._tr("s2_chk_use_standard_values", self.chk_use_standard_values.setText)
             self.chk_use_standard_values.setChecked(False)
 
@@ -18180,7 +18316,9 @@ class MainWindow(QMainWindow):
             # Stretch=1: sem isso, list_columns (mesmo com setMinimumHeight em vez de
             # setFixedHeight) nunca era de fato convidada a crescer/encolher com a janela
             # principal — mesma causa corrigida em STEP 4 (Models/Status).
-            g6_main_layout.addWidget(gL6_widget, 1)
+            # Sem stretch: a caixa "Select columns of interest" não cresce com a janela; as duas
+            # caixas da linha (g6/g7) têm a mesma altura e a sobra vai para o fim da aba.
+            g6_main_layout.addWidget(gL6_widget)
             g6_main_layout.addSpacing(27)           
             
             # Segundo grid:
@@ -18241,7 +18379,7 @@ class MainWindow(QMainWindow):
             self.cb_relation_column_rep = QComboBox(); self.cb_relation_column_rep.addItems([]); self.cb_relation_column_rep.setFixedWidth(200)
             self.list_relation_values_rep = QListWidget()
             self.list_relation_values_rep.setSelectionMode(QAbstractItemView.MultiSelection)
-            self.list_relation_values_rep.setFixedSize(140, 70)
+            self.list_relation_values_rep.setFixedSize(80, 70)   # valores de relação são curtos (=, >, <, >=...): largura reduzida para não alargar a aba
             self._tr("s2_tooltip_relation_values_rep", self.list_relation_values_rep.setToolTip)
             btn_remove_value_rep = QPushButton(); self._tr("s2_btn_remove_value_rep", btn_remove_value_rep.setText); btn_remove_value_rep.setProperty("role", "primary"); btn_remove_value_rep.setFixedWidth(150); btn_remove_value_rep.clicked.connect(self.run_remove_value_repetitions)
             gL10b.addWidget(label_select_relation_column_rep,0,0); gL10b.addWidget(self.cb_relation_column_rep,0,1); gL10b.addWidget(self.list_relation_values_rep,0,2); gL10b.addWidget(btn_remove_value_rep,0,3)
@@ -18278,7 +18416,7 @@ class MainWindow(QMainWindow):
             # de fato convidada a mudar de altura com a janela principal.
             g67_layout.addWidget(g6)
             g67_layout.addWidget(g7)
-            l3.addLayout(g67_layout, 1)
+            l3.addLayout(g67_layout)
 
             g89_layout = QHBoxLayout()
             g8 = QGroupBox(); self._tr("s2_grp_data_transformation", g8.setTitle)
@@ -18636,6 +18774,9 @@ class MainWindow(QMainWindow):
             g10_11_layout.addWidget(g11, alignment=Qt.AlignTop)
 
             l3.addLayout(g10_11_layout)
+            # Grupos que iniciam colapsados (reduz a altura inicial da janela):
+            g10.set_collapsed(True)
+            g11.set_collapsed(True)
 
             # Botão para o próximo:
             layout_btn_back_next3 = QHBoxLayout()
@@ -19613,7 +19754,18 @@ class MainWindow(QMainWindow):
             tune_row2.addWidget(self._trL("s6_lbl_n_iter"))
             self.sp_skl_tune_n_iter = QSpinBox(); self.sp_skl_tune_n_iter.setRange(1, 500); self.sp_skl_tune_n_iter.setValue(20)
             tune_row2.addWidget(self.sp_skl_tune_n_iter)
-            tune_row2.addStretch()
+            # "+" / "−" (adicionar/remover linha da grade de hiperparâmetros): só o símbolo, sem fundo
+            # nem contorno, na linha de CV folds / n_iter, à direita delas. Permite testar qualquer
+            # parâmetro aceito pelo estimador (ex.: min_samples_leaf, ccp_alpha) além dos já semeados
+            # em SKL_PARAM_GRIDS, sem sobrescrever uma linha existente.
+            tune_row2.addStretch()   # empurra "+" / "−" para a extremidade direita da linha
+            self.btn_skl_hp_add = QPushButton("+"); self._tr("s6_btn_add_hyperparam_row", self.btn_skl_hp_add.setToolTip)
+            self.btn_skl_hp_del = QPushButton("\u2212"); self._tr("s6_btn_remove_hyperparam_row", self.btn_skl_hp_del.setToolTip)
+            for _b in (self.btn_skl_hp_add, self.btn_skl_hp_del):
+                _b.setProperty("role", "flat")
+                _b.setCursor(Qt.PointingHandCursor)
+                _b.setFixedSize(28, 28)
+                tune_row2.addWidget(_b)
             lay_skl_tune.addLayout(tune_row2)
 
             self.tbl_skl_hyperparams = QTableWidget()
@@ -19624,21 +19776,6 @@ class MainWindow(QMainWindow):
             self.tbl_skl_hyperparams.horizontalHeader().setStretchLastSection(True)
             self.tbl_skl_hyperparams.setMinimumHeight(120)
             lay_skl_tune.addWidget(self.tbl_skl_hyperparams, 1)
-
-            # Add/Remove de linhas na grade de hiperparâmetros: permite testar qualquer parâmetro
-            # aceito pelo estimador (ex.: min_samples_leaf, ccp_alpha) além dos já semeados em
-            # SKL_PARAM_GRIDS, sem precisar sobrescrever uma linha existente.
-            hp_row_btns = QHBoxLayout()
-            self.btn_skl_hp_add = QPushButton(); self._tr("s6_btn_add_hyperparam_row", self.btn_skl_hp_add.setText)
-            self.btn_skl_hp_add.setProperty("role", "select")
-            self.btn_skl_hp_add.setFixedWidth(140)
-            self.btn_skl_hp_del = QPushButton(); self._tr("s6_btn_remove_hyperparam_row", self.btn_skl_hp_del.setText)
-            self.btn_skl_hp_del.setProperty("role", "select")
-            self.btn_skl_hp_del.setFixedWidth(140)
-            hp_row_btns.addWidget(self.btn_skl_hp_add)
-            hp_row_btns.addWidget(self.btn_skl_hp_del)
-            hp_row_btns.addStretch()
-            lay_skl_tune.addLayout(hp_row_btns)
 
             self.lbl_skl_tune_note = QLabel("")
             self.lbl_skl_tune_note.setStyleSheet("color: #cc4444; font-size: 9pt;")
@@ -20154,66 +20291,61 @@ class MainWindow(QMainWindow):
             expl_row1.addStretch()
             lay_ad_expl.addLayout(expl_row1)
 
-            # --- Linha 4 (grid de 3 colunas): Highlight compound(s) | Highlight descriptor(s) | Plot Type ---
-            # addStretch() nas duas pontas centraliza o bloco das 3 colunas no grupo.
+            # --- Linha 4 (grid 3 colunas x 3 linhas): Highlight compound(s) | Highlight descriptor(s) | Plot Type ---
+            # Linha 0: títulos das duas colunas Highlight; linha 1: caixas "Type to filter..." e, na
+            # mesma linha delas, o rótulo "Plot Type"; linha 2: as três listas, todas com a mesma altura
+            # e alinhadas pelo topo. addStretch() nas duas pontas centraliza o bloco no grupo.
             expl_row2 = QHBoxLayout()
             expl_row2.addStretch()
+            expl_grid = QGridLayout()
+            expl_grid.setHorizontalSpacing(16); expl_grid.setVerticalSpacing(4)
 
             # Coluna 1 — Highlight compound(s): filtro + lista multi-seleção
-            compound_box = QVBoxLayout()
             lbl_compound = self._trL("s7_lbl_ad_expl_compound"); lbl_compound.setAlignment(Qt.AlignCenter)
-            compound_box.addWidget(lbl_compound)
             self.ed_ad_expl_compound_filter = QLineEdit()
             self._tr("s7_ph_ad_expl_filter", self.ed_ad_expl_compound_filter.setPlaceholderText)
             self.ed_ad_expl_compound_filter.setFixedWidth(180)
-            compound_box.addWidget(self.ed_ad_expl_compound_filter)
             self.list_ad_expl_compound = QListWidget()
             self.list_ad_expl_compound.setSelectionMode(QAbstractItemView.MultiSelection)
             self.list_ad_expl_compound.setFixedSize(180, 90)
             self._tr("s7_tooltip_ad_expl_compound", self.list_ad_expl_compound.setToolTip)
-            compound_box.addWidget(self.list_ad_expl_compound)
-            expl_row2.addLayout(compound_box)
-
-            expl_row2.addSpacing(16)
+            expl_grid.addWidget(lbl_compound, 0, 0)
+            expl_grid.addWidget(self.ed_ad_expl_compound_filter, 1, 0)
+            expl_grid.addWidget(self.list_ad_expl_compound, 2, 0)
 
             # Coluna 2 — Highlight descriptor(s): filtro + lista multi-seleção + modo de correspondência
-            desc_box = QVBoxLayout()
-            desc_head = QHBoxLayout()
-            desc_head.addStretch()
-            desc_head.addWidget(self._trL("s7_lbl_ad_expl_desc"))
+            lbl_desc = self._trL("s7_lbl_ad_expl_desc"); lbl_desc.setAlignment(Qt.AlignCenter)
+            # "Any selected / All selected" sai do título e vai para a coluna do Plot Type (acima dele):
+            # com só rótulos na linha 0, as três listas ficam coladas aos filtros, sem vão.
             self.cb_ad_expl_desc_match = QComboBox()
             self.cb_ad_expl_desc_match.addItem("Any selected", "any")
             self.cb_ad_expl_desc_match.addItem("All selected", "all")
             self._tr("s7_tooltip_ad_expl_desc_match", self.cb_ad_expl_desc_match.setToolTip)
-            desc_head.addWidget(self.cb_ad_expl_desc_match)
-            desc_head.addStretch()
-            desc_box.addLayout(desc_head)
             self.ed_ad_expl_desc_filter = QLineEdit()
             self._tr("s7_ph_ad_expl_filter", self.ed_ad_expl_desc_filter.setPlaceholderText)
             self.ed_ad_expl_desc_filter.setFixedWidth(210)
-            desc_box.addWidget(self.ed_ad_expl_desc_filter)
             self.list_ad_expl_desc = QListWidget()
             self.list_ad_expl_desc.setSelectionMode(QAbstractItemView.MultiSelection)
             self.list_ad_expl_desc.setFixedSize(210, 90)
             self._tr("s7_tooltip_ad_expl_desc", self.list_ad_expl_desc.setToolTip)
-            desc_box.addWidget(self.list_ad_expl_desc)
-            expl_row2.addLayout(desc_box)
+            expl_grid.addWidget(lbl_desc, 0, 1)
+            expl_grid.addWidget(self.cb_ad_expl_desc_match, 0, 2, alignment=Qt.AlignCenter)
+            expl_grid.addWidget(self.ed_ad_expl_desc_filter, 1, 1)
+            expl_grid.addWidget(self.list_ad_expl_desc, 2, 1)
 
-            expl_row2.addSpacing(16)
-
-            # Coluna 3 — Plot Type: lista multi-seleção (substitui os checkboxes 3D/KDE/Marginais)
-            type_box = QVBoxLayout()
+            # Coluna 3 — Plot Type: rótulo na linha das caixas de filtro; lista multi-seleção (substitui
+            # os checkboxes 3D/KDE/Marginais) com a mesma altura das listas Highlight
             lbl_plot_type = self._trL("s7_lbl_ad_expl_plot_type"); lbl_plot_type.setAlignment(Qt.AlignCenter)
-            type_box.addWidget(lbl_plot_type)
             self.list_ad_expl_plot_type = QListWidget()
             self.list_ad_expl_plot_type.setSelectionMode(QAbstractItemView.MultiSelection)
             self.list_ad_expl_plot_type.addItems(self.AD_EXPL_PLOT_TYPES)
-            self.list_ad_expl_plot_type.setFixedSize(190, 110)   # largura reduzida para caber só o texto, sem scroll
+            self.list_ad_expl_plot_type.setFixedSize(190, 90)   # mesma altura das listas Highlight
             self._tr("s7_tooltip_ad_expl_plot_type", self.list_ad_expl_plot_type.setToolTip)
             self.list_ad_expl_plot_type.item(1).setSelected(True)   # "Train as KDE density" ligado por padrão
-            type_box.addWidget(self.list_ad_expl_plot_type)
-            expl_row2.addLayout(type_box)
+            expl_grid.addWidget(lbl_plot_type, 1, 2)
+            expl_grid.addWidget(self.list_ad_expl_plot_type, 2, 2)
 
+            expl_row2.addLayout(expl_grid)
             expl_row2.addStretch()
             lay_ad_expl.addLayout(expl_row2)
 
@@ -20304,12 +20436,20 @@ class MainWindow(QMainWindow):
             self._tr("s7i_tooltip_workers", self.spn_interp_workers.setToolTip)
             interp_row4.addStretch()
             for lbl_key, w_spin in (("s7i_lbl_corr", self.dspn_interp_corr), ("s7i_lbl_repeats", self.spn_interp_repeats),
-                                    ("s7i_lbl_shap_rows", self.spn_interp_shap_rows), ("s7i_lbl_top_n", self.spn_interp_top_n),
-                                    ("s7i_lbl_workers", self.spn_interp_workers)):
+                                    ("s7i_lbl_shap_rows", self.spn_interp_shap_rows)):
                 w_spin.setFixedWidth(64)
                 interp_row4.addWidget(self._trL(lbl_key)); interp_row4.addWidget(w_spin); interp_row4.addSpacing(8)
             interp_row4.addStretch()
             lay_interp.addLayout(interp_row4)
+
+            # Linha 4b: Top N e Workers na linha seguinte (reduz a largura necessária do grupo)
+            interp_row4b = QHBoxLayout()
+            interp_row4b.addStretch()
+            for lbl_key, w_spin in (("s7i_lbl_top_n", self.spn_interp_top_n), ("s7i_lbl_workers", self.spn_interp_workers)):
+                w_spin.setFixedWidth(64)
+                interp_row4b.addWidget(self._trL(lbl_key)); interp_row4b.addWidget(w_spin); interp_row4b.addSpacing(8)
+            interp_row4b.addStretch()
+            lay_interp.addLayout(interp_row4b)
 
             # Linha 5: aviso/estado (projeção, SHAP ausente, sem modelo...), centralizado
             self.lbl_interp_status = QLabel(); self.lbl_interp_status.setWordWrap(True)
@@ -20625,7 +20765,6 @@ class MainWindow(QMainWindow):
             g21_main_layout.addStretch()
 
             l8.addWidget(g21, alignment=Qt.AlignCenter)
-            l8.addStretch()
 
             # ---------------- CODOC Integration ----------------
             g22 = QGroupBox()
@@ -20672,7 +20811,6 @@ class MainWindow(QMainWindow):
             g22_layout.addLayout(codoc_row_layout)
 
             l8.addWidget(g22, alignment=Qt.AlignCenter)
-            l8.addStretch()
 
             btn_generate_final_report = QPushButton()
             self._tr("s8_btn_generate_final_report", btn_generate_final_report.setText)
@@ -20681,6 +20819,8 @@ class MainWindow(QMainWindow):
             btn_generate_final_report.clicked.connect(self.generate_final_report)
             l8.addWidget(btn_generate_final_report, alignment=Qt.AlignCenter)
             l8.addSpacing(10)
+            # Único stretch da aba: empurra grupos e botão para cima, a sobra de altura fica no fim.
+            l8.addStretch()
 
             layout_btn_back_next8 = QHBoxLayout()
 
@@ -21274,13 +21414,12 @@ class MainWindow(QMainWindow):
             gL_power = QGridLayout(gL_power_widget)
             gL_power.setVerticalSpacing(12)
 
-            # Nível de Confiança: caixas % <-> Z (conversão dinâmica) + Erro Tipo I (α) automático
+            # Nível de Confiança (%) <-> Erro Tipo I (α) (conversão dinâmica: α = 1 - NC/100; o Z do
+            # cálculo é derivado dos dois, por isso não tem mais caixa própria)
             label_stats_confidence = self._trL("stats_lbl_confidence"); label_stats_confidence.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
             self.ed_stats_confidence_pct = QLineEdit("95"); self.ed_stats_confidence_pct.setFixedSize(70, 25); self.ed_stats_confidence_pct.setAlignment(Qt.AlignCenter)
-            label_stats_confidence_z = self._trL("stats_lbl_confidence_z")
-            self.ed_stats_confidence_z = QLineEdit("1.96"); self.ed_stats_confidence_z.setFixedSize(70, 25); self.ed_stats_confidence_z.setAlignment(Qt.AlignCenter)
             label_stats_alpha = self._trL("stats_lbl_alpha")
-            self.lbl_stats_alpha_value = QLineEdit("0.05"); self.lbl_stats_alpha_value.setReadOnly(True); self.lbl_stats_alpha_value.setFixedSize(70, 25); self.lbl_stats_alpha_value.setAlignment(Qt.AlignCenter)
+            self.ed_stats_alpha = QLineEdit("0.05"); self.ed_stats_alpha.setFixedSize(70, 25); self.ed_stats_alpha.setAlignment(Qt.AlignCenter)
 
             # Poder Estatístico <-> Erro Tipo II (β) (conversão dinâmica: Poder = 1 - β)
             label_stats_power = self._trL("stats_lbl_power"); label_stats_power.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
@@ -21293,12 +21432,8 @@ class MainWindow(QMainWindow):
             self.ed_stats_p1 = QLineEdit("0.5"); self.ed_stats_p1.setFixedSize(70, 25); self.ed_stats_p1.setAlignment(Qt.AlignCenter)
             label_stats_p2 = self._trL("stats_lbl_p2")
             self.ed_stats_p2 = QLineEdit(""); self.ed_stats_p2.setFixedSize(70, 25); self.ed_stats_p2.setAlignment(Qt.AlignCenter)
-            # Ícone de informação ao lado da caixa de p2, explicando via tooltip que ela é
-            # opcional e o que muda ao preenchê-la (comparação entre 2 grupos).
-            info_icon_p2 = QLabel("ℹ️")
-            info_icon_p2.setStyleSheet("font-size: 11pt;")
-            info_icon_p2.setCursor(Qt.WhatsThisCursor)
-            self._tr("stats_lbl_p2_hint", info_icon_p2.setToolTip)
+            # A explicação de que p2 é opcional (comparação entre 2 grupos) fica no tooltip do rótulo.
+            self._tr("stats_lbl_p2_hint", label_stats_p2.setToolTip)
 
             # Margem de Erro (só usada no cálculo de uma única proporção) e Tamanho da População.
             # N é preenchido automaticamente com o número de linhas ao carregar um dataframe na
@@ -21306,6 +21441,7 @@ class MainWindow(QMainWindow):
             # mesmo sem nenhum dataframe selecionado.
             label_stats_margin_error = self._trL("stats_lbl_margin_error"); label_stats_margin_error.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
             self.ed_stats_margin_error = QLineEdit("5"); self.ed_stats_margin_error.setFixedSize(70, 25); self.ed_stats_margin_error.setAlignment(Qt.AlignCenter)
+            self._tr("stats_tooltip_margin_error", label_stats_margin_error.setToolTip)
             label_stats_population_size = self._trL("stats_lbl_population_size"); label_stats_population_size.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
             self.ed_stats_population_size = QLineEdit("0"); self.ed_stats_population_size.setFixedSize(70, 25); self.ed_stats_population_size.setAlignment(Qt.AlignCenter)
 
@@ -21316,33 +21452,32 @@ class MainWindow(QMainWindow):
             self.ed_stats_n1 = QLineEdit(""); self.ed_stats_n1.setFixedSize(70, 25); self.ed_stats_n1.setAlignment(Qt.AlignCenter)
             label_stats_n2 = self._trL("stats_lbl_n2")
             self.ed_stats_n2 = QLineEdit(""); self.ed_stats_n2.setFixedSize(70, 25); self.ed_stats_n2.setAlignment(Qt.AlignCenter)
-            info_icon_n1n2 = QLabel("ℹ️")
-            info_icon_n1n2.setStyleSheet("font-size: 11pt;")
-            info_icon_n1n2.setCursor(Qt.WhatsThisCursor)
-            self._tr("stats_lbl_n1n2_hint", info_icon_n1n2.setToolTip)
+            for _lbl in (label_stats_alpha, label_stats_beta, label_stats_p2, label_stats_n2):
+                _lbl.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")   # mesmo estilo dos demais rótulos
+            self._tr("stats_lbl_n1n2_hint", label_stats_n2.setToolTip)
+            self._tr("stats_lbl_n1n2_hint", label_stats_n1.setToolTip)
 
             gL_power.addWidget(label_stats_confidence, 0, 0, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_confidence_pct, 0, 1)
-            gL_power.addWidget(label_stats_confidence_z, 0, 2, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_confidence_z, 0, 3)
-            gL_power.addWidget(label_stats_alpha, 0, 4, alignment=Qt.AlignRight); gL_power.addWidget(self.lbl_stats_alpha_value, 0, 5)
+            gL_power.addWidget(label_stats_alpha, 0, 2, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_alpha, 0, 3)
 
             gL_power.addWidget(label_stats_power, 1, 0, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_power, 1, 1)
             gL_power.addWidget(label_stats_beta, 1, 2, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_beta, 1, 3)
 
             gL_power.addWidget(label_stats_p1, 2, 0, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_p1, 2, 1)
-            gL_power.addWidget(label_stats_p2, 2, 2, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_p2, 2, 3); gL_power.addWidget(info_icon_p2, 2, 4, alignment=Qt.AlignLeft)
+            gL_power.addWidget(label_stats_p2, 2, 2, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_p2, 2, 3)
 
             gL_power.addWidget(label_stats_margin_error, 3, 0, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_margin_error, 3, 1)
             gL_power.addWidget(label_stats_population_size, 3, 2, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_population_size, 3, 3)
 
             gL_power.addWidget(label_stats_n1, 4, 0, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_n1, 4, 1)
-            gL_power.addWidget(label_stats_n2, 4, 2, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_n2, 4, 3); gL_power.addWidget(info_icon_n1n2, 4, 4, alignment=Qt.AlignLeft)
+            gL_power.addWidget(label_stats_n2, 4, 2, alignment=Qt.AlignRight); gL_power.addWidget(self.ed_stats_n2, 4, 3)
 
             gL_power.setColumnStretch(0, 1); gL_power.setColumnStretch(1, 1); gL_power.setColumnStretch(2, 1)
-            gL_power.setColumnStretch(3, 1); gL_power.setColumnStretch(4, 1); gL_power.setColumnStretch(5, 1)
+            gL_power.setColumnStretch(3, 1)
 
             # Conversões dinâmicas (só disparam ao terminar a edição, evitando loop a cada tecla)
             self.ed_stats_confidence_pct.editingFinished.connect(self._sync_stats_confidence_from_pct)
-            self.ed_stats_confidence_z.editingFinished.connect(self._sync_stats_confidence_from_z)
+            self.ed_stats_alpha.editingFinished.connect(self._sync_stats_confidence_from_alpha)
             self.ed_stats_power.editingFinished.connect(self._sync_stats_power_from_power)
             self.ed_stats_beta.editingFinished.connect(self._sync_stats_power_from_beta)
             self._sync_stats_confidence_from_pct()
@@ -21413,7 +21548,7 @@ class MainWindow(QMainWindow):
             label_select_groups = self._trL("s3_lbl_select_groups"); label_select_groups.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
             self.list_groups = QListWidget();
             self.list_groups.addItems([]);
-            self.list_groups.setSelectionMode(QAbstractItemView.MultiSelection); self.list_groups.setFixedSize(300, 100)
+            self.list_groups.setSelectionMode(QAbstractItemView.MultiSelection); self.list_groups.setFixedSize(150, 100)
             select_groups_layout.addWidget(label_select_groups, alignment=Qt.AlignRight | Qt.AlignCenter)
             select_groups_layout.addWidget(self.list_groups, alignment=Qt.AlignLeft)
             select_groups_layout.addWidget(gL18_widget)
