@@ -645,6 +645,14 @@ except Exception as e:
     print(f"Details: {e}")
     module_feature_structures = None
 
+try:
+    import MODULES.module_interpretability as module_interpretability
+    print("✅ module_interpretability imported successfully.")
+except Exception as e:
+    print("⚠️ module_interpretability not available - the STEP 5 Interpretability Tools group will be disabled.")
+    print(f"Details: {e}")
+    module_interpretability = None
+
 # ==========================================================================================================================================
 # ================================================== DESIGN CONFIG - DARK MODE =============================================================
 # ========================================================================================================================================== 
@@ -1973,6 +1981,33 @@ def _ad_tanimoto_smiles(smiles_train, smiles_new, fp_kind="Morgan ECFP4", worker
 
     with ThreadPoolExecutor(max_workers=n_workers) as ex:
         return list(ex.map(_one, sn, chunksize=64))
+
+
+class InterpretabilityWorker(QThread):  # type: ignore
+    """Roda as Interpretability Tools (STEP 5: SHAP + importância por permutação) fora da thread da
+    UI. Apenas calcula (module_interpretability.run_analysis); as figuras são montadas na thread da
+    UI quando o resultado chega."""
+    progress    = pyqtSignal(int, str)   # type: ignore
+    finished_ok = pyqtSignal(dict)       # type: ignore
+    failed      = pyqtSignal(str)        # type: ignore
+
+    def __init__(self, payload):
+        super().__init__()
+        self._p = payload
+
+    def run(self):
+        backend_ctx = joblib.parallel_backend("threading")  # nada de fork() dentro de uma QThread Qt
+        backend_ctx.__enter__()
+        try:
+            res = module_interpretability.run_analysis(
+                progress_cb=lambda frac, msg="": self.progress.emit(int(round(100 * frac)), msg), **self._p
+            )
+            self.finished_ok.emit(res)
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            self.failed.emit(str(e))
+        finally:
+            backend_ctx.__exit__(None, None, None)
 
 
 class AdComputeWorker(QThread):  # type: ignore
@@ -4187,6 +4222,12 @@ class MainWindow(QMainWindow):
 
         self._current_df_tab_index = new_index
 
+        # Ao abrir a aba STEP 5 (Applicability Domain), o grupo Interpretability Tools precisa dos
+        # modelos/conjuntos da USI atual (carregada ou recém-treinada no Step 4).
+        ad_tab = getattr(self, "_ad_tab_scroll", None)
+        if ad_tab is not None and new_index == self.tabs.indexOf(ad_tab):
+            self._refresh_interp_group()
+
     # ------------------------------------------------------------------
     # STEP 2 - Preprocessing and Exploratory Analysis
     # ------------------------------------------------------------------
@@ -4528,6 +4569,15 @@ class MainWindow(QMainWindow):
         ("ad_expl_profile", "chk_ad_expl_profile"),
         ("ad_expl_hide_others", "chk_ad_expl_hide_others"),
         ("ad_expl_desc_match", "cb_ad_expl_desc_match"),
+        ("interp_use_shap", "chk_interp_shap"),
+        ("interp_use_perm", "chk_interp_perm"),
+        ("interp_individual", "chk_interp_individual"),
+        ("interp_group", "chk_interp_group"),
+        ("interp_corr_threshold", "dspn_interp_corr"),
+        ("interp_perm_repeats", "spn_interp_repeats"),
+        ("interp_shap_rows", "spn_interp_shap_rows"),
+        ("interp_top_n", "spn_interp_top_n"),
+        ("interp_workers", "spn_interp_workers"),
     ]
     STEP7_PLAIN_SPEC = [
         ("internal_dataframe_path", "_df_int_path"),
@@ -4620,6 +4670,23 @@ class MainWindow(QMainWindow):
         except Exception:
             import traceback; traceback.print_exc()
 
+    def _ad_restrict_to_training_set(self, df_full):
+        """O domínio de aplicabilidade deve descrever o espaço químico do conjunto que GEROU o modelo
+        (treino), não o Internal DataFrame inteiro - senão os compostos do teste também "definiriam" o
+        domínio. Usa o split de treino/teste da USI atual (skl_x_train, índice = linhas do Internal
+        DataFrame) e devolve (df_treino, True). Sem split utilizável (nenhuma USI com treino/teste, ou o
+        DataFrame não é o mesmo do Screening), devolve (df_full, False) para o chamador avisar."""
+        x_tr = getattr(self, "skl_x_train", None)
+        x_all = getattr(self, "skl_x", None)
+        if x_tr is None or x_all is None or df_full is None:
+            return df_full, False
+        try:
+            if len(df_full) != len(x_all) or not x_tr.index.isin(df_full.index).all():
+                return df_full, False
+            return df_full.loc[x_tr.index].reset_index(drop=True), True
+        except Exception:
+            return df_full, False
+
     def _ad_ensure_exploration_ready(self):
         """(sob demanda) Reconstrói X_train_ad_z / X_new_ad_z / _ad_fp_*_bin e popula a lista de
         compostos a partir de df_int/df_ext, quando um Compute AD salvo foi carregado sem essas
@@ -4635,6 +4702,7 @@ class MainWindow(QMainWindow):
         df_new = getattr(self, "df_ext", None)
         if df_tr is None or df_new is None or df_tr.empty or df_new.empty:
             return
+        df_tr, _ = self._ad_restrict_to_training_set(df_tr)
         try:
             def _bin_fp_cols(df):
                 # Detecção vetorizada (numpy) de colunas 0/1: ~500x mais rápida que iterar
@@ -4950,6 +5018,7 @@ class MainWindow(QMainWindow):
         # STEP2 / STATISTICS / STEP4 / STEP7 (AD): independent fields not already handled above.
         for spec in (self.STEP2_FIELD_SPEC, self.STATISTICS_FIELD_SPEC, self.STEP4_FIELD_SPEC, self.STEP7_FIELD_SPEC):
             self._clear_state_from_spec(spec)
+        self._reset_interp_defaults()
 
         # STEP5 (scikit-learn): only a USI pointer is tracked (see _collect_step6_sklearn_state) -
         # job_run() repopulates this combo from the new job_dir right after calling this method,
@@ -14710,6 +14779,10 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, i18n.t("msg_title_ad", self._idioma), "Arquivos vazios.")
                 return
 
+            # Domínio definido só pelo conjunto de treino da USI atual (ver _ad_restrict_to_training_set).
+            df_tr, self._ad_used_train_split = self._ad_restrict_to_training_set(df_tr)
+            self._ad_reference_n = len(df_tr)
+
             # ── helpers locais ──────────────────────────────────────────────
             def _smiles_col(df):
                 """Retorna o nome da coluna SMILES, ou None."""
@@ -14888,7 +14961,13 @@ class MainWindow(QMainWindow):
             # automaticamente — usam o botão "LOAD" ao lado de "Plot AD Exploration".
             self._ad_autosave_report_plots()
             self._save_step7_state()
-            QMessageBox.information(self, i18n.t("msg_title_ad", self._idioma), f"Done. Result saved to:\n{out_path}")
+            if getattr(self, "_ad_used_train_split", False):
+                ref_note = i18n.t("s7_msg_ad_reference_train", self._idioma,
+                                  n=getattr(self, "_ad_reference_n", 0), usi=getattr(self, "skl_usi_key", ""))
+            else:
+                ref_note = i18n.t("s7_msg_ad_reference_full", self._idioma, n=getattr(self, "_ad_reference_n", 0))
+            QMessageBox.information(self, i18n.t("msg_title_ad", self._idioma),
+                                    f"Done. Result saved to:\n{out_path}\n\n{ref_note}")
         except Exception as e:
             import traceback; traceback.print_exc()
             QMessageBox.critical(self, "AD - Erro", f"{e}")
@@ -15010,6 +15089,347 @@ class MainWindow(QMainWindow):
             pass
 
         return saved
+
+    # ------------------------------------------------------------------ Interpretability Tools
+    def _interp_models(self):
+        """Modelos supervisionados treinados da USI atual, na ordem do ranking do Step 4."""
+        models = getattr(self, "skl_trained_models", None) or {}
+        _reg, task = self._get_skl_registry()
+        if task not in ("regression", "classification") or not models:
+            return []
+        ranked = []
+        if hasattr(self, "cb_skl_tune_model"):
+            ranked = [self.cb_skl_tune_model.itemText(i) for i in range(self.cb_skl_tune_model.count())]
+        ranked = [n for n in ranked if n in models]
+        return ranked + [n for n in models if n not in ranked]
+
+    def _reset_interp_defaults(self):
+        """Valores padrão do grupo Interpretability Tools (o reset genérico por FIELD_SPEC zera
+        checkboxes/spinboxes para o mínimo, o que não serve como estado inicial de um projeto novo)."""
+        if not hasattr(self, "cb_interp_model"):
+            return
+        self.chk_interp_shap.setChecked(True); self.chk_interp_perm.setChecked(True)
+        self.chk_interp_individual.setChecked(False); self.chk_interp_group.setChecked(True)
+        self.dspn_interp_corr.setValue(0.80); self.spn_interp_repeats.setValue(5)
+        self.spn_interp_shap_rows.setValue(100); self.spn_interp_top_n.setValue(20)
+        self.spn_interp_workers.setValue(0)
+        self.pb_interp.setValue(0)
+        self._refresh_interp_group()
+
+    def _refresh_interp_group(self):
+        """Repopula o combo de modelos do grupo Interpretability Tools a partir da USI atual (chamado
+        ao abrir a aba STEP 5 e antes de rodar) e reavalia avisos/explicador."""
+        if not hasattr(self, "cb_interp_model"):
+            return
+        names = self._interp_models()
+        current = self.cb_interp_model.currentText()
+        step4_pick = self.cb_skl_tune_model.currentText() if hasattr(self, "cb_skl_tune_model") else ""
+        pick = current if current in names else (step4_pick if step4_pick in names else (names[0] if names else ""))
+        self.cb_interp_model.blockSignals(True)
+        self.cb_interp_model.clear()
+        self.cb_interp_model.addItems(names)
+        if pick:
+            self.cb_interp_model.setCurrentText(pick)
+        self.cb_interp_model.blockSignals(False)
+        self._update_interp_info()
+
+    def _update_interp_info(self, *_args):
+        """Texto informativo do explicador (exato x aproximado, por família de modelo) e avisos que
+        bloqueiam o grupo: sem modelo/teste, clustering, ou X vindo de projeção (PCA/UMAP/t-SNE...)."""
+        if not hasattr(self, "lbl_interp_explainer"):
+            return
+        idioma = self._idioma
+        mi = module_interpretability
+        shap_ok = mi is not None and mi.shap_installed()
+        self.chk_interp_shap.setEnabled(shap_ok)
+        if not shap_ok:
+            self.chk_interp_shap.setChecked(False)
+
+        name = self.cb_interp_model.currentText()
+        model = (getattr(self, "skl_trained_models", None) or {}).get(name)
+        x_tr = getattr(self, "skl_x_train", None)
+        x_te = getattr(self, "skl_x_test", None)
+        _reg, task = self._get_skl_registry()
+
+        explainer_text, warn_key, blocked = "", "", False
+        if mi is None:
+            warn_key, blocked = "s7i_warn_module_missing", True
+        elif task == "clustering":
+            warn_key, blocked = "s7i_warn_clustering", True
+        elif model is None or x_tr is None or x_te is None:
+            warn_key, blocked = "s7i_warn_no_model", True
+        elif mi.looks_like_projection(x_tr.columns, getattr(self, "_df_int_path", "") or ""):
+            warn_key, blocked = "s7i_warn_projection", True
+        else:
+            d = mi.describe_explainer(model, x_tr.shape[1])
+            desc = i18n.t(f"s7i_exp_{d['key']}", idioma, limit=d.get("limit", ""))
+            kind = i18n.t("s7i_kind_exact" if d["exact"] else "s7i_kind_approx", idioma)
+            explainer_text = i18n.t("s7i_explainer_line", idioma, desc=desc, kind=kind)
+
+        msgs = []
+        if warn_key:
+            msgs.append(i18n.t(warn_key, idioma))
+        if mi is not None and not shap_ok:
+            msgs.append(i18n.t("s7i_warn_shap_missing", idioma))
+        self.lbl_interp_explainer.setText(explainer_text)
+        self.lbl_interp_status.setText("  ".join(msgs))
+        self.lbl_interp_status.setStyleSheet("color: #E74C3C; font-weight: bold;" if blocked else "color: #E67E22;")
+        self.btn_interp_run.setEnabled(not blocked)
+
+    def _interp_structure_payload(self, top_n):
+        """SMILES/IDs (alinhados linha a linha a X_train/X_test) para ligar cada bit de fingerprint à
+        sua subestrutura. Só devolve algo quando o Internal DataFrame é o mesmo do Screening (mesmo
+        tamanho e índices) e tem uma coluna SMILES; senão None (gráfico de subestruturas omitido)."""
+        df = getattr(self, "df_int", None)
+        x_all = getattr(self, "skl_x", None)
+        x_tr, x_te = getattr(self, "skl_x_train", None), getattr(self, "skl_x_test", None)
+        if df is None or x_all is None or x_tr is None or x_te is None or len(df) != len(x_all):
+            return None
+        if not (x_tr.index.isin(df.index).all() and x_te.index.isin(df.index).all()):
+            return None
+        smi_col = next((c for c in df.columns if str(c).lower() in ("smiles", "canonical_smiles", "smile")), None)
+        if smi_col is None:
+            return None
+        name_col = next((c for c in ("Name", "name", "molecule_chembl_id") if c in df.columns), None)
+        names = df[name_col] if name_col else pd.Series(df.index.astype(str), index=df.index)
+        bits = int(self.spn_ecfp_bits.value()) if hasattr(self, "spn_ecfp_bits") else 2048
+        chir = bool(self.chk_fp_chirality.isChecked()) if hasattr(self, "chk_fp_chirality") else True
+        return {
+            "smiles_train": list(df.loc[x_tr.index, smi_col]), "smiles_test": list(df.loc[x_te.index, smi_col]),
+            "names_train": list(names.loc[x_tr.index]), "names_test": list(names.loc[x_te.index]),
+            "fp_bits": bits, "fp_chirality": chir, "n_show": min(int(top_n), 16),
+        }
+
+    def run_interpretability(self):
+        try:
+            self._refresh_interp_group()
+            idioma = self._idioma
+            title = i18n.t("msg_title_interp", idioma)
+            mi = module_interpretability
+            if mi is None or not self.btn_interp_run.isEnabled():
+                QMessageBox.warning(self, title, self.lbl_interp_status.text() or i18n.t("s7i_warn_no_model", idioma))
+                return
+            name = self.cb_interp_model.currentText()
+            model = (getattr(self, "skl_trained_models", None) or {}).get(name)
+            methods = set()
+            if self.chk_interp_shap.isChecked():
+                methods.add("shap")
+            if self.chk_interp_perm.isChecked():
+                methods.add("permutation")
+            modalities = set()
+            if self.chk_interp_individual.isChecked():
+                modalities.add("individual")
+            if self.chk_interp_group.isChecked():
+                modalities.add("group")
+            if not methods:
+                QMessageBox.warning(self, title, i18n.t("s7i_msg_select_method", idioma)); return
+            if not modalities:
+                QMessageBox.warning(self, title, i18n.t("s7i_msg_select_modality", idioma)); return
+
+            if "shap" in methods:
+                # shap puxa numba/llvmlite: importa aqui, na thread da UI (uma vez), em vez de dentro
+                # da QThread de background.
+                QApplication.setOverrideCursor(Qt.WaitCursor)
+                try:
+                    mi.import_shap()
+                except Exception as e:
+                    QMessageBox.critical(self, title, i18n.t("s7i_msg_shap_import_failed", idioma, e=e)); return
+                finally:
+                    QApplication.restoreOverrideCursor()
+
+            _registry, task = self._get_skl_registry()
+            # Mesma métrica escolhida na triagem (Sort metric), para os números serem comparáveis
+            # ao resto do relatório.
+            scoring, sign, label = self._skl_scoring_for_metric(self.cb_skl_metric.currentText().strip())
+            self._set_current_sklearn_usi_context()
+            self._interp_ctx = {
+                "model_name": name, "task": task, "label": label, "sign": sign, "usi": self.skl_usi_key,
+                "top_n": int(self.spn_interp_top_n.value()), "modalities": set(modalities), "methods": set(methods),
+            }
+            payload = dict(
+                model=model, task=task, X_train=self.skl_x_train, X_test=self.skl_x_test, y_test=self.skl_y_test,
+                scoring=scoring, methods=methods, modalities=modalities,
+                corr_threshold=float(self.dspn_interp_corr.value()), n_repeats=int(self.spn_interp_repeats.value()),
+                shap_max_rows=int(self.spn_interp_shap_rows.value()), n_jobs=int(self.spn_interp_workers.value()),
+                seed=self._get_skl_random_state(),
+            )
+            if "shap" in methods:
+                payload["structures"] = self._interp_structure_payload(self.spn_interp_top_n.value())
+            self.pb_interp.setValue(0)
+            self.btn_interp_run.setEnabled(False)
+            self._interp_worker = InterpretabilityWorker(payload)
+            self._interp_worker.progress.connect(self._on_interp_progress)
+            self._interp_worker.finished_ok.connect(self._on_interp_done)
+            self._interp_worker.failed.connect(self._on_interp_failed)
+            self._interp_worker.finished.connect(self._update_interp_info)
+            self._interp_worker.start()
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            self._update_interp_info()
+            QMessageBox.critical(self, i18n.t("msg_title_interp", self._idioma), f"{e}")
+
+    def _on_interp_progress(self, pct, _msg):
+        try:
+            self.pb_interp.setValue(int(pct))
+        except Exception:
+            pass
+
+    def _on_interp_failed(self, msg):
+        try:
+            self.pb_interp.setValue(0)
+        except Exception:
+            pass
+        QMessageBox.critical(self, i18n.t("msg_title_interp", self._idioma), f"{msg}")
+
+    def _on_interp_done(self, res):
+        """Salva CSVs (DATA da USI) e PNGs (MIDIA da USI), monta as figuras na thread da UI e abre o
+        diálogo de resultados."""
+        try:
+            idioma = self._idioma
+            mi = module_interpretability
+            ctx = getattr(self, "_interp_ctx", {}) or {}
+            self.pb_interp.setValue(100)
+            model_name, usi, label, sign = ctx["model_name"], ctx["usi"], ctx["label"], ctx["sign"]
+            top_n, modalities = ctx["top_n"], ctx["modalities"]
+            out_dir = getattr(self, "skl_out_data", None) or self.job_dir
+            plot_dir = getattr(self, "skl_plot_path", None) or out_dir
+            stem = f"{model_name}_{usi}"
+            saved, tabs = [], []   # tabs: (i18n key, Figure|None, DataFrame)
+
+            def _csv(df, name):
+                path = os.path.join(out_dir, f"interp_{name}_{stem}.csv")
+                df.to_csv(path, index=False); saved.append(path)
+
+            def _png(fig, name):
+                path = os.path.join(plot_dir, f"Interpretability_{name}_{stem}.png")
+                fig.savefig(path, dpi=300, bbox_inches="tight", facecolor="white"); saved.append(path)
+
+            base = res.get("perm_baseline")
+            base_txt = f" (baseline {label} = {sign * base:.3g})" if base is not None else ""
+            word = "Increase" if sign < 0 else "Decrease"
+            perm_x = f"{word} in {label} when permuted (test set)"
+            if "perm_individual" in res:
+                df = res["perm_individual"]; _csv(df, "permutation_individual")
+                fig = mi.bar_figure(df, "Feature", "Importance_mean", "Importance_std",
+                                    f"{model_name}: permutation importance - individual{base_txt}", perm_x, top_n)
+                _png(fig, "permutation_individual"); tabs.append(("s7i_tab_perm_individual", fig, df))
+            if "perm_group" in res:
+                df = res["perm_group"]; _csv(df, "permutation_group")
+                fig = mi.bar_figure(df, "Group", "Importance_mean", "Importance_std",
+                                    f"{model_name}: permutation importance - by correlated group{base_txt}", perm_x, top_n)
+                _png(fig, "permutation_group"); tabs.append(("s7i_tab_perm_group", fig, df))
+            if "shap_individual" in res:
+                df = res["shap_individual"]; _csv(df, "shap_individual")
+                fig = mi.bar_figure(df, "Feature", "Mean_abs_SHAP", None,
+                                    f"{model_name}: mean |SHAP| - individual", "mean(|SHAP value|)", top_n)
+                _png(fig, "shap_individual"); tabs.append(("s7i_tab_shap_individual", fig, df))
+                if "individual" in modalities:
+                    bee = mi.beeswarm_figure(res["shap_values"], res["shap_X"], res["columns"],
+                                             f"{model_name}: SHAP summary", top_n)
+                    if bee is not None:
+                        _png(bee, "shap_beeswarm"); tabs.append(("s7i_tab_shap_beeswarm", bee, None))
+            if "shap_group" in res:
+                df = res["shap_group"]; _csv(df, "shap_group")
+                fig = mi.bar_figure(df, "Group", "Mean_abs_SHAP", None,
+                                    f"{model_name}: mean |SHAP| - by correlated group", "mean(|SHAP value of the group|)", top_n)
+                _png(fig, "shap_group"); tabs.append(("s7i_tab_shap_group", fig, df))
+            if res.get("structures"):
+                # SHAP x estrutura: subestrutura de cada bit importante (bitInfo + DrawMorganBit)
+                df = pd.DataFrame(res["structures"]); _csv(df, "shap_substructures")
+                fig = mi.substructure_figure(res["structures"], f"{model_name}: substructures behind the top SHAP descriptors")
+                if fig is not None:
+                    _png(fig, "shap_substructures"); tabs.append(("s7i_tab_shap_structures", fig, df))
+            if "groups_table" in res:
+                _csv(res["groups_table"], "correlation_groups")
+
+            # Resumo (JSON) lido pelo relatório final para descrever o que foi feito
+            try:
+                summary = {
+                    "model": model_name, "usi": usi, "task": ctx["task"], "metric_label": label,
+                    "n_features": len(res["columns"]), "n_test": int(len(self.skl_x_test)),
+                    "methods": sorted(ctx["methods"]), "modalities": sorted(modalities),
+                    "explainer_key": res.get("explainer_key"), "explainer_exact": res.get("explainer_exact"),
+                    "shap_rows": int(len(res["shap_X"])) if "shap_X" in res else None,
+                    "corr_threshold": float(self.dspn_interp_corr.value()), "n_groups": len(res.get("groups", [])) or None,
+                    "n_repeats": int(self.spn_interp_repeats.value()),
+                    "baseline_score": None if base is None else float(sign * base),
+                    "n_structures": len(res.get("structures") or []), "notes": res.get("notes", []),
+                }
+                spath = os.path.join(out_dir, f"interp_summary_{stem}.json")
+                with open(spath, "w", encoding="utf-8") as fh:
+                    json.dump(summary, fh, indent=2, ensure_ascii=False)
+                saved.append(spath)
+            except Exception:
+                import traceback; traceback.print_exc()
+
+            lines = []
+            if "explainer_key" in res:
+                desc = i18n.t(f"s7i_exp_{res['explainer_key']}", idioma, limit=mi.LINEAR_CORR_MAX_FEATURES)
+                kind = i18n.t("s7i_kind_exact" if res.get("explainer_exact") else "s7i_kind_approx", idioma)
+                lines.append(i18n.t("s7i_explainer_line", idioma, desc=desc, kind=kind))
+            for code in res.get("notes", []):
+                lines.append(i18n.t(f"s7i_note_{code}", idioma, rows=self.spn_interp_shap_rows.value()))
+            lines.append(i18n.t("s7i_msg_saved_to", idioma, n=len(saved), folder=out_dir))
+            self._show_interp_results_dialog(model_name, tabs, "\n".join(lines), plot_dir, stem)
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            QMessageBox.critical(self, i18n.t("msg_title_interp", self._idioma), f"{e}")
+
+    def _show_interp_results_dialog(self, model_name, tabs, info_text, plot_dir, stem):
+        """Diálogo com uma aba por gráfico (FigureCanvas próprio, sem plt.show()) + a tabela de dados
+        de cada análise."""
+        idioma = self._idioma
+        dialog = QDialog(self)
+        dialog.setWindowTitle(i18n.t("s7i_dlg_title", idioma, model=model_name))
+        layout = QVBoxLayout(dialog)
+        info = QLabel(info_text); info.setWordWrap(True)
+        layout.addWidget(info)
+        tab_widget = QTabWidget()
+        layout.addWidget(tab_widget, 1)
+        figs = []
+        for key, fig, df in tabs:
+            page = QWidget(); page_lay = QVBoxLayout(page)
+            canvas = FigureCanvas(fig)
+            page_lay.addWidget(NavigationToolbar(canvas, page))
+            page_lay.addWidget(canvas, 1)
+            tab_widget.addTab(page, i18n.t(key, idioma))
+            figs.append((fig, key))
+            if df is not None:
+                tbl = QTableWidget()
+                self._fill_table_from_df(tbl, df.head(500))
+                tab_widget.addTab(tbl, i18n.t(key, idioma) + " " + i18n.t("s7i_tab_data_suffix", idioma))
+                figs.append((None, key))
+
+        btn_row = QHBoxLayout()
+        btn_save = QPushButton(i18n.t("s7i_btn_save_chart", idioma))
+        btn_close = QPushButton(i18n.t("s7i_btn_close", idioma))
+        _style_dialog_buttons(btn_save, btn_close)
+        btn_save.setFixedWidth(200); btn_close.setFixedWidth(200)
+        btn_row.addWidget(btn_save); btn_row.addWidget(btn_close)
+        layout.addLayout(btn_row)
+
+        def save_current():
+            fig, key = figs[tab_widget.currentIndex()]
+            if fig is None:
+                return
+            path, _flt = QFileDialog.getSaveFileName(
+                dialog, i18n.t("s7i_btn_save_chart", idioma),
+                os.path.join(plot_dir, f"Interpretability_{key.replace('s7i_tab_', '')}_{stem}.png"),
+                "PNG Files (*.png);;SVG Files (*.svg);;All Files (*)")
+            if not path:
+                return
+            if not os.path.splitext(path)[1]:
+                path += ".png"
+            if path.lower().endswith(".svg"):
+                fig.savefig(path, format="svg", bbox_inches="tight")
+            else:
+                fig.savefig(path, dpi=300, bbox_inches="tight", facecolor="white")
+            QMessageBox.information(dialog, i18n.t("msg_title_interp", idioma), i18n.t("s7i_msg_chart_saved", idioma, path=path))
+
+        btn_save.clicked.connect(save_current)
+        btn_close.clicked.connect(dialog.close)
+        dialog.resize(1000, 780)
+        dialog.exec_()
 
     # ------------------------------------------------------------------ AD Exploration
     AD_EXPL_AXES = [
@@ -19630,14 +20050,11 @@ class MainWindow(QMainWindow):
             self.btn_ad_compute.setProperty("role", "primary"); self.btn_ad_compute.setFixedWidth(140)
             gp5.addWidget(self.btn_ad_compute, 8, 0, 1, 2, alignment=Qt.AlignCenter)
 
-            # --- Adiciona grupos ao layout do corpo ---
-            body_AD.addStretch()
-            body_AD.addWidget(gb5_params)
-            body_AD.addStretch()
-
-            # --- Progress ---
+            # --- Progress --- (mesma largura do grupo "Set AD Parameters", logo abaixo dele; o
+            # layout do corpo - parâmetros + barra à esquerda, AD Exploration à direita - é
+            # montado mais abaixo, depois de criar o grupo AD Exploration)
             self.pb_ad = self._mk_progress()
-            self.pb_ad.setMaximum(100); self.pb_ad.setValue(0); self._tr("s7_fmt_ad_progress", self.pb_ad.setFormat); self.pb_ad.setFixedWidth(700)
+            self.pb_ad.setMaximum(100); self.pb_ad.setValue(0); self._tr("s7_fmt_ad_progress", self.pb_ad.setFormat); self.pb_ad.setFixedWidth(gb5_params.maximumWidth())
 
             # --- Group: AD Exploration --- (incorpora o antigo grupo "Verdict Distribution":
             # Select AD DataFrame + caixa de texto + Select Column viram a 1ª linha deste grupo;
@@ -19653,8 +20070,9 @@ class MainWindow(QMainWindow):
             self.btn_select_df_ad_verdict = QPushButton(); self._tr("btn_select_ad_df", self.btn_select_df_ad_verdict.setText)
             self.btn_select_df_ad_verdict.setProperty("role", "select")
             # Mesma largura de "Select Predictions CSV" (linha 2) - suficiente para caber o texto
-            # do botão nos dois idiomas, sem sobrar espaço vazio.
-            self.btn_select_df_ad_verdict.setFixedWidth(235)
+            # do botão nos dois idiomas, sem sobrar espaço vazio. Larguras desta linha e da
+            # seguinte reduzidas para o grupo caber ao lado de "Set AD Parameters".
+            self.btn_select_df_ad_verdict.setFixedWidth(200)
             self.btn_select_df_ad_verdict.setStyleSheet("""
                 QPushButton {
                     background: #B7E4C7;
@@ -19677,16 +20095,16 @@ class MainWindow(QMainWindow):
 
             self.df_name_view_ad_verdict = QLineEdit()
             self.df_name_view_ad_verdict.setReadOnly(True)
-            self.df_name_view_ad_verdict.setFixedWidth(240)   # mesma largura de "ed_ad_expl_pred" (linha 2)
+            self.df_name_view_ad_verdict.setFixedWidth(150)   # mesma largura de "ed_ad_expl_pred" (linha 2)
             self.df_name_view_ad_verdict.setStyleSheet("background-color: #6E8CA8; color: #6E8CA8; border: 1px solid #ccc; border-radius: 4px; padding: 5px;")
 
             verdict_df_row.addWidget(self.btn_select_df_ad_verdict)
             verdict_df_row.addWidget(self.df_name_view_ad_verdict)
-            verdict_df_row.addSpacing(20)
+            verdict_df_row.addSpacing(8)
             verdict_df_row.addWidget(self._trL("lbl_select_column"))
             self.cb_ad_verdict_column = QComboBox()
             self.cb_ad_verdict_column.addItems([""])
-            self.cb_ad_verdict_column.setFixedWidth(180)   # mesma largura de "cb_ad_expl_pred_col" (linha 2)
+            self.cb_ad_verdict_column.setFixedWidth(120)   # mesma largura de "cb_ad_expl_pred_col" (linha 2)
             verdict_df_row.addWidget(self.cb_ad_verdict_column)
             verdict_df_row.addStretch()
             lay_ad_expl.addLayout(verdict_df_row)
@@ -19697,13 +20115,13 @@ class MainWindow(QMainWindow):
             self.btn_ad_expl_pred = QPushButton(); self._tr("s7_btn_ad_expl_pred", self.btn_ad_expl_pred.setText)
             # Mesma largura de "Select AD DataFrame" (linha 1) - suficiente para caber o texto do
             # botão nos dois idiomas, sem sobrar espaço vazio.
-            self.btn_ad_expl_pred.setProperty("role", "select"); self.btn_ad_expl_pred.setFixedWidth(235)
+            self.btn_ad_expl_pred.setProperty("role", "select"); self.btn_ad_expl_pred.setFixedWidth(200)
             expl_row4.addWidget(self.btn_ad_expl_pred)
-            self.ed_ad_expl_pred = QLineEdit(); self.ed_ad_expl_pred.setReadOnly(True); self.ed_ad_expl_pred.setFixedWidth(240)
+            self.ed_ad_expl_pred = QLineEdit(); self.ed_ad_expl_pred.setReadOnly(True); self.ed_ad_expl_pred.setFixedWidth(150)
             expl_row4.addWidget(self.ed_ad_expl_pred)
             expl_row4.addSpacing(8)
             expl_row4.addWidget(self._trL("s7_lbl_ad_expl_pred_col"))
-            self.cb_ad_expl_pred_col = QComboBox(); self.cb_ad_expl_pred_col.setFixedWidth(180)
+            self.cb_ad_expl_pred_col = QComboBox(); self.cb_ad_expl_pred_col.setFixedWidth(120)
             expl_row4.addWidget(self.cb_ad_expl_pred_col)
             expl_row4.addStretch()
             lay_ad_expl.addLayout(expl_row4)
@@ -19720,7 +20138,7 @@ class MainWindow(QMainWindow):
                 col = QVBoxLayout()
                 lbl = self._trL(label_key); lbl.setAlignment(Qt.AlignCenter)
                 col.addWidget(lbl)
-                cb = QComboBox(); cb.addItems(axopts); cb.setCurrentText(default_text); cb.setFixedWidth(150)
+                cb = QComboBox(); cb.addItems(axopts); cb.setCurrentText(default_text); cb.setFixedWidth(130)
                 col.addWidget(cb)
                 return col, cb
 
@@ -19747,11 +20165,11 @@ class MainWindow(QMainWindow):
             compound_box.addWidget(lbl_compound)
             self.ed_ad_expl_compound_filter = QLineEdit()
             self._tr("s7_ph_ad_expl_filter", self.ed_ad_expl_compound_filter.setPlaceholderText)
-            self.ed_ad_expl_compound_filter.setFixedWidth(220)
+            self.ed_ad_expl_compound_filter.setFixedWidth(180)
             compound_box.addWidget(self.ed_ad_expl_compound_filter)
             self.list_ad_expl_compound = QListWidget()
             self.list_ad_expl_compound.setSelectionMode(QAbstractItemView.MultiSelection)
-            self.list_ad_expl_compound.setFixedSize(220, 90)
+            self.list_ad_expl_compound.setFixedSize(180, 90)
             self._tr("s7_tooltip_ad_expl_compound", self.list_ad_expl_compound.setToolTip)
             compound_box.addWidget(self.list_ad_expl_compound)
             expl_row2.addLayout(compound_box)
@@ -19772,11 +20190,11 @@ class MainWindow(QMainWindow):
             desc_box.addLayout(desc_head)
             self.ed_ad_expl_desc_filter = QLineEdit()
             self._tr("s7_ph_ad_expl_filter", self.ed_ad_expl_desc_filter.setPlaceholderText)
-            self.ed_ad_expl_desc_filter.setFixedWidth(260)
+            self.ed_ad_expl_desc_filter.setFixedWidth(210)
             desc_box.addWidget(self.ed_ad_expl_desc_filter)
             self.list_ad_expl_desc = QListWidget()
             self.list_ad_expl_desc.setSelectionMode(QAbstractItemView.MultiSelection)
-            self.list_ad_expl_desc.setFixedSize(260, 90)
+            self.list_ad_expl_desc.setFixedSize(210, 90)
             self._tr("s7_tooltip_ad_expl_desc", self.list_ad_expl_desc.setToolTip)
             desc_box.addWidget(self.list_ad_expl_desc)
             expl_row2.addLayout(desc_box)
@@ -19790,7 +20208,7 @@ class MainWindow(QMainWindow):
             self.list_ad_expl_plot_type = QListWidget()
             self.list_ad_expl_plot_type.setSelectionMode(QAbstractItemView.MultiSelection)
             self.list_ad_expl_plot_type.addItems(self.AD_EXPL_PLOT_TYPES)
-            self.list_ad_expl_plot_type.setFixedSize(200, 110)   # largura reduzida para caber só o texto, sem scroll
+            self.list_ad_expl_plot_type.setFixedSize(190, 110)   # largura reduzida para caber só o texto, sem scroll
             self._tr("s7_tooltip_ad_expl_plot_type", self.list_ad_expl_plot_type.setToolTip)
             self.list_ad_expl_plot_type.item(1).setSelected(True)   # "Train as KDE density" ligado por padrão
             type_box.addWidget(self.list_ad_expl_plot_type)
@@ -19808,9 +20226,12 @@ class MainWindow(QMainWindow):
             self.chk_ad_expl_thresholds = QCheckBox(); self._tr("s7_chk_ad_expl_thresholds", self.chk_ad_expl_thresholds.setText); self.chk_ad_expl_thresholds.setChecked(True)
             self.chk_ad_expl_show_ext = QCheckBox(); self._tr("s7_chk_ad_expl_show_ext", self.chk_ad_expl_show_ext.setText); self.chk_ad_expl_show_ext.setChecked(True)
             self.chk_ad_expl_profile = QCheckBox(); self._tr("s7_chk_ad_expl_profile", self.chk_ad_expl_profile.setText); self.chk_ad_expl_profile.setChecked(True)
-            for w in (self.chk_ad_expl_hide_others, self.chk_ad_expl_thresholds,
-                      self.chk_ad_expl_show_ext, self.chk_ad_expl_profile):
-                expl_row3.addWidget(w)
+            # Grade 2x2 (em vez de uma linha única) para não alargar o grupo, que agora fica ao lado
+            # de "Set AD Parameters".
+            chk_grid = QGridLayout(); chk_grid.setHorizontalSpacing(18); chk_grid.setVerticalSpacing(4)
+            chk_grid.addWidget(self.chk_ad_expl_hide_others, 0, 0); chk_grid.addWidget(self.chk_ad_expl_thresholds, 0, 1)
+            chk_grid.addWidget(self.chk_ad_expl_show_ext, 1, 0);    chk_grid.addWidget(self.chk_ad_expl_profile, 1, 1)
+            expl_row3.addLayout(chk_grid)
             expl_row3.addStretch()
             lay_ad_expl.addLayout(expl_row3)
 
@@ -19828,18 +20249,114 @@ class MainWindow(QMainWindow):
             expl_row5.addStretch()
             lay_ad_expl.addLayout(expl_row5)
 
-            expl_wrap = QHBoxLayout()
-            expl_wrap.addStretch(); expl_wrap.addWidget(gb_ad_expl); expl_wrap.addStretch()
+            # --- Group: Interpretability Tools (SHAP + importância por permutação) ---
+            gb_interp = QGroupBox(); self._tr("s7i_grp_title", gb_interp.setTitle)
+            gb_interp.setStyleSheet("QGroupBox { font-weight: bold; }")
+            lay_interp = QVBoxLayout(gb_interp)
+
+            # Linha 1: modelo + métodos (SHAP / permutação), centralizados no grupo
+            interp_row1 = QHBoxLayout()
+            interp_row1.addStretch()
+            interp_row1.addWidget(self._trL("s7i_lbl_model"))
+            self.cb_interp_model = QComboBox(); self.cb_interp_model.setFixedWidth(200)
+            self._tr("s7i_tooltip_model", self.cb_interp_model.setToolTip)
+            interp_row1.addWidget(self.cb_interp_model)
+            interp_row1.addSpacing(20)
+            interp_row1.addWidget(self._trL("s7i_lbl_methods"))
+            self.chk_interp_shap = QCheckBox(); self._tr("s7i_chk_shap", self.chk_interp_shap.setText); self.chk_interp_shap.setChecked(True)
+            self._tr("s7i_tooltip_shap", self.chk_interp_shap.setToolTip)
+            self.chk_interp_perm = QCheckBox(); self._tr("s7i_chk_perm", self.chk_interp_perm.setText); self.chk_interp_perm.setChecked(True)
+            self._tr("s7i_tooltip_perm", self.chk_interp_perm.setToolTip)
+            interp_row1.addWidget(self.chk_interp_shap); interp_row1.addWidget(self.chk_interp_perm)
+            interp_row1.addStretch()
+            lay_interp.addLayout(interp_row1)
+
+            # Linha 2: texto informativo do explicador (exato x aproximado), centralizado
+            self.lbl_interp_explainer = QLabel(); self.lbl_interp_explainer.setWordWrap(True)
+            self.lbl_interp_explainer.setAlignment(Qt.AlignCenter)
+            self._tr("s7i_tooltip_explainer", self.lbl_interp_explainer.setToolTip)
+            lay_interp.addWidget(self.lbl_interp_explainer)
+
+            # Linha 3: modalidade (individual / por grupo), centralizada
+            interp_row3 = QHBoxLayout()
+            interp_row3.addStretch()
+            interp_row3.addWidget(self._trL("s7i_lbl_modality"))
+            self.chk_interp_individual = QCheckBox(); self._tr("s7i_chk_individual", self.chk_interp_individual.setText)
+            self._tr("s7i_tooltip_individual", self.chk_interp_individual.setToolTip)
+            self.chk_interp_group = QCheckBox(); self._tr("s7i_chk_group", self.chk_interp_group.setText); self.chk_interp_group.setChecked(True)
+            self._tr("s7i_tooltip_group", self.chk_interp_group.setToolTip)
+            interp_row3.addWidget(self.chk_interp_individual); interp_row3.addWidget(self.chk_interp_group)
+            interp_row3.addStretch()
+            lay_interp.addLayout(interp_row3)
+
+            # Linha 4: parâmetros (spinboxes), centralizados
+            interp_row4 = QHBoxLayout()
+            self.dspn_interp_corr = QDoubleSpinBox(); self.dspn_interp_corr.setDecimals(2)
+            self.dspn_interp_corr.setRange(0.30, 0.99); self.dspn_interp_corr.setSingleStep(0.05); self.dspn_interp_corr.setValue(0.80)
+            self._tr("s7i_tooltip_corr", self.dspn_interp_corr.setToolTip)
+            self.spn_interp_repeats = QSpinBox(); self.spn_interp_repeats.setRange(1, 100); self.spn_interp_repeats.setValue(5)
+            self._tr("s7i_tooltip_repeats", self.spn_interp_repeats.setToolTip)
+            self.spn_interp_shap_rows = QSpinBox(); self.spn_interp_shap_rows.setRange(10, 5000); self.spn_interp_shap_rows.setValue(100)
+            self._tr("s7i_tooltip_shap_rows", self.spn_interp_shap_rows.setToolTip)
+            self.spn_interp_top_n = QSpinBox(); self.spn_interp_top_n.setRange(5, 100); self.spn_interp_top_n.setValue(20)
+            self._tr("s7i_tooltip_top_n", self.spn_interp_top_n.setToolTip)
+            self.spn_interp_workers = QSpinBox(); self.spn_interp_workers.setRange(0, 128); self.spn_interp_workers.setValue(0)
+            self._tr("s7i_tooltip_workers", self.spn_interp_workers.setToolTip)
+            interp_row4.addStretch()
+            for lbl_key, w_spin in (("s7i_lbl_corr", self.dspn_interp_corr), ("s7i_lbl_repeats", self.spn_interp_repeats),
+                                    ("s7i_lbl_shap_rows", self.spn_interp_shap_rows), ("s7i_lbl_top_n", self.spn_interp_top_n),
+                                    ("s7i_lbl_workers", self.spn_interp_workers)):
+                w_spin.setFixedWidth(64)
+                interp_row4.addWidget(self._trL(lbl_key)); interp_row4.addWidget(w_spin); interp_row4.addSpacing(8)
+            interp_row4.addStretch()
+            lay_interp.addLayout(interp_row4)
+
+            # Linha 5: aviso/estado (projeção, SHAP ausente, sem modelo...), centralizado
+            self.lbl_interp_status = QLabel(); self.lbl_interp_status.setWordWrap(True)
+            self.lbl_interp_status.setAlignment(Qt.AlignCenter)
+            lay_interp.addWidget(self.lbl_interp_status)
+
+            # Última linha: só o botão de execução, centralizado no grupo
+            interp_row6 = QHBoxLayout()
+            interp_row6.addStretch()
+            self.btn_interp_run = QPushButton(); self._tr("s7i_btn_run", self.btn_interp_run.setText)
+            self.btn_interp_run.setProperty("role", "primary"); self.btn_interp_run.setFixedWidth(240)
+            interp_row6.addWidget(self.btn_interp_run)
+            interp_row6.addStretch()
+            lay_interp.addLayout(interp_row6)
+
+            # Barra de progresso FORA do grupo, logo abaixo dele (como a de "Set AD Parameters")
+            self.pb_interp = self._mk_progress()
+            self.pb_interp.setMaximum(100); self.pb_interp.setValue(0); self._tr("s7i_fmt_progress", self.pb_interp.setFormat)
+
+            # Corpo: à esquerda "Set AD Parameters" + barra de progresso (mesma largura); à direita
+            # "AD Exploration" e, logo abaixo dele (mesma largura - ambos na mesma coluna), o grupo
+            # "Interpretability Tools" com a sua barra de progresso abaixo.
+            left_col = QVBoxLayout()
+            left_col.addWidget(gb5_params)
+            left_col.addWidget(self.pb_ad)
+            left_col.addStretch()
+            right_col = QVBoxLayout()
+            right_col.addWidget(gb_ad_expl)
+            right_col.addWidget(gb_interp)
+            right_col.addWidget(self.pb_interp)
+            right_col.addStretch()
+            body_AD.addStretch()
+            body_AD.addLayout(left_col)
+            body_AD.addSpacing(14)
+            body_AD.addLayout(right_col)
+            body_AD.addStretch()
 
             # Monta layout
             l7.addLayout(head_lay1)
             l7.addLayout(head_lay2)
             l7.addLayout(body_AD)
-            l7.addWidget(self.pb_ad, alignment=Qt.AlignCenter)
-            l7.addLayout(expl_wrap)
             l7.addStretch()
+            self._ad_tab_scroll = scroll7
 
             # Conexões
+            self.btn_interp_run.clicked.connect(self.run_interpretability)
+            self.cb_interp_model.currentTextChanged.connect(self._update_interp_info)
             self.btn_ad_compute.clicked.connect(self.run_ad_assessment)
             self.btn_ad_expl_pred.clicked.connect(self.select_ad_expl_predictions)
             self.btn_ad_expl_load.clicked.connect(self.run_ad_expl_load)
@@ -21418,6 +21935,24 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _save_skl_train_test_csv(self):
+        """Grava o conjunto de TREINO e o de TESTE do Screening em dois arquivos separados dentro da
+        pasta DATA da USI (linhas completas do Internal DataFrame: Name, SMILES, descritores e Y).
+        Cross-Validation/Y-Scrambling/Learning Curve usam só o treino; o Applicability Domain (STEP 5)
+        define o domínio só sobre o treino; as ferramentas de interpretabilidade medem no teste."""
+        df = getattr(self, "df_int", None)
+        x_tr = getattr(self, "skl_x_train", None)
+        x_te = getattr(self, "skl_x_test", None)
+        out_dir = getattr(self, "skl_out_data", None)
+        if df is None or x_tr is None or x_te is None or not out_dir:
+            return
+        try:
+            usi = getattr(self, "skl_usi_key", "") or "LOAD"
+            df.loc[x_tr.index].to_csv(os.path.join(out_dir, f"skl_train_set_{usi}.csv"), index=False)
+            df.loc[x_te.index].to_csv(os.path.join(out_dir, f"skl_test_set_{usi}.csv"), index=False)
+        except Exception:
+            import traceback; traceback.print_exc()
+
     def _load_skl_train_test_data(self):
         path = self._skl_train_test_data_path()
         if not path or not os.path.isfile(path):
@@ -21963,6 +22498,7 @@ class MainWindow(QMainWindow):
         for name, model in self.skl_trained_models.items():
             self._save_skl_model_to_models_dir(name, model)
         self._save_skl_train_test_data()
+        self._save_skl_train_test_csv()
         self._save_skl_session_config()
         self._save_step6_sklearn_state()
         # skl_session.json só passa a existir agora, então o combobox USI só consegue detectar
@@ -22273,8 +22809,10 @@ class MainWindow(QMainWindow):
             if task == "clustering":
                 QMessageBox.information(self, i18n.t("msg_title_evaluate", self._idioma), "Cross-validation is not available for clustering models.")
                 return
-            x = getattr(self, "skl_x", None)
-            y = getattr(self, "skl_y", None)
+            # Validação cruzada SOMENTE sobre o conjunto de treino: o conjunto de teste do Screening
+            # nunca entra em nenhum fold (sem vazamento para a avaliação final no teste).
+            x = getattr(self, "skl_x_train", None)
+            y = getattr(self, "skl_y_train", None)
             if x is None or y is None:
                 QMessageBox.warning(self, i18n.t("msg_title_evaluate", self._idioma), "Run Screening first.")
                 return
@@ -22664,7 +23202,9 @@ class MainWindow(QMainWindow):
                 )
                 return
 
-            x = getattr(self, "skl_x", None); y = getattr(self, "skl_y", None)
+            # Y-Scrambling é validação cruzada: roda só sobre o conjunto de treino (o teste fica
+            # fora de todos os folds, igual ao Cross-Validation).
+            x = getattr(self, "skl_x_train", None); y = getattr(self, "skl_y_train", None)
             if x is None or y is None:
                 QMessageBox.warning(self, i18n.t("msg_title_plot", self._idioma),
                     "This chart needs the X/y from Run Screening. Run Screening at least once in "
@@ -23004,7 +23544,8 @@ class MainWindow(QMainWindow):
             return fig
 
         if kind == "learning_curve":
-            x = getattr(self, "skl_x", None); y = getattr(self, "skl_y", None)
+            # Curva de aprendizado usa validação cruzada interna: só o conjunto de treino.
+            x = getattr(self, "skl_x_train", None); y = getattr(self, "skl_y_train", None)
             if x is None or y is None:
                 return None
 

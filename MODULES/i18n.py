@@ -719,6 +719,153 @@ _TEXTOS = {
         "pt": "Carrega/atualiza as listas 'Highlight compound(s)' e 'Highlight descriptor(s)' a partir do resultado atual do Compute AD. Não é automático - clique após um novo Compute AD, já que popular milhares de itens tem custo.",
     },
     "s7_btn_ad_expl_plot": {"en": "Plot AD Exploration", "pt": "Plotar Exploração de DA"},
+    "s7_msg_ad_reference_train": {
+        "en": "Applicability domain defined on the TRAINING set only ({n} compounds of USI {usi}); the test set is not part of the domain.",
+        "pt": "Domínio de aplicabilidade definido apenas sobre o conjunto de TREINO ({n} compostos da USI {usi}); o conjunto de teste não faz parte do domínio.",
+    },
+    "s7_msg_ad_reference_full": {
+        "en": "No train/test split of the current USI was found for this Internal DataFrame, so the domain was defined on the ENTIRE internal DataFrame ({n} compounds). Run Screening in STEP 4 (or load a USI) with this DataFrame to restrict it to the training set.",
+        "pt": "Nenhum split de treino/teste da USI atual foi encontrado para este Internal DataFrame, então o domínio foi definido sobre o Internal DataFrame INTEIRO ({n} compostos). Rode o Screening na ETAPA 4 (ou carregue uma USI) com este DataFrame para restringi-lo ao conjunto de treino.",
+    },
+
+    # ---------------------------------------------------------------- STEP 5: Interpretability Tools
+    "msg_title_interp": {"en": "Interpretability", "pt": "Interpretabilidade"},
+    "s7i_grp_title": {"en": "Interpretability Tools", "pt": "Ferramentas de Interpretabilidade"},
+    "s7i_lbl_model": {"en": "Model:", "pt": "Modelo:"},
+    "s7i_tooltip_model": {
+        "en": "Trained models of the current USI (STEP 4), in ranking order. The analysis always uses the test set of that USI.",
+        "pt": "Modelos treinados da USI atual (ETAPA 4), na ordem do ranking. A análise sempre usa o conjunto de teste dessa USI.",
+    },
+    "s7i_tooltip_explainer": {
+        "en": "SHAP explainer chosen automatically for this model family: trees and boosting -> TreeExplainer (exact); linear/regularised models -> LinearExplainer (exact); SVM/KNN/MLP and the rest -> PermutationExplainer (approximate, linear cost in the number of descriptors).",
+        "pt": "Explicador SHAP escolhido automaticamente para a família do modelo: árvores e boosting -> TreeExplainer (exato); modelos lineares/regularizados -> LinearExplainer (exato); SVM/KNN/MLP e demais -> PermutationExplainer (aproximado, custo linear no número de descritores).",
+    },
+    "s7i_explainer_line": {"en": "Explainer: {desc} - {kind}", "pt": "Explicador: {desc} - {kind}"},
+    "s7i_kind_exact": {"en": "exact values", "pt": "valores exatos"},
+    "s7i_kind_approx": {"en": "approximate values", "pt": "valores aproximados"},
+    "s7i_exp_tree": {"en": "TreeExplainer (polynomial time)", "pt": "TreeExplainer (tempo polinomial)"},
+    "s7i_exp_bagging": {"en": "TreeExplainer averaged over the base trees", "pt": "TreeExplainer médio sobre as árvores-base"},
+    "s7i_exp_linear_corr": {"en": "LinearExplainer with feature correlation", "pt": "LinearExplainer com correlação entre atributos"},
+    "s7i_exp_linear_indep": {
+        "en": "LinearExplainer, interventional mode (the correlation-dependent mode is only used up to {limit} descriptors)",
+        "pt": "LinearExplainer, modo intervencional (o modo com correlação só é usado até {limit} descritores)",
+    },
+    "s7i_exp_permutation": {
+        "en": "PermutationExplainer (model-agnostic: SVM, KNN, neural networks and other models)",
+        "pt": "PermutationExplainer (agnóstico ao modelo: SVM, KNN, redes neurais e demais modelos)",
+    },
+    "s7i_lbl_methods": {"en": "Methods:", "pt": "Métodos:"},
+    "s7i_lbl_modality": {"en": "Modality:", "pt": "Modalidade:"},
+    "s7i_chk_shap": {"en": "SHAP", "pt": "SHAP"},
+    "s7i_tooltip_shap": {
+        "en": "SHAP values on (a sample of) the test set. Optional dependency: install it with 'pip install shap'.",
+        "pt": "Valores SHAP sobre (uma amostra do) conjunto de teste. Dependência opcional: instale com 'pip install shap'.",
+    },
+    "s7i_chk_perm": {"en": "Permutation importance", "pt": "Importância por permutação"},
+    "s7i_tooltip_perm": {
+        "en": "Drop in the score when a descriptor (or a whole group) is shuffled. Computed on the TEST set only - on the training set it would measure memorisation, not predictive ability - and scored with the same metric as the Screening 'Sort metric'.",
+        "pt": "Queda do escore ao embaralhar um descritor (ou um grupo inteiro). Calculada SOMENTE no conjunto de TESTE - no treino mediria memorização, não capacidade preditiva - e com a mesma métrica do 'Sort metric' do Screening.",
+    },
+    "s7i_chk_individual": {"en": "Individual", "pt": "Individual"},
+    "s7i_tooltip_individual": {
+        "en": "One result per descriptor. With strongly collinear descriptors, permutation importance splits the importance among the correlated ones and underestimates all of them.",
+        "pt": "Um resultado por descritor. Com descritores muito colineares, a importância por permutação divide o valor entre os correlacionados e subestima todos eles.",
+    },
+    "s7i_chk_group": {"en": "By group (correlated)", "pt": "Por grupo (correlacionados)"},
+    "s7i_tooltip_group": {
+        "en": "Clusters the descriptors by correlation (hierarchical clustering on the Spearman distance, training set) and permutes each WHOLE group together, so no impossible molecules are created. For SHAP, the values of a group's members are summed per compound.",
+        "pt": "Agrupa os descritores por correlação (clusterização hierárquica sobre a distância de Spearman, conjunto de treino) e permuta cada grupo INTEIRO junto, sem criar moléculas impossíveis. No SHAP, os valores dos membros do grupo são somados por composto.",
+    },
+    "s7i_lbl_corr": {"en": "Group |ρ| ≥", "pt": "Grupo |ρ| ≥"},
+    "s7i_tooltip_corr": {
+        "en": "Descriptors whose cluster-average absolute Spearman correlation is at least this value are placed in the same group.",
+        "pt": "Descritores cuja correlação de Spearman absoluta média no cluster seja pelo menos este valor ficam no mesmo grupo.",
+    },
+    "s7i_lbl_repeats": {"en": "Repeats:", "pt": "Repetições:"},
+    "s7i_tooltip_repeats": {
+        "en": "Permutation repeats: how many times each descriptor/group is shuffled; the mean and standard deviation over the repeats are reported.",
+        "pt": "Repetições da permutação: quantas vezes cada descritor/grupo é embaralhado; são reportadas a média e o desvio padrão das repetições.",
+    },
+    "s7i_lbl_shap_rows": {"en": "SHAP rows:", "pt": "Linhas do SHAP:"},
+    "s7i_tooltip_shap_rows": {
+        "en": "Maximum number of test compounds explained by SHAP (random sample when the test set is larger). Mainly bounds the cost of the PermutationExplainer.",
+        "pt": "Número máximo de compostos de teste explicados pelo SHAP (amostra aleatória quando o teste é maior). Limita principalmente o custo do PermutationExplainer.",
+    },
+    "s7i_lbl_top_n": {"en": "Top N:", "pt": "Top N:"},
+    "s7i_lbl_workers": {"en": "Workers:", "pt": "Núcleos:"},
+    "s7i_tooltip_top_n": {
+        "en": "Number of descriptors/groups shown in each chart (the CSV files always contain all of them).",
+        "pt": "Número de descritores/grupos mostrados em cada gráfico (os arquivos CSV sempre trazem todos).",
+    },
+    "s7i_tooltip_workers": {
+        "en": "Threads for permutation importance (0 = all available cores).",
+        "pt": "Threads para a importância por permutação (0 = todos os núcleos disponíveis).",
+    },
+    "s7i_fmt_progress": {"en": "Interpretability: %p%", "pt": "Interpretabilidade: %p%"},
+    "s7i_btn_run": {"en": "Run Interpretability", "pt": "Executar Interpretabilidade"},
+    "s7i_warn_module_missing": {
+        "en": "The interpretability module could not be loaded (see the console for details).",
+        "pt": "O módulo de interpretabilidade não pôde ser carregado (veja o console para detalhes).",
+    },
+    "s7i_warn_clustering": {
+        "en": "Interpretability applies to regression/classification models only (clustering has no test set or response).",
+        "pt": "A interpretabilidade se aplica apenas a modelos de regressão/classificação (clusterização não tem conjunto de teste nem resposta).",
+    },
+    "s7i_warn_no_model": {
+        "en": "Run Screening in STEP 4 (or load a USI) to enable this group: it needs a trained model and the test set of that USI.",
+        "pt": "Rode o Screening na ETAPA 4 (ou carregue uma USI) para habilitar este grupo: ele precisa de um modelo treinado e do conjunto de teste dessa USI.",
+    },
+    "s7i_warn_projection": {
+        "en": "Disabled: this model was trained on projected components (PCA/UMAP/t-SNE/...), so SHAP and permutation would refer to components, not descriptors, and the mechanistic reading is lost.",
+        "pt": "Desabilitado: este modelo foi treinado em componentes projetados (PCA/UMAP/t-SNE/...), então SHAP e permutação se refeririam a componentes, não a descritores, e a leitura mecanística se perde.",
+    },
+    "s7i_warn_shap_missing": {
+        "en": "SHAP is not installed (optional dependency) - only permutation importance is available. Install it with 'pip install shap'.",
+        "pt": "SHAP não está instalado (dependência opcional) - apenas a importância por permutação está disponível. Instale com 'pip install shap'.",
+    },
+    "s7i_msg_select_method": {"en": "Select at least one method (SHAP and/or permutation importance).", "pt": "Selecione pelo menos um método (SHAP e/ou importância por permutação)."},
+    "s7i_msg_select_modality": {"en": "Select at least one modality (individual and/or by group).", "pt": "Selecione pelo menos uma modalidade (individual e/ou por grupo)."},
+    "s7i_msg_shap_import_failed": {"en": "SHAP could not be imported:\n{e}", "pt": "Não foi possível importar o SHAP:\n{e}"},
+    "s7i_msg_saved_to": {"en": "{n} file(s) (CSV tables and PNG charts) saved under the USI folder (data: {folder}).", "pt": "{n} arquivo(s) (tabelas CSV e gráficos PNG) salvos na pasta da USI (dados: {folder})."},
+    "s7i_msg_chart_saved": {"en": "Chart saved to:\n{path}", "pt": "Gráfico salvo em:\n{path}"},
+    "s7i_note_shap_rows_sampled": {
+        "en": "SHAP was computed on a random sample of {rows} test compounds (see 'SHAP rows'); permutation importance used the whole test set.",
+        "pt": "O SHAP foi calculado em uma amostra aleatória de {rows} compostos de teste (veja 'Linhas do SHAP'); a importância por permutação usou todo o teste.",
+    },
+    "s7i_note_fallback_permutation": {
+        "en": "The specific explainer failed for this model, so the PermutationExplainer (approximate) was used instead.",
+        "pt": "O explicador específico falhou para este modelo, então foi usado o PermutationExplainer (aproximado).",
+    },
+    "s7i_note_linear_corr_failed": {
+        "en": "The correlation-dependent LinearExplainer could not be used (singular covariance); the interventional mode was used instead.",
+        "pt": "O LinearExplainer com correlação não pôde ser usado (covariância singular); foi usado o modo intervencional.",
+    },
+    "s7i_note_scorer_fallback": {
+        "en": "The 'Sort metric' scorer is not available for this model; the model's default score was used for permutation importance.",
+        "pt": "O escore do 'Sort metric' não está disponível para este modelo; foi usado o escore padrão do modelo na importância por permutação.",
+    },
+    "s7i_dlg_title": {"en": "Interpretability - {model}", "pt": "Interpretabilidade - {model}"},
+    "s7i_btn_save_chart": {"en": "Save Chart", "pt": "Salvar Gráfico"},
+    "s7i_btn_close": {"en": "Close", "pt": "Fechar"},
+    "s7i_tab_perm_individual": {"en": "Permutation - individual", "pt": "Permutação - individual"},
+    "s7i_tab_perm_group": {"en": "Permutation - by group", "pt": "Permutação - por grupo"},
+    "s7i_tab_shap_individual": {"en": "SHAP - individual", "pt": "SHAP - individual"},
+    "s7i_tab_shap_beeswarm": {"en": "SHAP - summary", "pt": "SHAP - resumo"},
+    "s7i_tab_shap_group": {"en": "SHAP - by group", "pt": "SHAP - por grupo"},
+    "s7i_tab_shap_structures": {"en": "SHAP - substructures", "pt": "SHAP - subestruturas"},
+    "s7i_note_structures_unverified": {
+        "en": "Substructures were NOT drawn for some circular-fingerprint descriptors: the fingerprint settings (size/chirality) could not be verified against the descriptor table, and a wrong setting would draw the wrong substructure.",
+        "pt": "As subestruturas NÃO foram desenhadas para alguns descritores de fingerprint circular: as configurações do fingerprint (tamanho/quiralidade) não puderam ser verificadas contra a tabela de descritores, e uma configuração errada desenharia a subestrutura errada.",
+    },
+    "s7i_note_structures_not_applicable": {
+        "en": "No substructure chart: none of the most important descriptors is a fingerprint bit/key with a known structural definition (ECFP/FCFP, MACCS, PubChem).",
+        "pt": "Sem gráfico de subestruturas: nenhum dos descritores mais importantes é um bit/chave de fingerprint com definição estrutural conhecida (ECFP/FCFP, MACCS, PubChem).",
+    },
+    "s7i_note_structures_none_resolved": {
+        "en": "No substructure chart: no important fingerprint descriptor could be paired with an example compound that has it.",
+        "pt": "Sem gráfico de subestruturas: nenhum descritor de fingerprint importante pôde ser associado a um composto de exemplo que o possua.",
+    },
+    "s7i_tab_data_suffix": {"en": "[data]", "pt": "[dados]"},
     "msg_step7_build_error_title": {"en": "STEP 7 build error", "pt": "Erro ao construir a ETAPA 7"},
     "msg_step7_build_error": {
         "en": "There was an error building the STEP 7 TAB:\n{e}",

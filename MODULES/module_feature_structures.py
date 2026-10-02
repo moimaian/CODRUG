@@ -39,6 +39,8 @@ import re
 from functools import lru_cache
 from typing import Any, Optional
 
+import numpy as np
+
 try:
     from rdkit import Chem
     from rdkit.Chem import AllChem, Draw, MACCSkeys, rdFingerprintGenerator as rfg
@@ -331,6 +333,169 @@ def draw_structures_grid(records: list, legends: Optional[list] = None,
         png_bytes = None
 
     return svg_text, png_bytes
+
+
+# ==========================================================================================
+# SHAP x structure: draw the substructure behind a fingerprint bit (used by STEP 5's
+# "Interpretability Tools"). Circular fingerprints use RDKit's bitInfo + Draw.DrawMorganBit (the
+# atom environment, central atom highlighted); MACCS/PubChem keys highlight their SMARTS match in
+# an example molecule. Nothing is drawn unless the fingerprint settings were VERIFIED against the
+# actual descriptor table (verify_morgan_config) - a wrong fpSize/chirality would draw the wrong
+# substructure for a bit.
+# ==========================================================================================
+
+MORGAN_FAMILIES = ("ECFP4", "FCFP6", "ECFP4_count")
+
+
+def _fp_array(gen, mol, n_bits: int, count: bool):
+    if count:
+        arr = np.zeros(n_bits, dtype=float)
+        for idx, cnt in gen.GetCountFingerprint(mol).GetNonzeroElements().items():
+            arr[int(idx)] = int(cnt)
+        return arr
+    return np.asarray(gen.GetFingerprintAsNumPy(mol), dtype=float)
+
+
+def _safe_mol(smi):
+    if not _RDKIT_AVAILABLE or smi is None:
+        return None
+    smi = str(smi).strip()
+    if not smi or smi.lower() == "nan":
+        return None
+    try:
+        return Chem.MolFromSmiles(smi)
+    except Exception:
+        return None
+
+
+def verify_morgan_config(family: str, X_df, smiles, preferred_bits: Optional[int] = None,
+                         preferred_chirality: bool = True, n_check: int = 40) -> Optional[dict]:
+    """Finds the (fpSize, chirality) that reproduces `family`'s columns of `X_df` EXACTLY: the
+    fingerprints of up to `n_check` rows' molecules (`smiles` is aligned row-by-row with X_df) are
+    recomputed with each candidate setting and compared with the stored values. Returns
+    {'fp_bits', 'chirality'} or None when no candidate matches (then nothing should be drawn)."""
+    if not _RDKIT_AVAILABLE or family not in _ECFP_FAMILIES:
+        return None
+    pattern = next((p for p, f in _COL_PATTERNS if f == family), None)
+    cols, idxs = [], []
+    for c in X_df.columns:
+        m = pattern.match(str(c).strip())
+        if m:
+            cols.append(c)
+            idxs.append(int(m.group(1)))
+    if not cols:
+        return None
+    idx_arr = np.asarray(idxs)
+    max_idx = int(idx_arr.max())
+    candidates = []
+    for b in [preferred_bits, infer_fp_bits(X_df.columns, family), 128, 256, 512, 1024, 2048, 4096, 8192, 16384]:
+        if b and int(b) > max_idx and int(b) not in candidates:
+            candidates.append(int(b))
+    chiralities = [bool(preferred_chirality), not bool(preferred_chirality)]
+
+    values = X_df[cols].to_numpy(dtype=float)
+    mols, rows = [], []
+    for k, smi in enumerate(list(smiles)):
+        if len(mols) >= n_check:
+            break
+        mol = _safe_mol(smi)
+        if mol is not None:
+            mols.append(mol)
+            rows.append(values[k])
+    if len(mols) < 3:
+        return None
+    spec = _ECFP_FAMILIES[family]
+    count = family.endswith("_count")
+    for bits in candidates:
+        for chir in chiralities:
+            gen = _get_morgan_gen(spec["radius"], bits, chir, spec["use_features"])
+            ok, total = True, 0.0
+            for mol, row in zip(mols, rows):
+                arr = _fp_array(gen, mol, bits, count)[idx_arr]
+                if not np.array_equal(arr, row):
+                    ok = False
+                    break
+                total += float(arr.sum())
+            if ok and total > 0:
+                return {"fp_bits": bits, "chirality": chir}
+    return None
+
+
+def morgan_bit_radius(smiles, family: str, bit_index: int, fp_bits: int, chirality: bool) -> Optional[int]:
+    """Radius of the first environment that sets `bit_index` in this molecule's folded fingerprint
+    (None when the molecule does not set that bit)."""
+    mol = _safe_mol(smiles)
+    if mol is None:
+        return None
+    spec = _ECFP_FAMILIES[family]
+    gen = _get_morgan_gen(spec["radius"], fp_bits, bool(chirality), spec["use_features"])
+    info = rfg.AdditionalOutput()
+    info.AllocateBitInfoMap()
+    gen.GetFingerprint(mol, additionalOutput=info)
+    envs = info.GetBitInfoMap().get(int(bit_index))
+    return int(envs[0][1]) if envs else None
+
+
+def morgan_bit_env_smarts(smiles, family: str, bit_index: int, fp_bits: int, chirality: bool) -> Optional[str]:
+    mol = _safe_mol(smiles)
+    if mol is None:
+        return None
+    spec = _ECFP_FAMILIES[family]
+    gen = _get_morgan_gen(spec["radius"], fp_bits, bool(chirality), spec["use_features"])
+    info = rfg.AdditionalOutput()
+    info.AllocateBitInfoMap()
+    gen.GetFingerprint(mol, additionalOutput=info)
+    envs = info.GetBitInfoMap().get(int(bit_index))
+    if not envs:
+        return None
+    atom_idx, radius = envs[0]
+    smarts, _smiles = _env_to_smarts_smiles(mol, atom_idx, radius)
+    return smarts
+
+
+def draw_morgan_bit_png(smiles, family: str, bit_index: int, fp_bits: int, chirality: bool,
+                        size=(300, 260)) -> Optional[bytes]:
+    """PNG bytes of Draw.DrawMorganBit for `bit_index` on this molecule: the atom environment that
+    sets the bit (RDKit bitInfo), central atom / aromatic / other atoms in distinct colours."""
+    mol = _safe_mol(smiles)
+    if mol is None:
+        return None
+    spec = _ECFP_FAMILIES[family]
+    gen = _get_morgan_gen(spec["radius"], fp_bits, bool(chirality), spec["use_features"])
+    info = rfg.AdditionalOutput()
+    info.AllocateBitInfoMap()
+    gen.GetFingerprint(mol, additionalOutput=info)
+    bit_info = {int(k): tuple(v) for k, v in info.GetBitInfoMap().items()}
+    if int(bit_index) not in bit_info:
+        return None
+    try:
+        return Draw.DrawMorganBit(mol, int(bit_index), bit_info, whichExample=0, molSize=tuple(size), useSVG=False)
+    except Exception:
+        return None
+
+
+def smarts_matches(smiles, smarts: str) -> bool:
+    mol = _safe_mol(smiles)
+    query = Chem.MolFromSmarts(smarts) if (_RDKIT_AVAILABLE and smarts) else None
+    return bool(mol is not None and query is not None and mol.HasSubstructMatch(query))
+
+
+def draw_smarts_match_png(smiles, smarts: str, size=(300, 260)) -> Optional[bytes]:
+    """PNG bytes of the example molecule with the atoms matching `smarts` highlighted."""
+    mol = _safe_mol(smiles)
+    query = Chem.MolFromSmarts(smarts) if (_RDKIT_AVAILABLE and smarts) else None
+    if mol is None or query is None:
+        return None
+    match = mol.GetSubstructMatch(query)
+    if not match:
+        return None
+    try:
+        img = Draw.MolToImage(mol, size=tuple(size), highlightAtoms=list(match))
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception:
+        return None
 
 
 # ==========================================================================================

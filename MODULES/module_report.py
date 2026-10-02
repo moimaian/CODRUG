@@ -1808,6 +1808,164 @@ def _add_step5_section(document: Any, job_dir: str, state: dict[str, Any], idiom
 
 
 # --------------------------------------------------------------------------------------
+# Section 5b: STEP 5 - Model interpretability (SHAP + permutation importance, with the
+# substructures behind the most important fingerprint bits). Produced by CODRUG's
+# "Interpretability Tools" group; found on disk per USI/model via interp_summary_*.json.
+# --------------------------------------------------------------------------------------
+
+_INTERP_EXPLAINER_NAMES = {
+    "tree": "TreeExplainer",
+    "bagging": "TreeExplainer",
+    "linear_corr": "LinearExplainer",
+    "linear_indep": "LinearExplainer",
+    "permutation": "PermutationExplainer",
+}
+
+_INTERP_TEXTS = {
+    "intro_pt": (
+        "A interpretabilidade do modelo {model} (USI {usi}) foi avaliada sempre sobre o conjunto de "
+        "teste ({n_test} compostos), nunca sobre o conjunto de treino, para medir capacidade "
+        "preditiva e não memorização. "
+    ),
+    "intro_en": (
+        "The interpretability of the {model} model (USI {usi}) was always evaluated on the test set "
+        "({n_test} compounds), never on the training set, so that it reflects predictive ability "
+        "rather than memorisation. "
+    ),
+    "shap_pt": (
+        "Os valores SHAP foram calculados com o {explainer} ({kind}) para {rows} compostos do "
+        "conjunto de teste; a importância global de cada descritor é a média do módulo dos valores SHAP. "
+    ),
+    "shap_en": (
+        "SHAP values were computed with the {explainer} ({kind}) for {rows} test-set compounds; the "
+        "global importance of each descriptor is the mean absolute SHAP value. "
+    ),
+    "exact_pt": "valores exatos", "exact_en": "exact values",
+    "approx_pt": "valores aproximados", "approx_en": "approximate values",
+    "perm_pt": (
+        "A importância por permutação usou o mesmo escore da triagem ({metric}; escore de referência "
+        "no teste = {baseline}) com {repeats} repetições por descritor. "
+    ),
+    "perm_en": (
+        "Permutation importance used the same score as the screening ({metric}; reference test score "
+        "= {baseline}) with {repeats} repeats per descriptor. "
+    ),
+    "perm_group_pt": (
+        "Como descritores moleculares são fortemente colineares, a permutação individual divide a "
+        "importância entre os correlacionados e a subestima; por isso os descritores foram agrupados "
+        "por correlação de Spearman (clusterização hierárquica, |\u03c1| \u2265 {thr}; {groups} grupos, "
+        "calculados apenas no conjunto de treino) e cada grupo foi permutado por inteiro. "
+    ),
+    "perm_group_en": (
+        "Because molecular descriptors are strongly collinear, per-descriptor permutation splits the "
+        "importance among correlated descriptors and underestimates it; the descriptors were therefore "
+        "grouped by Spearman correlation (hierarchical clustering, |\u03c1| \u2265 {thr}; {groups} groups, "
+        "computed on the training set only) and each group was permuted as a whole. "
+    ),
+    "struct_pt": (
+        "Para os fingerprints, cada bit importante foi associado à subestrutura que o gera: nos "
+        "fingerprints circulares (ECFP/FCFP) o ambiente atômico foi recuperado pelo bitInfo do RDKit e "
+        "desenhado com DrawMorganBit (átomo central em azul, átomos aromáticos em amarelo e demais "
+        "átomos do ambiente em cinza), em um composto do teste em que o descritor mais contribui; ao "
+        "lado de cada subestrutura estão o valor médio de |SHAP| e se a presença do descritor aumenta "
+        "ou diminui a predição. "
+    ),
+    "struct_en": (
+        "For fingerprints, each important bit was paired with the substructure that generates it: for "
+        "circular fingerprints (ECFP/FCFP) the atom environment was recovered with RDKit's bitInfo and "
+        "drawn with DrawMorganBit (central atom in blue, aromatic atoms in yellow, remaining "
+        "environment atoms in grey), on a test compound where the descriptor contributes most; next to "
+        "each substructure are its mean |SHAP| value and whether its presence raises or lowers the "
+        "prediction. "
+    ),
+    "cap_struct_pt": "Figura. Subestruturas que mais contribuem para a predição do modelo {model}, combinadas com os valores SHAP.",
+    "cap_struct_en": "Figure. Substructures contributing most to the {model} model's predictions, combined with SHAP values.",
+    "cap_shap_ind_pt": "Figura. Importância global dos descritores pelo SHAP (média de |SHAP|) para o modelo {model}.",
+    "cap_shap_ind_en": "Figure. Global descriptor importance by SHAP (mean |SHAP|) for the {model} model.",
+    "cap_shap_bee_pt": "Figura. Gráfico resumo do SHAP para o modelo {model}: impacto de cada descritor (eixo x) colorido pelo seu valor.",
+    "cap_shap_bee_en": "Figure. SHAP summary plot for the {model} model: impact of each descriptor (x axis) coloured by its value.",
+    "cap_shap_grp_pt": "Figura. Importância pelo SHAP por grupo de descritores correlacionados para o modelo {model}.",
+    "cap_shap_grp_en": "Figure. SHAP importance by group of correlated descriptors for the {model} model.",
+    "cap_perm_grp_pt": "Figura. Importância por permutação (conjunto de teste) por grupo de descritores correlacionados para o modelo {model}.",
+    "cap_perm_grp_en": "Figure. Permutation importance (test set) by group of correlated descriptors for the {model} model.",
+    "cap_perm_ind_pt": "Figura. Importância por permutação (conjunto de teste) por descritor individual para o modelo {model}.",
+    "cap_perm_ind_en": "Figure. Permutation importance (test set) per individual descriptor for the {model} model.",
+    "cap_table_pt": "Tabela. Subestruturas associadas aos descritores de maior importância SHAP do modelo {model}.",
+    "cap_table_en": "Table. Substructures associated with the descriptors of highest SHAP importance for the {model} model.",
+}
+
+# (png kind, caption key stem) in the order they appear in the report
+_INTERP_FIGURES = [
+    ("shap_substructures", "cap_struct"), ("shap_individual", "cap_shap_ind"), ("shap_beeswarm", "cap_shap_bee"),
+    ("shap_group", "cap_shap_grp"), ("permutation_group", "cap_perm_grp"), ("permutation_individual", "cap_perm_ind"),
+]
+
+
+def _add_step5_interpretability_section(document: Any, job_dir: str, idioma: str = "pt") -> bool:
+    usi_root = os.path.join(job_dir, "RESULTS", "USI")
+    if not os.path.isdir(usi_root):
+        return False
+    entries = []
+    for usi in sorted(os.listdir(usi_root)):
+        data_dir = os.path.join(usi_root, usi, "DATA")
+        if not os.path.isdir(data_dir):
+            continue
+        pattern = re.compile(rf"^interp_summary_(.+)_{re.escape(usi)}\.json$")
+        for fname in sorted(os.listdir(data_dir)):
+            m = pattern.match(fname)
+            if not m:
+                continue
+            try:
+                summary = json.loads(Path(os.path.join(data_dir, fname)).read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            entries.append((usi, m.group(1), summary, data_dir, os.path.join(usi_root, usi, "MIDIA")))
+    if not entries:
+        return False
+
+    lang = "en" if idioma == "en" else "pt"
+    texts = _INTERP_TEXTS
+    _bar(document, "STEP 5 - Model Interpretability: SHAP, Permutation Importance and Key Substructures", COLOR_SECTION_BAR)
+
+    for usi, model, sm, data_dir, midia_dir in entries:
+        heading = document.add_paragraph()
+        heading.add_run(f"USI: {usi} - {model}").bold = True
+
+        p = _para(document)
+        _add(p, texts["intro_" + lang].format(model=model, usi=usi, n_test=sm.get("n_test", "?")), False)
+        methods = sm.get("methods", [])
+        modalities = sm.get("modalities", [])
+        if "shap" in methods:
+            kind = texts[("exact_" if sm.get("explainer_exact") else "approx_") + lang]
+            _add(p, texts["shap_" + lang].format(
+                explainer=_INTERP_EXPLAINER_NAMES.get(sm.get("explainer_key"), "SHAP"), kind=kind,
+                rows=sm.get("shap_rows", "?")), False)
+        if "permutation" in methods:
+            base = sm.get("baseline_score")
+            _add(p, texts["perm_" + lang].format(
+                metric=sm.get("metric_label", "score"), baseline="n/a" if base is None else f"{base:.3g}",
+                repeats=sm.get("n_repeats", "?")), False)
+        if "group" in modalities and sm.get("n_groups"):
+            _add(p, texts["perm_group_" + lang].format(thr=f"{sm.get('corr_threshold', 0):.2f}", groups=sm["n_groups"]), False)
+        if sm.get("n_structures"):
+            _add(p, texts["struct_" + lang], False)
+
+        for kind, cap_stem in _INTERP_FIGURES:
+            path = os.path.join(midia_dir, f"Interpretability_{kind}_{model}_{usi}.png")
+            if os.path.isfile(path):
+                _add_caption(document, texts[f"{cap_stem}_{lang}"].format(model=model))
+                _add_image(document, path, width_cm=16.0 if kind == "shap_substructures" else 14.0)
+
+        struct_df = _read_csv(os.path.join(data_dir, f"interp_shap_substructures_{model}_{usi}.csv"))
+        if struct_df is not None and not struct_df.empty:
+            _add_caption(document, texts["cap_table_" + lang].format(model=model))
+            cols = [c for c in ("rank", "descriptor", "mean_abs_shap", "direction", "radius", "smarts") if c in struct_df.columns]
+            _add_dataframe_table(document, struct_df[cols], max_rows=12)
+        document.add_paragraph()
+    return True
+
+
+# --------------------------------------------------------------------------------------
 # Section 5: STEP 5 - Applicability Domain and Similarity Analysis (internal name/JSON key
 # "step7_ad" predates the STEP3 removal/renumbering)
 # --------------------------------------------------------------------------------------
@@ -2288,10 +2446,12 @@ def generate_final_report(
     added_5 = _add_step5_section(document, job_dir, state, idioma)
     report("Building STEP 5 - Applicability Domain and Similarity Analysis...")
     added_7 = _add_step7_section(document, job_dir, state, idioma)
+    report("Building STEP 5 - Model Interpretability...")
+    added_interp = _add_step5_interpretability_section(document, job_dir, idioma)
     report("Building STEP 6 - Consensus Analysis...")
     added_8 = _add_step8_section(document, job_dir, state, idioma)
 
-    if not any((added_1, added_23, added_4, added_5, added_7, added_8)):
+    if not any((added_1, added_23, added_4, added_5, added_7, added_interp, added_8)):
         raise RuntimeError(
             "No recorded state was found for this job. Run at least one STEP (Generate Base "
             "Dataset, Outlier Elimination, Compute AD, Consensus Generate, etc.) before "

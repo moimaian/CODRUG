@@ -1081,6 +1081,7 @@ class RequirementsInstaller(cast(Any, QWidget)):
             "xgboost": None,
             "lightgbm": None,
             "catboost": None,
+            "shap": None,         # STEP 5 "Interpretability Tools" (optional)
             "scikit-posthocs": None,
             "pygam": None,
             "statsmodels": None,
