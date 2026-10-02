@@ -1340,6 +1340,38 @@ def _ui_csv_to_list(s: str):
             items.append(cleaned)
     return items
 
+def _parse_index_selector(text, n, field_label="index"):
+    """Parseia um seletor de posições como "0,1,3-7,10" (índices únicos e/ou intervalos
+    inclusivos "a-b" separados por vírgula) em uma lista ORDENADA e sem duplicatas de posições
+    dentro de [0, n). Usado pelo grupo "Merge, Remove or Compare" da aba EDIT, onde o usuário
+    escolhe exatamente quais posições de linha/coluna um botão deve afetar, em vez de só um
+    intervalo contíguo único. Levanta ValueError (mencionando field_label) para entrada vazia/
+    malformada ou índice fora de [0, n)."""
+    text = str(text or "").strip()
+    usage_hint = "Use single indices and/or ranges separated by commas, e.g. 0,1,3-7,10."
+    if not text:
+        raise ValueError(f"'{field_label}' is empty. {usage_hint}")
+    positions = set()
+    for token in text.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        m_range = re.fullmatch(r"(\d+)\s*-\s*(\d+)", token)
+        m_single = re.fullmatch(r"(\d+)", token)
+        if m_range:
+            a, b = int(m_range.group(1)), int(m_range.group(2))
+            lo, hi = (a, b) if a <= b else (b, a)
+        elif m_single:
+            lo = hi = int(m_single.group(1))
+        else:
+            raise ValueError(f"Invalid entry '{token}' in '{field_label}'. {usage_hint}")
+        if lo < 0 or hi >= n:
+            raise ValueError(f"Index out of range in '{field_label}': '{token}' (valid range is 0-{n - 1}).")
+        positions.update(range(lo, hi + 1))
+    if not positions:
+        raise ValueError(f"'{field_label}' is empty. {usage_hint}")
+    return sorted(positions)
+
 def _ensure_models_dir(job_dir, task: str):
     base = os.path.join(job_dir, "MODELS")
     sub = {
@@ -11676,10 +11708,10 @@ class MainWindow(QMainWindow):
             df1_name = os.path.basename(self.file_path1)
             self.ed_internal_dataset_list1.setText(df1_name)
 
-            # "Select Index": populado automaticamente com o primeiro (0) e o último índice de
-            # coluna do dataframe carregado - o usuário edita a partir daí, se quiser um subconjunto.
-            self.ed_feature1_first_column.setText("0")
-            self.ed_feature1_last_column.setText(str(len(self.df1.columns) - 1))
+            # "Select Index": populado automaticamente com o intervalo completo de colunas do
+            # dataframe carregado (0-N) - o usuário edita a partir daí (índices únicos e/ou
+            # intervalos separados por vírgula, ex.: 0,1,3-7,10) se quiser um subconjunto.
+            self.ed_feature1_indices.setText(f"0-{len(self.df1.columns) - 1}")
 
             QMessageBox.information(self, i18n.t("msg_title_success", self._idioma), f"Dataset loaded from:\n{self.file_path1}")
 
@@ -11721,10 +11753,10 @@ class MainWindow(QMainWindow):
             df2_name = os.path.basename(self.file_path2)
             self.ed_internal_dataset_list2.setText(df2_name)
 
-            # "Select Index": populado automaticamente com o primeiro (0) e o último índice de
-            # coluna do dataframe carregado - o usuário edita a partir daí, se quiser um subconjunto.
-            self.ed_feature2_first_column.setText("0")
-            self.ed_feature2_last_column.setText(str(len(self.df2.columns) - 1))
+            # "Select Index": populado automaticamente com o intervalo completo de colunas do
+            # dataframe carregado (0-N) - o usuário edita a partir daí (índices únicos e/ou
+            # intervalos separados por vírgula, ex.: 0,1,3-7,10) se quiser um subconjunto.
+            self.ed_feature2_indices.setText(f"0-{len(self.df2.columns) - 1}")
 
             QMessageBox.information(self, i18n.t("msg_title_success", self._idioma), f"Dataset loaded from:\n{self.file_path2}")
 
@@ -13472,33 +13504,18 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, i18n.t("msg_title_error", self._idioma), f"Could not read input CSVs:\n{e}")
             return
 
-        # Parse feature ranges (indices) for each DF
+        # Parse the column-index selectors (single indices and/or ranges, e.g. "0,1,3-7,10")
+        # for each DF's feature block.
         try:
-            i1a = int(self.ed_feature1_first_column.text().strip())
-            i1b = int(self.ed_feature1_last_column.text().strip())
-            i2a = int(self.ed_feature2_first_column.text().strip())
-            i2b = int(self.ed_feature2_last_column.text().strip())
-        except Exception:
-            QMessageBox.warning(self, i18n.t("msg_title_warning", self._idioma), "Invalid feature index values. Please enter integer indices.")
-            return
-
-        # Normalize index order and validate bounds
-        def _norm_bounds(a, b, ncols):
-            i0, i1 = (a, b) if a <= b else (b, a)
-            if i0 < 0 or i1 >= ncols:
-                raise IndexError
-            return i0, i1
-
-        try:
-            i1a, i1b = _norm_bounds(i1a, i1b, df1.shape[1])
-            i2a, i2b = _norm_bounds(i2a, i2b, df2.shape[1])
-        except IndexError:
-            QMessageBox.warning(self, i18n.t("msg_title_warning", self._idioma), "Feature indices out of range for the selected datasets.")
+            positions1 = _parse_index_selector(self.ed_feature1_indices.text(), df1.shape[1], "Select Index 1")
+            positions2 = _parse_index_selector(self.ed_feature2_indices.text(), df2.shape[1], "Select Index 2")
+        except ValueError as e:
+            QMessageBox.warning(self, i18n.t("msg_title_warning", self._idioma), str(e))
             return
 
         # Build the feature blocks (use copies; do not modify originals)
-        df1_feat = df1.iloc[:, i1a:i1b+1].copy()
-        df2_feat = df2.iloc[:, i2a:i2b+1].copy()
+        df1_feat = df1.iloc[:, positions1].copy()
+        df2_feat = df2.iloc[:, positions2].copy()
 
         # Decide operation (you said you've already ensured only one is active)
         merge_rows = self.chk_manipulate_rows.isChecked()
@@ -13569,17 +13586,6 @@ class MainWindow(QMainWindow):
             if hasattr(widget, "text"):
                 return widget.text().strip()
             return str(widget).strip()
-
-        def _parse_int(widget, field_name):
-            if widget is None:
-                raise ValueError(f"Field '{field_name}' not found.")
-            if hasattr(widget, "value"):  # QSpinBox
-                return int(widget.value())
-            txt = _get_text(widget)
-            try:
-                return int(txt)
-            except Exception:
-                raise ValueError(f"Invalid index in '{field_name}': {txt!r}")
 
         def _read_df_from_path(path):
             lower = path.lower()
@@ -13662,33 +13668,15 @@ class MainWindow(QMainWindow):
             df = _read_df_from_path(path)
             return df, path
 
-        def _remove_rows_by_pos(df, start_idx, end_idx):
-            n = len(df)
-            if n == 0:
+        def _remove_rows_by_pos(df, positions):
+            if len(df) == 0 or not positions:
                 return df
-            if start_idx < 0 or end_idx < 0:
-                raise ValueError("Row indices cannot be negative.")
-            if start_idx > end_idx:
-                raise ValueError("In rows: the start index is greater than the end index.")
-            start = max(0, start_idx)
-            end = min(n - 1, end_idx)
-            if start > end:
-                return df
-            return df.drop(df.index[start:end + 1])
+            return df.drop(df.index[positions])
 
-        def _remove_cols_by_pos(df, start_idx, end_idx):
-            m = df.shape[1]
-            if m == 0:
+        def _remove_cols_by_pos(df, positions):
+            if df.shape[1] == 0 or not positions:
                 return df
-            if start_idx < 0 or end_idx < 0:
-                raise ValueError("Column indices cannot be negative.")
-            if start_idx > end_idx:
-                raise ValueError("In columns: the start index is greater than the end index.")
-            start = max(0, start_idx)
-            end = min(m - 1, end_idx)
-            if start > end:
-                return df
-            cols_to_drop = df.columns[start:end + 1]
+            cols_to_drop = df.columns[positions]
             return df.drop(columns=list(cols_to_drop))
 
         # ----------------- flags de modo -----------------
@@ -13701,14 +13689,6 @@ class MainWindow(QMainWindow):
             return
 
         # ----------------- DATASET 1 -----------------
-        # índices 1
-        try:
-            first1 = _parse_int(getattr(self, "ed_feature1_first_column", None), "ed_feature1_first_column")
-            last1  = _parse_int(getattr(self, "ed_feature1_last_column",  None), "ed_feature1_last_column")
-        except Exception as e:
-            QMessageBox.warning(self, "Invalid Indices (Dataset 1)", str(e))
-            return
-
         try:
             # coleta possíveis fontes
             name1 = _get_text(getattr(self, "ed_internal_dataset_list1", None))
@@ -13717,10 +13697,15 @@ class MainWindow(QMainWindow):
             df1, p1 = _load_df_generic(name1, file_path1)
             df_out1 = df1.copy()
 
+            # Seletor único (índices e/ou intervalos, ex.: "0,1,3-7,10") - validado contra o
+            # eixo relevante (linhas ou colunas) do DF já carregado.
+            n1 = len(df_out1) if rows_enabled else df_out1.shape[1]
+            positions1 = _parse_index_selector(self.ed_feature1_indices.text(), n1, "Select Index 1")
+
             if rows_enabled:
-                df_out1 = _remove_rows_by_pos(df_out1, first1, last1)
+                df_out1 = _remove_rows_by_pos(df_out1, positions1)
             if cols_enabled:
-                df_out1 = _remove_cols_by_pos(df_out1, first1, last1)
+                df_out1 = _remove_cols_by_pos(df_out1, positions1)
 
             title1 = f"{os.path.basename(p1)} — result (preview; not saved)"
             if hasattr(self, "show_dataframe"):
@@ -13728,6 +13713,9 @@ class MainWindow(QMainWindow):
             else:
                 QMessageBox.information(self, "Preview (Dataset 1)",
                                         f"The processed DataFrame has {df_out1.shape[0]} rows and {df_out1.shape[1]} columns.")
+        except ValueError as e:
+            QMessageBox.warning(self, "Invalid Indices (Dataset 1)", str(e))
+            return
         except Exception as e:
             QMessageBox.critical(self, "Error processing Dataset 1", str(e))
             return
@@ -13738,21 +13726,16 @@ class MainWindow(QMainWindow):
         file_path2 = getattr(self, "file_path2", None)
         if name2 or (file_path2 and os.path.isfile(file_path2)):
             try:
-                # índices 2
-                first2 = _parse_int(getattr(self, "ed_feature2_first_column", None), "ed_feature2_first_column")
-                last2  = _parse_int(getattr(self, "ed_feature2_last_column",  None), "ed_feature2_last_column")
-            except Exception as e:
-                QMessageBox.warning(self, "Invalid Indices (Dataset 2)", str(e))
-                return
-
-            try:
                 df2, p2 = _load_df_generic(name2, file_path2)
                 df_out2 = df2.copy()
 
+                n2 = len(df_out2) if rows_enabled else df_out2.shape[1]
+                positions2 = _parse_index_selector(self.ed_feature2_indices.text(), n2, "Select Index 2")
+
                 if rows_enabled:
-                    df_out2 = _remove_rows_by_pos(df_out2, first2, last2)
+                    df_out2 = _remove_rows_by_pos(df_out2, positions2)
                 if cols_enabled:
-                    df_out2 = _remove_cols_by_pos(df_out2, first2, last2)
+                    df_out2 = _remove_cols_by_pos(df_out2, positions2)
 
                 title2 = f"{os.path.basename(p2)} — result (preview; not saved)"
                 if hasattr(self, "show_dataframe"):
@@ -13760,107 +13743,12 @@ class MainWindow(QMainWindow):
                 else:
                     QMessageBox.information(self, "Preview (Dataset 2)",
                                             f"The processed DataFrame has {df_out2.shape[0]} rows and {df_out2.shape[1]} columns.")
+            except ValueError as e:
+                QMessageBox.warning(self, "Invalid Indices (Dataset 2)", str(e))
+                return
             except Exception as e:
                 QMessageBox.critical(self, "Error processing Dataset 2", str(e))
                 return
-
-    def run_del_df(self):
-        # Resolve "nome" mostrado no line edit para um caminho dentro de INTERNAL_DATA
-        def _resolve_candidate(name: str):
-            base = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
-            os.makedirs(base, exist_ok=True)
-            if not name:
-                return None
-
-            # Se já for um caminho absoluto/relativo existente
-            if os.path.isabs(name) and os.path.isfile(name):
-                return name
-            if os.path.isfile(name):
-                return name
-
-            # Tenta direto dentro da pasta
-            direct = os.path.join(base, name)
-            if os.path.isfile(direct):
-                return direct
-
-            # Tenta por extensões comuns
-            exts = (".csv", ".tsv", ".parquet", ".feather", ".pkl", ".pickle", ".xlsx")
-            for ext in exts:
-                cand = os.path.join(base, name + ext)
-                if os.path.isfile(cand):
-                    return cand
-
-            # Glob por qualquer extensão
-            matches = glob.glob(os.path.join(base, name + ".*"))
-            return matches[0] if matches else None
-
-        def _delete_one(display_widget_name: str, file_attr_name: str) -> bool:
-            # Lê o texto do line edit (pode estar vazio)
-            disp_text = ""
-            w = getattr(self, display_widget_name, None)
-            if w is not None and hasattr(w, "text"):
-                try:
-                    disp_text = w.text().strip()
-                except Exception:
-                    disp_text = ""
-
-            # Prioriza caminho salvo (search_dataset1/2); se não houver, resolve pelo nome
-            path = getattr(self, file_attr_name, None)
-            if not (path and os.path.isfile(path)):
-                path = _resolve_candidate(disp_text)
-
-            # Nada a fazer se não houver caminho válido
-            if not (path and os.path.isfile(path)):
-                return False
-
-            # Confirmação (em inglês)
-            resp = QMessageBox.question(self, i18n.t("msg_title_confirm_deletion", self._idioma),
-                f"Are you sure you want to delete the file:\n{path}?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
-            )
-            if resp != QMessageBox.Yes:
-                return False
-
-            # Tenta remover
-            try:
-                os.remove(path)
-            except Exception as e:
-                QMessageBox.critical(self, i18n.t("msg_title_error", self._idioma), f"Failed to delete:\n{path}\n\n{e}")
-                return False
-
-            # Limpa UI/estado associado
-            try:
-                if w is not None and hasattr(w, "clear"):
-                    w.clear()
-            except Exception:
-                pass
-            try:
-                setattr(self, file_attr_name, None)
-            except Exception:
-                pass
-            if file_attr_name == "file_path1" and hasattr(self, "df1"):
-                self.df1 = None
-            if file_attr_name == "file_path2" and hasattr(self, "df2"):
-                self.df2 = None
-
-            return True
-
-        # Executa para dataset 1 (se houver algo selecionado) e depois para dataset 2
-        deleted_any = False
-
-        # Só tenta apagar se houver texto no line edit ou se existir file_path salvo
-        ed1 = getattr(self, "ed_internal_dataset_list1", None)
-        if (ed1 and ed1.text().strip()) or (getattr(self, "file_path1", None)):
-            deleted_any |= _delete_one("ed_internal_dataset_list1", "file_path1")
-
-        ed2 = getattr(self, "ed_internal_dataset_list2", None)
-        if (ed2 and ed2.text().strip()) or (getattr(self, "file_path2", None)):
-            deleted_any |= _delete_one("ed_internal_dataset_list2", "file_path2")
-
-        # Mensagem final somente se algo foi realmente apagado
-        if deleted_any:
-            QMessageBox.information(self, i18n.t("msg_title_success", self._idioma), "Selected files were deleted successfully.")
 
     def _sanitize_filename(self, name: str) -> str:
         import re
@@ -16583,14 +16471,10 @@ class MainWindow(QMainWindow):
             self.ed_internal_dataset_list1.clear()
         if hasattr(self, "ed_internal_dataset_list2"):
             self.ed_internal_dataset_list2.clear()
-        if hasattr(self, "ed_feature1_first_column"):
-            self.ed_feature1_first_column.setText("1")
-        if hasattr(self, "ed_feature1_last_column"):
-            self.ed_feature1_last_column.clear()
-        if hasattr(self, "ed_feature2_first_column"):
-            self.ed_feature2_first_column.setText("1")
-        if hasattr(self, "ed_feature2_last_column"):
-            self.ed_feature2_last_column.clear()
+        if hasattr(self, "ed_feature1_indices"):
+            self.ed_feature1_indices.clear()
+        if hasattr(self, "ed_feature2_indices"):
+            self.ed_feature2_indices.clear()
         if hasattr(self, "chk_manipulate_rows"):
             self.chk_manipulate_rows.setChecked(False)
         if hasattr(self, "chk_manipulate_columns"):
@@ -20367,34 +20251,26 @@ class MainWindow(QMainWindow):
             label_select_columns1 = self._trL("edit_lbl_select_index1"); label_select_columns1.setStyleSheet("color: #C9D1D9; font-size: 10pt"); label_select_columns1.setAlignment(Qt.AlignLeft)
             self.ed_internal_dataset_list1 = QLineEdit(); self._tr("edit_placeholder_select_df1", self.ed_internal_dataset_list1.setPlaceholderText); self.ed_internal_dataset_list1.setFixedWidth(500); self.ed_internal_dataset_list1.setReadOnly(True)
             self.btn_search_datasets1 = QPushButton(); self._tr("btn_search", self.btn_search_datasets1.setText); self.btn_search_datasets1.setProperty("role", "select"); self.btn_search_datasets1.setFixedWidth(75); self.btn_search_datasets1.clicked.connect(self.search_dataset1)
-            select_features1_layout = QHBoxLayout()
-            self.ed_feature1_first_column = QLineEdit(); self.ed_feature1_first_column.setToolTip("First Column Index"); self.ed_feature1_first_column.setFixedSize(70, 25); self.ed_feature1_first_column.setAlignment(Qt.AlignCenter); self.ed_feature1_first_column.setValidator(QIntValidator()); self.ed_feature1_first_column.setText("1")
-            label_to1 = self._trL("lbl_to_short"); label_to1.setAlignment(Qt.AlignCenter); label_to1.setFixedSize(20, 25)
-            self.ed_feature1_last_column = QLineEdit(); self.ed_feature1_last_column.setToolTip("Last Column Index"); self.ed_feature1_last_column.setFixedSize(70, 25); self.ed_feature1_last_column.setAlignment(Qt.AlignCenter); self.ed_feature1_last_column.setValidator(QIntValidator())
-            select_features1_layout.addWidget(self.ed_feature1_first_column)
-            select_features1_layout.setSpacing(0)
-            select_features1_layout.addWidget(label_to1)
-            select_features1_layout.setSpacing(0)
-            select_features1_layout.addWidget(self.ed_feature1_last_column)
+            self.ed_feature1_indices = QLineEdit()
+            self._tr("edit_tooltip_select_indices", self.ed_feature1_indices.setToolTip)
+            self._tr("edit_placeholder_select_indices", self.ed_feature1_indices.setPlaceholderText)
+            self.ed_feature1_indices.setFixedWidth(160)
+            self.ed_feature1_indices.setAlignment(Qt.AlignCenter)
 
             label_select_df2 = self._trL("edit_lbl_select_df2"); label_select_df2.setStyleSheet("color: #C9D1D9; font-size: 10pt"); label_select_df2.setAlignment(Qt.AlignLeft)
             label_select_columns2 = self._trL("edit_lbl_select_index2"); label_select_columns2.setStyleSheet("color: #C9D1D9; font-size: 10pt"); label_select_columns2.setAlignment(Qt.AlignLeft)
             self.ed_internal_dataset_list2 = QLineEdit(); self._tr("edit_placeholder_select_df2", self.ed_internal_dataset_list2.setPlaceholderText); self.ed_internal_dataset_list2.setFixedWidth(500); self.ed_internal_dataset_list2.setReadOnly(True)
             self.btn_search_datasets2 = QPushButton(); self._tr("btn_search", self.btn_search_datasets2.setText); self.btn_search_datasets2.setProperty("role", "select"); self.btn_search_datasets2.setFixedWidth(75); self.btn_search_datasets2.clicked.connect(self.search_dataset2)
-            select_features2_layout = QHBoxLayout()
-            self.ed_feature2_first_column = QLineEdit(); self.ed_feature2_first_column.setToolTip("First Column Index"); self.ed_feature2_first_column.setFixedSize(70, 25); self.ed_feature2_first_column.setAlignment(Qt.AlignCenter); self.ed_feature2_first_column.setValidator(QIntValidator()); self.ed_feature2_first_column.setText("1")
-            label_to2 = self._trL("lbl_to_short"); label_to2.setAlignment(Qt.AlignCenter); label_to2.setFixedSize(20, 25)
-            self.ed_feature2_last_column = QLineEdit(); self.ed_feature2_last_column.setToolTip("Last Column Index"); self.ed_feature2_last_column.setFixedSize(70, 25); self.ed_feature2_last_column.setAlignment(Qt.AlignCenter); self.ed_feature2_last_column.setValidator(QIntValidator())
-            select_features2_layout.addWidget(self.ed_feature2_first_column)
-            select_features2_layout.setSpacing(0)
-            select_features2_layout.addWidget(label_to2)
-            select_features2_layout.setSpacing(0)
-            select_features2_layout.addWidget(self.ed_feature2_last_column)
+            self.ed_feature2_indices = QLineEdit()
+            self._tr("edit_tooltip_select_indices", self.ed_feature2_indices.setToolTip)
+            self._tr("edit_placeholder_select_indices", self.ed_feature2_indices.setPlaceholderText)
+            self.ed_feature2_indices.setFixedWidth(160)
+            self.ed_feature2_indices.setAlignment(Qt.AlignCenter)
 
             gL25.addWidget(label_select_df1, 10, 0, alignment=Qt.AlignCenter); gL25.addWidget(label_select_columns1, 10, 2, alignment=Qt.AlignCenter)
-            gL25.addWidget(self.ed_internal_dataset_list1, 11, 0, alignment=Qt.AlignCenter); gL25.addWidget(self.btn_search_datasets1, 11, 1, alignment=Qt.AlignCenter); gL25.addLayout(select_features1_layout, 11, 2, alignment=Qt.AlignCenter)
+            gL25.addWidget(self.ed_internal_dataset_list1, 11, 0, alignment=Qt.AlignCenter); gL25.addWidget(self.btn_search_datasets1, 11, 1, alignment=Qt.AlignCenter); gL25.addWidget(self.ed_feature1_indices, 11, 2, alignment=Qt.AlignCenter)
             gL25.addWidget(label_select_df2, 12, 0, alignment=Qt.AlignCenter); gL25.addWidget(label_select_columns2, 12, 2, alignment=Qt.AlignCenter)
-            gL25.addWidget(self.ed_internal_dataset_list2, 13, 0, alignment=Qt.AlignCenter); gL25.addWidget(self.btn_search_datasets2, 13, 1, alignment=Qt.AlignCenter); gL25.addLayout(select_features2_layout, 13, 2, alignment=Qt.AlignCenter)
+            gL25.addWidget(self.ed_internal_dataset_list2, 13, 0, alignment=Qt.AlignCenter); gL25.addWidget(self.btn_search_datasets2, 13, 1, alignment=Qt.AlignCenter); gL25.addWidget(self.ed_feature2_indices, 13, 2, alignment=Qt.AlignCenter)
             gL25.setColumnStretch(0, 2); gL25.setColumnStretch(1, 1); gL25.setColumnStretch(2, 1)
             
             # Checkboxes para selecionar entre linhas ou colunas:
@@ -20441,12 +20317,6 @@ class MainWindow(QMainWindow):
             btn_del_df_reduced.setFixedWidth(120)
             btn_del_df_reduced.clicked.connect(self.run_del_df_reduced)
 
-            btn_del_df = QPushButton()
-            self._tr("edit_btn_delete_dataframes", btn_del_df.setText)
-            btn_del_df.setProperty("role", "danger")
-            btn_del_df.setFixedWidth(120)
-            btn_del_df.clicked.connect(self.run_del_df)
-            
             btn_compare_files = QPushButton(); self._tr("edit_btn_compare_files", btn_compare_files.setText); btn_compare_files.setProperty("role", "secondary");
             btn_compare_files.setStyleSheet("""
             QPushButton {
@@ -20471,8 +20341,7 @@ class MainWindow(QMainWindow):
 
             # gL25.addWidget(QLabel(""), 14, 1)
             merge_options_layout.addWidget(btn_merge_df_reduced, alignment=Qt.AlignCenter); 
-            merge_options_layout.addWidget(btn_del_df_reduced, alignment=Qt.AlignCenter); 
-            merge_options_layout.addWidget(btn_del_df, alignment=Qt.AlignCenter)
+            merge_options_layout.addWidget(btn_del_df_reduced, alignment=Qt.AlignCenter);
             merge_options_layout.addWidget(btn_compare_files, alignment=Qt.AlignCenter)
             gL25.addLayout(merge_options_layout, 15, 0, 1, 3, alignment=Qt.AlignRight)
 
