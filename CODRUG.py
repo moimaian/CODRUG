@@ -17842,10 +17842,16 @@ class MainWindow(QMainWindow):
                 # usuário - ao contrário, habilita-os (mesmo efeito de "Use ChEMBL Data"), já
                 # que o dataset carregado localmente preenche vários desses campos abaixo.
                 set_grid_enabled(True)
+                # O diálogo abre na pasta INTERNAL_DATA do job carregado (sem job, no diretório padrão).
+                initial_dir = ""
+                _job_dir = getattr(self, "job_dir", None)
+                if _job_dir and os.path.isdir(_job_dir):
+                    initial_dir = os.path.join(_job_dir, "DATA_BASES", "INTERNAL_DATA")
+                    os.makedirs(initial_dir, exist_ok=True)
                 file_paths, _ = QFileDialog.getOpenFileNames(
                     self,
                     i18n.t("s1_dlg_select_csv_excel", self._idioma),
-                    "",
+                    initial_dir,
                     "CSV/Excel Files (*.csv *.xlsx *.xls)"
                 )
                 if file_paths:
