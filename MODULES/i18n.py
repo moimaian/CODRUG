@@ -81,13 +81,13 @@ _TEXTOS = {
     },
     "home_step2_name": {"en": "Step 2 — Data Preprocessing", "pt": "Etapa 2 — Pré-Processamento de dados"},
     "home_step2_desc": {
-        "en": "Cleaning, conversion, replicates, outliers, categorization and druggability.",
-        "pt": "Limpeza, conversão, repetições, outliers, categorização e drogabilidade.",
+        "en": "Cleaning, conversion, replicates, outliers and categorization.",
+        "pt": "Limpeza, conversão, repetições, outliers e categorização.",
     },
     "home_step3_name": {"en": "Step 3 — Feature Engineering", "pt": "Etapa 3 — Engenharia de Atributos"},
     "home_step3_desc": {
-        "en": "Descriptor generation, structural processing and feature preparation",
-        "pt": "Geração de descritores, processamento estrutural e preparação de atributos",
+        "en": "Descriptor generation, druggability descriptors, structural processing and feature preparation",
+        "pt": "Geração de descritores, descritores de drogabilidade, processamento estrutural e preparação de atributos",
     },
     "home_step4_name": {"en": "Step 4 — Machine Learning", "pt": "Etapa 4 — Aprendizado de Máquina"},
     "home_step4_desc": {
@@ -570,6 +570,51 @@ _TEXTOS = {
     "s6_lbl_select_x_range": {"en": "Select X range (internal df):", "pt": "Selecione o intervalo X (df interno):"},
     "s6_lbl_select_y_column_internal": {"en": "Select Y column (internal df):", "pt": "Selecione a coluna Y (df interno):"},
     "s6_lbl_select_test_size": {"en": "Select Test Size:", "pt": "Selecione o Tamanho do Teste:"},
+    "s6_chk_with_y": {"en": "With Y", "pt": "Com Y"},
+    "s6_tooltip_with_y": {
+        "en": "Checked automatically when the External DataFrame has the same Y column used to train "
+              "the models. When checked, Predict also computes the external predictivity metrics "
+              "(RMSEP, Q2F1-F3, CCC, Golbraikh-Tropsha, rm2) on the rows that have an observed Y.",
+        "pt": "Marcado automaticamente quando o External DataFrame tem a mesma coluna Y usada no treino "
+              "dos modelos. Quando marcado, o Predict também calcula as métricas de predictivity externas "
+              "(RMSEP, Q2F1-F3, CCC, Golbraikh-Tropsha, rm2) nas linhas que têm Y observado.",
+    },
+    "s6_msg_with_y_not_found": {
+        "en": "The Y column used for training ('{y}') was not found in the External DataFrame (or it has "
+              "no usable values). 'With Y' was unchecked.",
+        "pt": "A coluna Y usada no treino ('{y}') não foi encontrada no External DataFrame (ou não tem "
+              "valores utilizáveis). 'Com Y' foi desmarcado.",
+    },
+    "s6_msg_with_y_too_few": {
+        "en": "Only {n} row(s) of the External DataFrame have an observed Y - at least 3 are needed to "
+              "compute the external metrics. The predictions were saved normally.",
+        "pt": "Apenas {n} linha(s) do External DataFrame têm Y observado - são necessárias ao menos 3 "
+              "para calcular as métricas externas. As predições foram salvas normalmente.",
+    },
+    "s6_btn_evaluate_test": {"en": "Evaluate Test", "pt": "Avaliar Teste"},
+    "s6_tooltip_evaluate_test": {
+        "en": "Final predictivity evaluation (OECD Principle 4) of the selected model(s) on the test set "
+              "held out in Screening. Do it once, with the final (tuned and validated) model.",
+        "pt": "Avaliação final de predictivity (Princípio 4 da OECD) do(s) modelo(s) selecionado(s) no "
+              "conjunto teste separado no Screening. Faça uma única vez, com o modelo final (tunado e validado).",
+    },
+    "s6_msg_evaluate_test_confirm": {
+        "en": "The test set ({n} compounds) took no part in Screening, Tuning or Validation. It should "
+              "be used only once, to report the predictivity of the final model - using it to go back "
+              "and change the model would turn it into training data.\n\nEvaluate the selected model(s) now?",
+        "pt": "O conjunto teste ({n} compostos) não participou do Screening, do Tuning nem da Validation. "
+              "Ele deve ser usado uma única vez, para reportar a predictivity do modelo final - usá-lo para "
+              "voltar e alterar o modelo o transformaria em dado de treino.\n\nAvaliar o(s) modelo(s) "
+              "selecionado(s) agora?",
+    },
+    "s6_lbl_screening_cv_folds": {"en": "CV Folds (train):", "pt": "Folds da CV (treino):"},
+    "s6_tooltip_screening_cv_folds": {
+        "en": "Number of k-fold cross-validation folds used to rank the models. The cross-validation "
+              "runs on the training set only; the test set is kept aside for the final evaluation.",
+        "pt": "Número de folds da validação cruzada k-fold usada para ranquear os modelos. A validação "
+              "cruzada roda somente no conjunto de treino; o conjunto de teste fica reservado para a "
+              "avaliação final.",
+    },
     "lbl_status": {"en": "Status:", "pt": "Status:"},
     "s6_fmt_screening_progress": {"en": "Screening: %p%", "pt": "Seleção: %p%"},
     "btn_select_all": {"en": "Select All", "pt": "Selecionar Tudo"},
@@ -883,10 +928,10 @@ _TEXTOS = {
     "s8_placeholder_weight": {"en": "Weight", "pt": "Peso"},
     "s8_tooltip_weight": {
         "en": "Only used by the 'Weighted Consensus' method. Auto-suggested from the "
-              "model's R2 Test (regression) / F1 (classification) when the dataframe "
+              "model's screening Q2 CV (regression) / F1 CV (classification) when the dataframe "
               "comes from a known USI - editable.",
         "pt": "Usado apenas pelo método 'Weighted Consensus'. Sugerido automaticamente a partir "
-              "do R2 Test (regressão) / F1 (classificação) do modelo quando o dataframe vem de "
+              "do Q2 CV (regressão) / F1 CV (classificação) do Screening do modelo quando o dataframe vem de "
               "uma USI conhecida - editável.",
     },
     "s8_lbl_ranking_direction": {"en": "Ranking direction:", "pt": "Direção do ranking:"},
@@ -899,13 +944,13 @@ _TEXTOS = {
               "Rank Sum / Borda count: non-parametric, uses list positions only.\n"
               "Reciprocal Rank Fusion (RRF): robust ensemble-fusion score, no normalization needed.\n"
               "Weighted Consensus: Z-Score weighted per list by the 'Weight' field (manual, "
-              "or auto-suggested from R2 Test/F1 when the list traces back to a known USI).",
+              "or auto-suggested from the screening Q2 CV/F1 CV when the list traces back to a known USI).",
         "pt": "Z-Score (Mean/SD): consenso padronizado clássico.\n"
               "Z-Score (Median/MAD): robusto a compostos discrepantes (outliers).\n"
               "Rank Sum / Borda count: não paramétrico, usa apenas as posições nas listas.\n"
               "Reciprocal Rank Fusion (RRF): score de fusão robusto, sem necessidade de normalização.\n"
               "Weighted Consensus: Z-Score ponderado por lista pelo campo 'Weight' (manual, "
-              "ou sugerido automaticamente a partir de R2 Test/F1 quando a lista vem de uma USI conhecida).",
+              "ou sugerido automaticamente a partir do Q2 CV/F1 CV do Screening quando a lista vem de uma USI conhecida).",
     },
     "s8_lbl_max_cv": {"en": "Max CV% (optional):", "pt": "CV% Máximo (opcional):"},
     "s8_tooltip_max_cv": {

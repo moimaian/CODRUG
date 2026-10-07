@@ -747,7 +747,8 @@ def _add_step1_section(document: Any, job_dir: str, state: dict[str, Any], idiom
 
 # --------------------------------------------------------------------------------------
 # Section 2: STEP 2 - Preprocessing and Exploratory Analysis (includes Generating
-# Categories/Druggability Descriptors, moved here from the former STEP 3)
+# Categories, moved here from the former STEP 3; Generating Druggability Descriptors later moved
+# on to STEP 3 - see _add_druggability_paragraph)
 # --------------------------------------------------------------------------------------
 
 _STEP2_TEXTS = {
@@ -1128,40 +1129,6 @@ def _add_step2_3_section(document: Any, job_dir: str, state: dict[str, Any], idi
             _add_caption(document, texts["figure3_caption_pt"] if lang == "pt" else texts["figure3_caption_en"])
             _add_image(document, class_freq_path)
 
-    # --- Druggability descriptors paragraph ---
-    druggability_pairs = [
-        ("druggability_mw", "MW", "druggability_mw_min", "druggability_mw_max"),
-        ("druggability_logp", "LogP", "druggability_logp_min", "druggability_logp_max"),
-        ("druggability_hdonor", "H-Donors", "druggability_hdonor_min", "druggability_hdonor_max"),
-        ("druggability_haceptor", "H-Acceptors", "druggability_haceptor_min", "druggability_haceptor_max"),
-        ("druggability_tpsa", "TPSA", "druggability_tpsa_min", "druggability_tpsa_max"),
-        ("druggability_rbonds", "Rotatable Bonds", "druggability_rbonds_min", "druggability_rbonds_max"),
-        ("druggability_ro5", "RO5 Violations", "druggability_ro5_min", "druggability_ro5_max"),
-    ]
-    active_ranges = [
-        f"{label} ({step2.get(min_k)} to {step2.get(max_k)})"
-        for flag_k, label, min_k, max_k in druggability_pairs
-        if step2.get(flag_k)
-    ]
-    if active_ranges:
-        p4 = _para(document)
-
-        def add4(text: str, bold: bool = False) -> None:
-            _add(p4, text, bold)
-
-        def add4_bi(text_pt: str, text_en: str, bold: bool = False) -> None:
-            add4(text_pt if lang == "pt" else text_en, bold)
-
-        add4_bi("Foram calculados os descritores de drogabilidade ", "Druggability descriptors were computed for ", False)
-        add4(", ".join(active_ranges), True)
-        add4_bi(
-            " para análise exploratória e aplicação de estatísticas comparativas entre classes e correlação de "
-            "variáveis no dataframe, porém os dados não foram filtrados por drogabilidade nesta etapa.",
-            " for exploratory analysis and comparative statistics between classes and variable correlation in "
-            "the dataframe, but the data was not filtered by druggability at this stage.",
-            False,
-        )
-
     document.add_paragraph()
     return True
 
@@ -1247,18 +1214,82 @@ def _param_label(key: str) -> str:
     return key.replace("_", " ").title()
 
 
+def _add_druggability_paragraph(document: Any, job_dir: str, state: dict[str, Any], lang: str) -> None:
+    """STEP 3 'Generating Druggability Descriptors' (moved there from STEP 2). Checkbox/range
+    values come from state["step4"], falling back to state["step2"] for jobs saved before the
+    move; whether descriptors were computed/filtered comes from the files on disk (df3_*, or the
+    df2_* names older jobs used), so the text never claims a run that didn't happen."""
+    step4 = state.get("step4") if isinstance(state.get("step4"), dict) else {}
+    step2 = state.get("step2") if isinstance(state.get("step2"), dict) else {}
+
+    def _val(key):
+        return step4[key] if key in step4 else step2.get(key)
+
+    internal_dir = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA")
+    computed = any(
+        not os.path.basename(f).startswith(f"{prefix}_Druggability_filter_")
+        for prefix in ("df3", "df2")
+        for f in glob.glob(os.path.join(internal_dir, f"{prefix}_Druggability_*.csv"))
+    )
+    filtered_path = _latest_glob(os.path.join(internal_dir, "df3_Druggability_filter_*.csv")) or \
+        _latest_glob(os.path.join(internal_dir, "df2_Druggability_filter_*.csv"))
+    if not (computed or filtered_path):
+        return
+
+    druggability_pairs = [
+        ("druggability_mw", "MW", "druggability_mw_min", "druggability_mw_max"),
+        ("druggability_logp", "LogP", "druggability_logp_min", "druggability_logp_max"),
+        ("druggability_hdonor", "H-Donors", "druggability_hdonor_min", "druggability_hdonor_max"),
+        ("druggability_haceptor", "H-Acceptors", "druggability_haceptor_min", "druggability_haceptor_max"),
+        ("druggability_tpsa", "TPSA", "druggability_tpsa_min", "druggability_tpsa_max"),
+        ("druggability_rbonds", "Rotatable Bonds", "druggability_rbonds_min", "druggability_rbonds_max"),
+        ("druggability_ro5", "RO5 Violations", "druggability_ro5_min", "druggability_ro5_max"),
+    ]
+    active_ranges = [
+        f"{label} ({_val(min_k)} {'a' if lang == 'pt' else 'to'} {_val(max_k)})"
+        for flag_k, label, min_k, max_k in druggability_pairs
+        if _val(flag_k)
+    ]
+
+    p = _para(document)
+
+    def add_bi(text_pt: str, text_en: str, bold: bool = False) -> None:
+        _add(p, text_pt if lang == "pt" else text_en, bold)
+
+    add_bi(
+        "Foram calculados os descritores de drogabilidade (LogP, doadores e aceptores de ligação de "
+        "hidrogênio, TPSA, ligações rotacionáveis, MW e número de violações da regra de Lipinski) com o RDKit",
+        "Druggability descriptors (LogP, hydrogen-bond donors and acceptors, TPSA, rotatable bonds, MW "
+        "and number of Lipinski rule violations) were computed with RDKit",
+        False,
+    )
+    if filtered_path and active_ranges:
+        add_bi(", e os compostos foram filtrados pelos intervalos ", ", and the compounds were filtered by the ranges ", False)
+        _add(p, ", ".join(active_ranges), True)
+        n_kept = _row_count(filtered_path)
+        if n_kept is not None:
+            add_bi(f", restando {n_kept} compostos", f", leaving {n_kept} compounds", False)
+        add_bi(".", ".", False)
+    else:
+        add_bi(", sem filtragem dos compostos por drogabilidade.", ", without filtering the compounds by druggability.", False)
+
+
 def _add_step4_section(document: Any, job_dir: str, state: dict[str, Any], idioma: str = "pt",
                         app_dir: Optional[str] = None) -> bool:
-    step4 = state.get("step4")
-    if not isinstance(step4, dict) or not step4:
-        return False
+    step4 = state.get("step4") if isinstance(state.get("step4"), dict) else {}
 
     scaling_method = step4.get("scaling_method") or step4.get("last_scaling_method")
     selection_method = step4.get("last_selection_method")
     projection_method = step4.get("last_projection_method")
     descriptors = step4.get("descriptors_selected")
     has_descriptors = isinstance(descriptors, dict) and bool(descriptors.get("selected"))
-    if not (has_descriptors or scaling_method or selection_method or projection_method):
+    # Druggability descriptors (grupo movido da STEP 2) também bastam para a seção existir.
+    internal_dir_check = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA")
+    has_druggability = bool(
+        glob.glob(os.path.join(internal_dir_check, "df3_Druggability_*.csv"))
+        or glob.glob(os.path.join(internal_dir_check, "df2_Druggability_*.csv"))
+    )
+    if not (has_descriptors or scaling_method or selection_method or projection_method or has_druggability):
         return False
 
     lang = "en" if idioma == "en" else "pt"
@@ -1418,6 +1449,8 @@ def _add_step4_section(document: Any, job_dir: str, state: dict[str, Any], idiom
                 False,
             )
 
+    _add_druggability_paragraph(document, job_dir, state, lang)
+
     document.add_paragraph()
     return True
 
@@ -1434,10 +1467,18 @@ _STEP4_ML_TEXTS = {
     "ranked_by_en": " Models were ranked by ",
     "test_train_split_pt": " O conjunto teste representa {test}% e o conjunto treino {train}% do conjunto total de dados. ",
     "test_train_split_en": " The test set represented {test}% and the training set {train}% of the total data. ",
+    "test_eval_pt": "A capacidade preditiva (predictivity) foi avaliada uma única vez no conjunto teste ({n} compostos), que não participou da triagem, do ajuste de hiperparâmetros nem da validação cruzada. Os critérios de aceitação seguem Golbraikh & Tropsha (2002) e Chirico & Gramatica (2012):",
+    "test_eval_en": "Predictivity was assessed once on the test set ({n} compounds), which took no part in screening, hyperparameter tuning or cross-validation. Acceptance criteria follow Golbraikh & Tropsha (2002) and Chirico & Gramatica (2012):",
+    "external_eval_pt": "Os modelos também foram aplicados ao conjunto externo, com {n} compostos com valor experimental conhecido, gerando as métricas a seguir:",
+    "external_eval_en": "The models were also applied to the external set, with {n} compounds of known experimental value, giving the metrics below:",
+    "tuning_metric_pt": ", otimizando a métrica {metric} por validação cruzada no conjunto de treino",
+    "tuning_metric_en": ", optimizing {metric} by cross-validation on the training set",
+    "ranked_by_cv_pt": " Os modelos foram ranqueados por validação cruzada {k}-fold realizada somente no conjunto de treino; o conjunto teste não participou da triagem. ",
+    "ranked_by_cv_en": " Models were ranked by {k}-fold cross-validation performed on the training set only; the test set took no part in the screening. ",
     "best_model_pt": "O modelo de melhor performance foi ",
     "best_model_en": "The best performing model was ",
-    "tuning_pt": "Foi empregado o Hyperparameter Tuning sobre o modelo {model} usando {method} e {folds} Folds. Os hiperparâmetros e seus valores ótimos podem ser visualizados na tabela a seguir:",
-    "tuning_en": "Hyperparameter Tuning was applied to the {model} model using {method} with {folds} Folds. The hyperparameters and their optimal values can be seen in the table below:",
+    "tuning_pt": "Foi empregado o Hyperparameter Tuning sobre o modelo {model} usando {method} e {folds} Folds{metric}. Os hiperparâmetros e seus valores ótimos podem ser visualizados na tabela a seguir:",
+    "tuning_en": "Hyperparameter Tuning was applied to the {model} model using {method} with {folds} Folds{metric}. The hyperparameters and their optimal values can be seen in the table below:",
     "cv_pt": "A validação cruzada do modelo {model} foi realizada através do método {method} com {folds} Folds, gerando a tabela a seguir:",
     "cv_en": "Cross-validation of the {model} model was performed using the {method} method with {folds} Folds, generating the table below:",
     "charts_pt": "Os gráficos gerados para o modelo {model} são apresentados a seguir:",
@@ -1552,6 +1593,26 @@ def _lookup_skl_settings(settings: dict, model_name: str) -> dict:
         return settings[model_name]
     base = re.sub(r"_\d+$", "", model_name)
     return settings.get(base, {})
+
+
+def _condense_cv_sd_columns(df):
+    """Screening table for the report: merges each "<metric> CV" column with its "<metric> CV SD"
+    pair into a single "<metric> CV" column formatted as "mean ± SD", keeping the table narrow
+    enough for the page. Screening CSVs from before the CV-based ranking have no SD columns and
+    pass through unchanged."""
+    if df is None or df.empty:
+        return df
+    import pandas as pd
+    out = df.copy()
+    for col in list(out.columns):
+        sd_col = f"{col} SD"
+        if col.endswith(" CV") and sd_col in out.columns:
+            out[col] = [
+                f"{m:.3f} ± {sd:.3f}" if pd.notna(m) and pd.notna(sd) else (f"{m:.3f}" if pd.notna(m) else "nan")
+                for m, sd in zip(out[col], out[sd_col])
+            ]
+            out = out.drop(columns=[sd_col])
+    return out
 
 
 def _add_skl_results_table(
@@ -1689,6 +1750,9 @@ def _add_step5_section(document: Any, job_dir: str, state: dict[str, Any], idiom
                 texts["test_train_split_en"].format(test=f"{test_size * 100:.0f}", train=f"{100 - test_size * 100:.0f}"),
                 False,
             )
+        if screening.get("cv_folds"):
+            k = int(screening["cv_folds"])
+            add_bi(texts["ranked_by_cv_pt"].format(k=k), texts["ranked_by_cv_en"].format(k=k), False)
         if best_model:
             add_bi(texts["best_model_pt"], texts["best_model_en"], False)
             add(str(best_model), True)
@@ -1706,7 +1770,7 @@ def _add_step5_section(document: Any, job_dir: str, state: dict[str, Any], idiom
         if screening_df is not None:
             _add_caption(document, texts["table3_caption_pt" if lang == "pt" else "table3_caption_en"].format(df=descriptors_name))
             model_col = 0 if "Model" in screening_df.columns and screening_df.columns[0] == "Model" else None
-            _add_skl_results_table(document, screening_df, highlight_col=model_col)
+            _add_skl_results_table(document, _condense_cv_sd_columns(screening_df), highlight_col=model_col)
 
         tuning_settings = session.get("tuning_settings", {})
         # Discovered directly from skl_tune_<model>_<usi>_*.csv files on disk (not from
@@ -1729,8 +1793,10 @@ def _add_step5_section(document: Any, job_dir: str, state: dict[str, Any], idiom
             settings = _lookup_skl_settings(tuning_settings, model_name)
             method = settings.get("method", "")
             folds = settings.get("folds", "")
+            metric_txt = texts[f"tuning_metric_{lang}"].format(metric=settings["metric"]) if settings.get("metric") else ""
             _para(document).add_run(
-                texts["tuning_pt" if lang == "pt" else "tuning_en"].format(model=model_name, method=method, folds=folds)
+                texts["tuning_pt" if lang == "pt" else "tuning_en"].format(
+                    model=model_name, method=method, folds=folds, metric=metric_txt)
             )
             _add_skl_results_table(document, tune_df)
 
@@ -1800,6 +1866,34 @@ def _add_step5_section(document: Any, job_dir: str, state: dict[str, Any], idiom
                 if yrand_png:
                     _add_caption(document, texts["table_yrand_caption_pt" if lang == "pt" else "table_yrand_caption_en"].format(model=model_name))
                     _add_image(document, yrand_png)
+
+        # Final predictivity evaluation on the held-out test set ("Evaluate Test" button) and on
+        # the External DataFrame (Predict with "With Y") - one column per evaluated model.
+        for prefix, key in (("skl_test_eval", "test_eval"), ("skl_external_eval", "external_eval")):
+            eval_df = _read_csv(_find_skl_csv(data_dir, prefix, usi))
+            if eval_df is None or eval_df.empty or "Metric" not in eval_df.columns:
+                continue
+            n_row = eval_df.loc[eval_df["Metric"] == "n"]
+            n_val = n_row.iloc[0, 2] if not n_row.empty and eval_df.shape[1] > 2 else ""
+            try:
+                n_val = int(float(n_val))
+            except (TypeError, ValueError):
+                pass
+            _para(document).add_run(texts[f"{key}_{'pt' if lang == 'pt' else 'en'}"].format(n=n_val))
+
+            def _fmt(value):
+                # Model columns mix numbers with "Pass"/"Fail" (Golbraikh-Tropsha row), so they
+                # come back from the CSV as text - format the numeric ones here.
+                try:
+                    number = float(value)
+                except (TypeError, ValueError):
+                    return "" if value is None or value != value else str(value)
+                return "nan" if number != number else f"{number:.4g}"
+
+            eval_df = eval_df.fillna("")
+            for col in eval_df.columns[2:]:
+                eval_df[col] = [_fmt(v) for v in eval_df[col]]
+            _add_skl_results_table(document, eval_df, highlight_col=0)
 
         added_any = True
         document.add_paragraph()

@@ -2382,7 +2382,7 @@ class SklScreeningWorker(QThread): # type: ignore
     finished_all = pyqtSignal(object)
     error = pyqtSignal(str)
 
-    def __init__(self, task, model_specs, x, y, random_state, test_size=0.3):
+    def __init__(self, task, model_specs, x, y, random_state, test_size=0.2, cv_folds=5):
         super().__init__()
         self.task = task
         self.model_specs = model_specs  # lista de (nome, classe, kwargs)
@@ -2390,6 +2390,7 @@ class SklScreeningWorker(QThread): # type: ignore
         self.y = y
         self.random_state = random_state
         self.test_size = test_size
+        self.cv_folds = cv_folds
         self.trained_models = {}
         self.x_train = self.x_test = self.y_train = self.y_test = None
 
@@ -2431,41 +2432,34 @@ class SklScreeningWorker(QThread): # type: ignore
                 self.x_train, self.x_test, self.y_train, self.y_test = train_test_split(
                     self.x, self.y, test_size=self.test_size, random_state=self.random_state
                 )
+                # O ranking do Screening usa SÓ o conjunto de treino (validação cruzada k-fold): o
+                # conjunto de teste fica guardado, sem influenciar nenhuma escolha (algoritmo,
+                # hiperparâmetros), para a avaliação final de predictivity (Princípio 4 da OECD).
+                # Os mesmos folds valem para todos os modelos, para a comparação ser justa.
+                if self.task == "classification":
+                    splitter = StratifiedKFold(n_splits=self.cv_folds, shuffle=True, random_state=self.random_state)
+                else:
+                    splitter = KFold(n_splits=self.cv_folds, shuffle=True, random_state=self.random_state)
+                cv_splits = list(splitter.split(self.x_train, self.y_train))
                 for name, cls, kwargs in self.model_specs:
                     try:
                         kwargs = _skl_force_single_thread_kwargs(cls, kwargs)
+                        row = {"Model": name}
+                        row.update(self._cross_validate_on_train(cls, kwargs, cv_splits))
+                        # Modelo final do Screening: treinado no conjunto de treino inteiro (é o que
+                        # Tuning/Validation/Predict usam daqui em diante) - só ele dá o goodness-of-fit.
                         model = _skl_instantiate(cls, kwargs, self.random_state)
                         model.fit(self.x_train, self.y_train)
                         self.trained_models[name] = model
                         y_train_pred = model.predict(self.x_train)
-                        y_test_pred = model.predict(self.x_test)
-                        row = {"Model": name}
                         if self.task == "regression":
-                            row["R2 Train"] = float(r2_score(self.y_train, y_train_pred))
-                            row["R2 Test"] = float(r2_score(self.y_test, y_test_pred))
-                            m = float(mse(self.y_test, y_test_pred))
-                            row["MSE"] = m
-                            row["RMSE"] = m ** 0.5
-                            row["MAE"] = float(mae(self.y_test, y_test_pred))
+                            fit_row = {
+                                "R2 Train": float(r2_score(self.y_train, y_train_pred)),
+                                "RMSE Train": float(mse(self.y_train, y_train_pred)) ** 0.5,
+                            }
                         else:
-                            row["Accuracy Train"] = float(accuracy_score(self.y_train, y_train_pred))
-                            row["Accuracy Test"] = float(accuracy_score(self.y_test, y_test_pred))
-                            row["F1"] = float(f1_score(self.y_test, y_test_pred, average="weighted"))
-                            row["Precision"] = float(precision_score(self.y_test, y_test_pred, average="weighted", zero_division=0))
-                            row["Recall"] = float(recall_score(self.y_test, y_test_pred, average="weighted"))
-                            row["MCC"] = float(matthews_corrcoef(self.y_test, y_test_pred))
-                            row["Specificity"] = _specificity_score(self.y_test, y_test_pred)
-                            try:
-                                if hasattr(model, "predict_proba"):
-                                    proba = model.predict_proba(self.x_test)
-                                    if proba.shape[1] == 2:
-                                        row["AUC"] = float(roc_auc_score(self.y_test, proba[:, 1]))
-                                    else:
-                                        row["AUC"] = float(roc_auc_score(self.y_test, proba, multi_class="ovr", average="weighted"))
-                                else:
-                                    row["AUC"] = float("nan")
-                            except Exception:
-                                row["AUC"] = float("nan")
+                            fit_row = {"Accuracy Train": float(accuracy_score(self.y_train, y_train_pred))}
+                        row = {"Model": name, **fit_row, **{k: v for k, v in row.items() if k != "Model"}}
                         rows.append(row)
                         self.progress.emit(f"Model {name} successfully evaluated.", row)
                     except Exception as e:
@@ -2475,6 +2469,202 @@ class SklScreeningWorker(QThread): # type: ignore
             self.error.emit(str(e))
         finally:
             backend_ctx.__exit__(None, None, None)
+
+    def _cross_validate_on_train(self, cls, kwargs, cv_splits):
+        """Métricas de validação cruzada do Screening, calculadas só sobre x_train/y_train.
+        Mesmo critério do grupo Validation (SklEvaluateWorker._run_standard): o valor "<métrica> CV"
+        é a métrica global sobre as predições out-of-fold de todos os folds agrupadas (para R², é o
+        Q² clássico de QSAR, 1 - PRESS/SS) e "<métrica> CV SD" é o desvio padrão ENTRE folds. A AUC é
+        exceção: média dos folds, porque probabilidades de modelos de folds diferentes não são
+        comparáveis entre si para montar uma única curva ROC."""
+        x_tr_all = self.x_train.reset_index(drop=True)
+        y_tr_all = self.y_train.reset_index(drop=True)
+        y_true_all, y_pred_all = [], []
+        per_fold = []
+        for train_idx, val_idx in cv_splits:
+            x_tr, x_val = x_tr_all.iloc[train_idx], x_tr_all.iloc[val_idx]
+            y_tr, y_val = y_tr_all.iloc[train_idx], y_tr_all.iloc[val_idx]
+            fold_model = _skl_instantiate(cls, kwargs, self.random_state)
+            fold_model.fit(x_tr, y_tr)
+            y_pred = fold_model.predict(x_val)
+            y_true_all.extend(list(y_val)); y_pred_all.extend(list(y_pred))
+            if self.task == "regression":
+                m = float(mse(y_val, y_pred))
+                per_fold.append({"Q2": float(r2_score(y_val, y_pred)), "RMSE": m ** 0.5,
+                                 "MAE": float(mae(y_val, y_pred)), "MSE": m})
+            else:
+                fold_row = {
+                    "Accuracy": float(accuracy_score(y_val, y_pred)),
+                    "F1": float(f1_score(y_val, y_pred, average="weighted")),
+                    "Precision": float(precision_score(y_val, y_pred, average="weighted", zero_division=0)),
+                    "Recall": float(recall_score(y_val, y_pred, average="weighted")),
+                    "MCC": float(matthews_corrcoef(y_val, y_pred)),
+                    "Specificity": _specificity_score(y_val, y_pred),
+                    "AUC": float("nan"),
+                }
+                try:
+                    if hasattr(fold_model, "predict_proba"):
+                        proba = fold_model.predict_proba(x_val)
+                        if proba.shape[1] == 2:
+                            fold_row["AUC"] = float(roc_auc_score(y_val, proba[:, 1]))
+                        else:
+                            fold_row["AUC"] = float(roc_auc_score(y_val, proba, multi_class="ovr", average="weighted"))
+                except Exception:
+                    pass
+                per_fold.append(fold_row)
+
+        fold_df = pd.DataFrame(per_fold)
+        if self.task == "regression":
+            m = float(mse(y_true_all, y_pred_all))
+            pooled = {"Q2": float(r2_score(y_true_all, y_pred_all)), "RMSE": m ** 0.5,
+                      "MAE": float(mae(y_true_all, y_pred_all)), "MSE": m}
+        else:
+            pooled = {
+                "Accuracy": float(accuracy_score(y_true_all, y_pred_all)),
+                "F1": float(f1_score(y_true_all, y_pred_all, average="weighted")),
+                "Precision": float(precision_score(y_true_all, y_pred_all, average="weighted", zero_division=0)),
+                "Recall": float(recall_score(y_true_all, y_pred_all, average="weighted")),
+                "MCC": float(matthews_corrcoef(y_true_all, y_pred_all)),
+                "Specificity": _specificity_score(y_true_all, y_pred_all),
+                "AUC": float(fold_df["AUC"].mean()),
+            }
+        out = {}
+        for metric, value in pooled.items():
+            out[f"{metric} CV"] = value
+            out[f"{metric} CV SD"] = float(fold_df[metric].std())
+        return out
+
+
+def _skl_external_regression_metrics(y_obs, y_pred, y_train=None):
+    """Métricas de predictivity (Princípio 4 da OECD) de um modelo de regressão sobre um conjunto
+    que não participou do desenvolvimento do modelo (teste ou externo). Retorna uma lista de
+    (métrica, critério de aceitação, valor) na ordem de exibição.
+    - Q²F1 (Shi et al., 2001) e Q²F3 (Schüürmann et al., 2008) usam a média/variância do TREINO;
+      Q²F2 (Schüürmann et al., 2008) usa a média do próprio conjunto avaliado (= R² do sklearn).
+    - CCC: coeficiente de concordância de Lin (Chirico & Gramatica, 2011). Limiares Q²Fn >= 0,70 e
+      CCC >= 0,85 conforme Chirico & Gramatica (2012).
+    - Critérios de Golbraikh & Tropsha (2002): r², k ou k', (r² - r0²)/r² ou (r² - r0'²)/r², |r0² - r0'²|.
+    - r²m médio e Δr²m (Roy et al., 2012)."""
+    y = np.asarray(y_obs, dtype=float)
+    p = np.asarray(y_pred, dtype=float)
+    n = len(y)
+    press = float(np.sum((y - p) ** 2))
+    ss_ext = float(np.sum((y - y.mean()) ** 2))
+    nan = float("nan")
+
+    q2f1 = q2f3 = nan
+    if y_train is not None and len(y_train) > 1:
+        yt = np.asarray(y_train, dtype=float)
+        ss_ext_tr_mean = float(np.sum((y - yt.mean()) ** 2))
+        q2f1 = 1.0 - press / ss_ext_tr_mean if ss_ext_tr_mean > 0 else nan
+        ss_tr = float(np.sum((yt - yt.mean()) ** 2))
+        q2f3 = 1.0 - (press / n) / (ss_tr / len(yt)) if ss_tr > 0 else nan
+    q2f2 = 1.0 - press / ss_ext if ss_ext > 0 else nan
+
+    # Pearson r² entre observado e predito.
+    r2 = float(np.corrcoef(y, p)[0, 1] ** 2) if n > 2 and np.std(y) > 0 and np.std(p) > 0 else nan
+    # Regressões pela origem: observado vs predito (k, r0²) e predito vs observado (k', r0'²).
+    k = float(np.sum(y * p) / np.sum(p ** 2)) if np.sum(p ** 2) > 0 else nan
+    k_prime = float(np.sum(y * p) / np.sum(y ** 2)) if np.sum(y ** 2) > 0 else nan
+    ss_pred = float(np.sum((p - p.mean()) ** 2))
+    r0_2 = 1.0 - float(np.sum((y - k * p) ** 2)) / ss_ext if ss_ext > 0 else nan
+    r0p_2 = 1.0 - float(np.sum((p - k_prime * y) ** 2)) / ss_pred if ss_pred > 0 else nan
+    ratio_r0 = (r2 - r0_2) / r2 if r2 and r2 == r2 else nan
+    ratio_r0p = (r2 - r0p_2) / r2 if r2 and r2 == r2 else nan
+    delta_r0 = abs(r0_2 - r0p_2)
+
+    rm2 = r2 * (1.0 - np.sqrt(abs(r2 - r0_2)))
+    rm2_p = r2 * (1.0 - np.sqrt(abs(r2 - r0p_2)))
+    rm2_avg = float((rm2 + rm2_p) / 2.0)
+    rm2_delta = float(abs(rm2 - rm2_p))
+
+    s_xy = float(np.mean((y - y.mean()) * (p - p.mean())))
+    ccc_den = float(np.var(y) + np.var(p) + (y.mean() - p.mean()) ** 2)
+    ccc = 2.0 * s_xy / ccc_den if ccc_den > 0 else nan
+
+    def _ok(cond):
+        return bool(cond) if cond == cond else False
+
+    gt_pass = (
+        _ok(r2 > 0.6)
+        and (_ok(0.85 <= k <= 1.15) or _ok(0.85 <= k_prime <= 1.15))
+        and (_ok(ratio_r0 < 0.1) or _ok(ratio_r0p < 0.1))
+        and _ok(delta_r0 < 0.3)
+    )
+    return [
+        ("n", "", n),
+        ("RMSEP", "lower is better", float(np.sqrt(press / n))),
+        ("MAE", "lower is better", float(np.mean(np.abs(y - p)))),
+        ("Q2F1", ">= 0.70", q2f1),
+        ("Q2F2 (R2ext)", ">= 0.70", q2f2),
+        ("Q2F3", ">= 0.70", q2f3),
+        ("CCC", ">= 0.85", ccc),
+        ("r2 (Pearson)", "> 0.6", r2),
+        ("k", "0.85 - 1.15", k),
+        ("k'", "0.85 - 1.15", k_prime),
+        ("(r2 - r0^2)/r2", "< 0.1", ratio_r0),
+        ("(r2 - r0'^2)/r2", "< 0.1", ratio_r0p),
+        ("|r0^2 - r0'^2|", "< 0.3", delta_r0),
+        ("Golbraikh-Tropsha", "all criteria", "Pass" if gt_pass else "Fail"),
+        ("rm2 (average)", "> 0.5", rm2_avg),
+        ("delta rm2", "< 0.2", rm2_delta),
+    ]
+
+
+def _skl_external_classification_metrics(y_obs, y_pred, model=None, x=None):
+    """Métricas de predictivity de um classificador sobre o conjunto de teste/externo. Mesma saída
+    de _skl_external_regression_metrics: lista de (métrica, critério, valor)."""
+    from sklearn.metrics import balanced_accuracy_score, cohen_kappa_score
+    auc = float("nan")
+    try:
+        if model is not None and x is not None and hasattr(model, "predict_proba"):
+            proba = model.predict_proba(x)
+            if proba.shape[1] == 2:
+                auc = float(roc_auc_score(y_obs, proba[:, 1]))
+            else:
+                auc = float(roc_auc_score(y_obs, proba, multi_class="ovr", average="weighted"))
+    except Exception:
+        pass
+    return [
+        ("n", "", len(y_obs)),
+        ("Accuracy", "", float(accuracy_score(y_obs, y_pred))),
+        ("Balanced Accuracy", "", float(balanced_accuracy_score(y_obs, y_pred))),
+        ("Precision", "", float(precision_score(y_obs, y_pred, average="weighted", zero_division=0))),
+        ("Recall (Sensitivity)", "", float(recall_score(y_obs, y_pred, average="weighted"))),
+        ("Specificity", "", _specificity_score(y_obs, y_pred)),
+        ("F1", "", float(f1_score(y_obs, y_pred, average="weighted"))),
+        ("MCC", "", float(matthews_corrcoef(y_obs, y_pred))),
+        ("Cohen's Kappa", "", float(cohen_kappa_score(y_obs, y_pred))),
+        ("AUC", "", auc),
+    ]
+
+
+def _skl_external_metrics_table(task, models, x, y, y_train=None):
+    """Tabela de métricas externas (uma coluna por modelo) usada pela avaliação final no conjunto de
+    teste e pelo Predict com Y. Colunas: Metric, Acceptance, <modelo 1>, <modelo 2>, ..."""
+    table = None
+    for name, model in models.items():
+        y_pred = model.predict(x)
+        if task == "regression":
+            rows = _skl_external_regression_metrics(y, y_pred, y_train)
+        else:
+            rows = _skl_external_classification_metrics(y, y_pred, model, x)
+        if table is None:
+            table = pd.DataFrame({"Metric": [r[0] for r in rows], "Acceptance": [r[1] for r in rows]})
+        table[name] = [round(r[2], 4) if isinstance(r[2], float) else r[2] for r in rows]
+    return table
+
+
+def _skl_screening_sort_column(metric):
+    """Coluna da tabela do Screening usada para ranquear pela 'Sort metric' escolhida. Aceita
+    também os nomes antigos ("R2 Test"/"Accuracy Test"), de USIs salvas antes do Screening
+    passar a ranquear por validação cruzada no treino."""
+    if metric in ("Silhouette", "Davies-Bouldin", "Calinski-Harabasz"):
+        return metric
+    base = metric.replace(" Test", "").strip()
+    if base == "R2":
+        base = "Q2"
+    return f"{base} CV"
 
 
 def _skl_grid_cv_results_to_df(cv_results_dict):
@@ -2489,7 +2679,8 @@ class SklTuneWorker(QThread): # type: ignore
     finished_ok = pyqtSignal(object, object, object)  # best_model, best_params, cv_results_df
     error = pyqtSignal(str)
 
-    def __init__(self, cls, base_kwargs, param_grid, method, folds, n_iter, random_state, x_train, y_train):
+    def __init__(self, cls, base_kwargs, param_grid, method, folds, n_iter, random_state, x_train, y_train,
+                 scoring=None, sign=1.0):
         super().__init__()
         self.cls = cls
         self.base_kwargs = base_kwargs
@@ -2500,6 +2691,15 @@ class SklTuneWorker(QThread): # type: ignore
         self.random_state = random_state
         self.x_train = x_train
         self.y_train = y_train
+        # Melhor score médio da CV interna (só no treino) e seu desvio padrão entre folds - usados
+        # na mensagem de fim do Tuning, que não olha o conjunto de teste.
+        self.best_cv_score = None
+        self.best_cv_std = None
+        # Mesma métrica da 'Sort metric' do Screening (ver _skl_scoring_for_metric): o Tuning otimiza
+        # o que foi usado para escolher o modelo. sign=-1 para os scorers 'neg_*' (RMSE/MAE/MSE),
+        # que o sklearn maximiza invertidos - os resultados são desinvertidos no fim, para exibição.
+        self.scoring = scoring
+        self.sign = sign
 
     def run(self):
         # Força threads em vez de processos (fork) para o joblib — ver comentário em SklScreeningWorker.run().
@@ -2526,19 +2726,27 @@ class SklTuneWorker(QThread): # type: ignore
 
             if method == "RandomizedSearchCV":
                 search = RandomizedSearchCV(base_model, search_param_grid, n_iter=self.n_iter,
-                                              cv=folds, random_state=random_state, n_jobs=-1)
+                                              cv=folds, random_state=random_state, n_jobs=-1, scoring=self.scoring)
                 search.fit(self.x_train, self.y_train)
                 best_model, best_params = search.best_estimator_, search.best_params_
+                self.best_cv_score = float(search.best_score_)
+                self.best_cv_std = float(search.cv_results_["std_test_score"][search.best_index_])
                 cv_results = _skl_grid_cv_results_to_df(search.cv_results_)
             elif method == "HalvingGridSearchCV":
-                search = HalvingGridSearchCV(base_model, search_param_grid, cv=folds, random_state=random_state, n_jobs=-1)
+                search = HalvingGridSearchCV(base_model, search_param_grid, cv=folds, random_state=random_state, n_jobs=-1,
+                                             scoring=self.scoring)
                 search.fit(self.x_train, self.y_train)
                 best_model, best_params = search.best_estimator_, search.best_params_
+                self.best_cv_score = float(search.best_score_)
+                self.best_cv_std = float(search.cv_results_["std_test_score"][search.best_index_])
                 cv_results = _skl_grid_cv_results_to_df(search.cv_results_)
             elif method == "HalvingRandomSearchCV":
-                search = HalvingRandomSearchCV(base_model, search_param_grid, cv=folds, random_state=random_state, n_jobs=-1)
+                search = HalvingRandomSearchCV(base_model, search_param_grid, cv=folds, random_state=random_state, n_jobs=-1,
+                                               scoring=self.scoring)
                 search.fit(self.x_train, self.y_train)
                 best_model, best_params = search.best_estimator_, search.best_params_
+                self.best_cv_score = float(search.best_score_)
+                self.best_cv_std = float(search.cv_results_["std_test_score"][search.best_index_])
                 cv_results = _skl_grid_cv_results_to_df(search.cv_results_)
             elif method == "Bayesian Optimization (Optuna)":
                 import optuna
@@ -2548,20 +2756,25 @@ class SklTuneWorker(QThread): # type: ignore
                     trial_params = {name: trial.suggest_categorical(name, values) for name, values in param_grid.items()}
                     trial_kwargs = _skl_force_single_thread_kwargs(cls, {**base_kwargs, **trial_params})
                     trial_model = _skl_instantiate(cls, trial_kwargs, random_state)
-                    scores = cross_val_score(trial_model, self.x_train, self.y_train, cv=folds)
+                    scores = cross_val_score(trial_model, self.x_train, self.y_train, cv=folds, scoring=self.scoring)
+                    trial.set_user_attr("cv_std", float(scores.std()))
                     return float(scores.mean())
 
                 study = optuna.create_study(direction="maximize")
                 study.optimize(objective, n_trials=self.n_iter)
                 best_params = study.best_params
+                self.best_cv_score = float(study.best_value)
+                self.best_cv_std = study.best_trial.user_attrs.get("cv_std")
                 best_kwargs = _skl_force_single_thread_kwargs(cls, {**base_kwargs, **best_params})
                 best_model = _skl_instantiate(cls, best_kwargs, random_state)
                 best_model.fit(self.x_train, self.y_train)
                 cv_results = study.trials_dataframe().sort_values("value", ascending=False).reset_index(drop=True)
             else:
-                search = GridSearchCV(base_model, search_param_grid, cv=folds, n_jobs=-1)
+                search = GridSearchCV(base_model, search_param_grid, cv=folds, n_jobs=-1, scoring=self.scoring)
                 search.fit(self.x_train, self.y_train)
                 best_model, best_params = search.best_estimator_, search.best_params_
+                self.best_cv_score = float(search.best_score_)
+                self.best_cv_std = float(search.cv_results_["std_test_score"][search.best_index_])
                 cv_results = _skl_grid_cv_results_to_df(search.cv_results_)
 
             # Desfaz o prefixo "base_estimator__" (se houver) antes de expor best_params/cv_results
@@ -2575,6 +2788,19 @@ class SklTuneWorker(QThread): # type: ignore
                     cv_results = cv_results.rename(columns={
                         c: c.replace("base_estimator__", "", 1) for c in cv_results.columns
                     })
+            if self.best_cv_score is None or self.best_cv_score != self.best_cv_score:  # None ou NaN
+                raise ValueError(
+                    "The selected Sort metric could not be computed for this model in any CV fold "
+                    "(e.g. AUC needs predict_proba). Choose another Sort metric in Model Screening."
+                )
+            # Desinverte os scorers 'neg_*' (ex.: neg_root_mean_squared_error -> RMSE positivo) no
+            # score exibido e na tabela de resultados; o desvio padrão não muda de sinal.
+            if self.sign < 0:
+                self.best_cv_score = -self.best_cv_score
+                if hasattr(cv_results, "columns"):
+                    for col in ("mean_test_score", "value"):
+                        if col in cv_results.columns:
+                            cv_results[col] = -cv_results[col]
             self.finished_ok.emit(best_model, best_params, cv_results)
         except Exception as e:
             self.error.emit(str(e))
@@ -2632,23 +2858,29 @@ def _skl_curve_compute_metric(metric, y_true, y_pred, model=None, x=None):
 
 
 class SklTuneCurveWorker(QThread): # type: ignore
-    """Gera a curva 'Sort metric' (Train/Test) vs. Parameter — ou vs. número de features (n_features,
-    reproduzindo o gráfico do notebook original) — treinando/testando o modelo repetidamente em background."""
+    """Gera a curva 'Sort metric' (Train/CV) vs. Parameter — ou vs. número de features (n_features,
+    reproduzindo o gráfico do notebook original) — por validação cruzada k-fold SÓ no conjunto de
+    treino. O conjunto de teste não entra: escolher um hiperparâmetro olhando o teste o transformaria
+    em parte do treino (a curva é uma "validation curve", não uma avaliação de predictivity)."""
     finished_ok = pyqtSignal(dict)
     error = pyqtSignal(str)
 
-    def __init__(self, cls, base_kwargs, parameter, metric, random_state, x_train, y_train, x_test, y_test, values=None):
+    def __init__(self, cls, base_kwargs, parameter, metric, random_state, x_train, y_train, task, folds=5, values=None):
         super().__init__()
         self.cls = cls
         self.base_kwargs = base_kwargs
         self.parameter = parameter
         self.metric = metric
         self.random_state = random_state
-        self.x_train = x_train
-        self.y_train = y_train
-        self.x_test = x_test
-        self.y_test = y_test
+        self.x_train = x_train.reset_index(drop=True)
+        self.y_train = y_train.reset_index(drop=True)
         self.values = values  # None quando parameter == "n_features"
+        if task == "classification":
+            splitter = StratifiedKFold(n_splits=folds, shuffle=True, random_state=random_state)
+        else:
+            splitter = KFold(n_splits=folds, shuffle=True, random_state=random_state)
+        # Mesmos folds para todos os pontos da curva.
+        self.cv_splits = list(splitter.split(self.x_train, self.y_train))
 
     def run(self):
         # Força threads em vez de processos (fork) para o joblib — ver comentário em SklScreeningWorker.run().
@@ -2673,18 +2905,22 @@ class SklTuneCurveWorker(QThread): # type: ignore
     # n=1 e n=total, preservando a forma da curva.
     MAX_N_FEATURES_POINTS = 40
 
-    def _fit_and_score(self, x_tr, y_tr, x_te, y_te, kwargs_override=None):
+    def _fit_and_score(self, x, kwargs_override=None):
+        """Média (e desvio padrão) entre folds da métrica nos folds de treino e nos de validação."""
         kwargs = dict(self.base_kwargs)
         if kwargs_override:
             kwargs.update(kwargs_override)
         kwargs = _skl_force_single_thread_kwargs(self.cls, kwargs)
-        model = _skl_instantiate(self.cls, kwargs, self.random_state)
-        model.fit(x_tr, y_tr)
-        y_tr_pred = model.predict(x_tr)
-        y_te_pred = model.predict(x_te)
-        train_val = _skl_curve_compute_metric(self.metric, y_tr, y_tr_pred, model, x_tr)
-        test_val = _skl_curve_compute_metric(self.metric, y_te, y_te_pred, model, x_te)
-        return train_val, test_val
+        train_scores, val_scores = [], []
+        for train_idx, val_idx in self.cv_splits:
+            x_tr, x_val = x.iloc[train_idx], x.iloc[val_idx]
+            y_tr, y_val = self.y_train.iloc[train_idx], self.y_train.iloc[val_idx]
+            model = _skl_instantiate(self.cls, kwargs, self.random_state)
+            model.fit(x_tr, y_tr)
+            train_scores.append(_skl_curve_compute_metric(self.metric, y_tr, model.predict(x_tr), model, x_tr))
+            val_scores.append(_skl_curve_compute_metric(self.metric, y_val, model.predict(x_val), model, x_val))
+        return (float(np.nanmean(train_scores)), float(np.nanstd(train_scores)),
+                float(np.nanmean(val_scores)), float(np.nanstd(val_scores)))
 
     def _run_n_features(self):
         base_kwargs = _skl_force_single_thread_kwargs(self.cls, self.base_kwargs)
@@ -2703,29 +2939,29 @@ class SklTuneCurveWorker(QThread): # type: ignore
         step = max(1, n_total // self.MAX_N_FEATURES_POINTS)
         n_steps = sorted(set(list(range(1, n_total + 1, step)) + [n_total]))
 
-        x_values, train_values, test_values = [], [], []
+        result = self._empty_result("Number of features")
         for n in n_steps:
-            top_features = ranked_features[:n]
-            train_val, test_val = self._fit_and_score(
-                self.x_train[top_features], self.y_train, self.x_test[top_features], self.y_test
-            )
-            x_values.append(n)
-            train_values.append(train_val)
-            test_values.append(test_val)
-
-        return {"x_values": x_values, "train_values": train_values, "test_values": test_values, "x_label": "Number of features"}
+            self._append_point(result, n, self._fit_and_score(self.x_train[ranked_features[:n]]))
+        return result
 
     def _run_param_range(self):
-        x_values, train_values, test_values = [], [], []
+        result = self._empty_result(self.parameter)
         for v in self.values:
-            train_val, test_val = self._fit_and_score(
-                self.x_train, self.y_train, self.x_test, self.y_test, kwargs_override={self.parameter: v}
-            )
-            x_values.append(v)
-            train_values.append(train_val)
-            test_values.append(test_val)
+            self._append_point(result, v, self._fit_and_score(self.x_train, kwargs_override={self.parameter: v}))
+        return result
 
-        return {"x_values": x_values, "train_values": train_values, "test_values": test_values, "x_label": self.parameter}
+    @staticmethod
+    def _empty_result(x_label):
+        return {"x_values": [], "train_values": [], "train_std": [], "cv_values": [], "cv_std": [], "x_label": x_label}
+
+    @staticmethod
+    def _append_point(result, x_value, scores):
+        train_mean, train_std, cv_mean, cv_std = scores
+        result["x_values"].append(x_value)
+        result["train_values"].append(train_mean)
+        result["train_std"].append(train_std)
+        result["cv_values"].append(cv_mean)
+        result["cv_std"].append(cv_std)
 
 
 class SklEvaluateWorker(QThread): # type: ignore
@@ -2879,7 +3115,8 @@ class SklEvaluateWorker(QThread): # type: ignore
             x_tr, x_te = x_reset.iloc[train_idx], x_reset.iloc[test_idx]
             y_tr, y_te = y_reset.iloc[train_idx], y_reset.iloc[test_idx]
             inner_model = _skl_instantiate(cls, _skl_force_single_thread_kwargs(cls, base_kwargs), random_state)
-            inner_search = GridSearchCV(inner_model, param_grid, cv=inner_folds, n_jobs=-1)
+            inner_search = GridSearchCV(inner_model, param_grid, cv=inner_folds, n_jobs=-1,
+                                        scoring=self.kwargs.get("scoring"))
             inner_search.fit(x_tr, y_tr)
             y_pred = inner_search.predict(x_te)
             row = {"Outer Fold": fold_num, "Best Params": str(inner_search.best_params_)}
@@ -3522,11 +3759,14 @@ class MainWindow(QMainWindow):
             "   Moisés Maia Neto\n"
             "   Roberto Pontarolo\n"
             "   Raul Edison Luna Lazo\n"
-            "   Universidade Federal do Paraná (UFPR)\n"
-            f"   {i18n.t('about_brazil', idioma)}\n"
             "\n"
             f"{i18n.t('about_contact', idioma)}\n"
             "   moimaian@gmail.com\n"
+            "\n"
+            # Instituição em bloco próprio, alinhada à esquerda como a versão (antes ficava recuada
+            # junto à lista de desenvolvedores, como se fosse mais um nome).
+            "Universidade Federal do Paraná (UFPR)\n"
+            f"{i18n.t('about_brazil', idioma)}\n"
             "\n"
             f"{i18n.t('about_version', idioma)}"
         )
@@ -4352,7 +4592,8 @@ class MainWindow(QMainWindow):
         ("outlier_column", "list_columns_outlier"),
         ("outlier_threshold", "threshold_outlier"),
         ("outlier_method", "cb_outlier_method"),
-        # "Generating Categories"/"Generating Druggability Descriptors" (movidos de STEP3):
+        # "Generating Categories" (movido de STEP3; "Generating Druggability Descriptors" foi para a
+        # STEP 3 - campos druggability_* em STEP4_FIELD_SPEC):
         ("class_value_column", "list_columns_cat"),
         ("class_scale_inverse", "chk_cat_inverse_scale"),
         ("class_scale_direct", "chk_cat_direct_scale"),
@@ -4365,27 +4606,6 @@ class MainWindow(QMainWindow):
         ("class3_name", "ed_class3_name"),
         ("class3_operator", "cb_class3_op"),
         ("class3_reference", "ed_class3_ref"),
-        ("druggability_mw", "chk_MW"),
-        ("druggability_mw_min", "ed_min_MW"),
-        ("druggability_mw_max", "ed_max_MW"),
-        ("druggability_logp", "chk_logP"),
-        ("druggability_logp_min", "ed_min_logP"),
-        ("druggability_logp_max", "ed_max_logP"),
-        ("druggability_hdonor", "chk_Hdonor"),
-        ("druggability_hdonor_min", "ed_min_Hdonor"),
-        ("druggability_hdonor_max", "ed_max_Hdonor"),
-        ("druggability_haceptor", "chk_Haceptor"),
-        ("druggability_haceptor_min", "ed_min_Haceptor"),
-        ("druggability_haceptor_max", "ed_max_Haceptor"),
-        ("druggability_tpsa", "chk_TPSA"),
-        ("druggability_tpsa_min", "ed_min_TPSA"),
-        ("druggability_tpsa_max", "ed_max_TPSA"),
-        ("druggability_rbonds", "chk_RBonds"),
-        ("druggability_rbonds_min", "ed_min_RBonds"),
-        ("druggability_rbonds_max", "ed_max_RBonds"),
-        ("druggability_ro5", "chk_Vo5"),
-        ("druggability_ro5_min", "ed_min_Vo5"),
-        ("druggability_ro5_max", "ed_max_Vo5"),
     ]
     STEP2_PLAIN_SPEC = [
         ("dataframe_path", "_step2_df_path"),
@@ -4525,6 +4745,29 @@ class MainWindow(QMainWindow):
         ("selection_method", "cb_recommended_selection"),
         ("projection_method", "cb_recommended_projection"),
         ("random_state", "ed_rd_session_id"),
+        # "Generating Druggability Descriptors" (movido da STEP 2; jobs antigos têm essas chaves em
+        # "step2" - ver _load_job_state_into_ui):
+        ("druggability_mw", "chk_MW"),
+        ("druggability_mw_min", "ed_min_MW"),
+        ("druggability_mw_max", "ed_max_MW"),
+        ("druggability_logp", "chk_logP"),
+        ("druggability_logp_min", "ed_min_logP"),
+        ("druggability_logp_max", "ed_max_logP"),
+        ("druggability_hdonor", "chk_Hdonor"),
+        ("druggability_hdonor_min", "ed_min_Hdonor"),
+        ("druggability_hdonor_max", "ed_max_Hdonor"),
+        ("druggability_haceptor", "chk_Haceptor"),
+        ("druggability_haceptor_min", "ed_min_Haceptor"),
+        ("druggability_haceptor_max", "ed_max_Haceptor"),
+        ("druggability_tpsa", "chk_TPSA"),
+        ("druggability_tpsa_min", "ed_min_TPSA"),
+        ("druggability_tpsa_max", "ed_max_TPSA"),
+        ("druggability_rbonds", "chk_RBonds"),
+        ("druggability_rbonds_min", "ed_min_RBonds"),
+        ("druggability_rbonds_max", "ed_max_RBonds"),
+        ("druggability_ro5", "chk_Vo5"),
+        ("druggability_ro5_min", "ed_min_Vo5"),
+        ("druggability_ro5_max", "ed_max_Vo5"),
     ]
     STEP4_PLAIN_SPEC = [
         ("dataframe_path", "_step4_df_path"),
@@ -5149,6 +5392,18 @@ class MainWindow(QMainWindow):
         state = payload.get("step1", {}) if isinstance(payload, dict) else {}
         return self._apply_dataset_preparation_state(state)
 
+    def _migrate_druggability_state(self, payload):
+        """Estado da STEP 3 ("step4") com os campos druggability_* completados a partir de "step2"
+        quando ausentes: o grupo "Generating Druggability Descriptors" saiu da STEP 2 para a STEP 3,
+        e jobs salvos antes disso guardam suas checkboxes/intervalos em "step2"."""
+        step4 = dict(payload.get("step4", {}) or {}) if isinstance(payload, dict) else {}
+        step2 = payload.get("step2", {}) if isinstance(payload, dict) else {}
+        if isinstance(step2, dict):
+            for key, value in step2.items():
+                if key.startswith("druggability_") and key not in step4:
+                    step4[key] = value
+        return step4
+
     def _load_job_state_into_ui(self, job_dir):
         """Load the unified per-job JSON once and repopulate every tab's widgets from it.
         Migrates jobs that only have the legacy dataset_preparation.json by writing the new
@@ -5156,7 +5411,15 @@ class MainWindow(QMainWindow):
         payload = self._load_job_state(job_dir)
         loaded_any = self._apply_dataset_preparation_state(payload.get("step1", {}))
         loaded_any = self._apply_step2_state(payload.get("step2", {})) or loaded_any
-        loaded_any = self._apply_step4_state(payload.get("step4", {})) or loaded_any
+        step4_state = self._migrate_druggability_state(payload)
+        loaded_any = self._apply_step4_state(step4_state) or loaded_any
+        # Job antigo (druggability_* só em "step2"): grava as chaves migradas em "step4" já agora -
+        # o próximo salvamento da STEP 2 não as inclui mais, e elas se perderiam se a STEP 3 ainda
+        # não tivesse sido salva. Só acrescenta essas chaves ao "step4" do arquivo, sem recoletar o resto.
+        saved_step4 = payload.get("step4", {}) if isinstance(payload.get("step4"), dict) else {}
+        migrated = {k: v for k, v in step4_state.items() if k.startswith("druggability_") and k not in saved_step4}
+        if migrated and getattr(self, "job_dir", ""):
+            self._save_job_state({"step4": {**saved_step4, **migrated}})
         # step7_ad must be applied before step6_sklearn: it reloads the Internal/External
         # DataFrames and (re)populates cb_skl_y from their columns, and step6_sklearn's USI
         # restore then selects a specific saved value inside that now-populated combo - the
@@ -7202,9 +7465,8 @@ class MainWindow(QMainWindow):
             self.list_columns_outlier.clear()
             QMessageBox.critical(self, i18n.t("msg_title_error_list_columns_csv", self._idioma), str(e))
 
-        # "Generating Categories"/"Generating Druggability Descriptors" (movidos de STEP3 para
-        # STEP2) - list_columns_cat/list_class_column/cb_molecule_chembl_id_cat também dependem
-        # de self.df_selecionado.
+        # "Generating Categories" (movido de STEP3 para STEP2) - list_columns_cat/list_class_column/
+        # cb_molecule_chembl_id_cat também dependem de self.df_selecionado.
         if getattr(self, "df_selecionado", None) is None:
             self.list_columns_cat.clear()
             return
@@ -8873,7 +9135,8 @@ class MainWindow(QMainWindow):
         target_organism  = self.ed_organism_name.text().strip()     if hasattr(self, "ed_organism_name")   else ""
 
         output_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
-        out_path = os.path.join(output_dir, f"df2_Druggability_{target_chembl_id}_{target_organism}.csv")
+        # Grupo "Generating Druggability Descriptors" fica na STEP 3 (antes STEP 2): arquivos df3_*.
+        out_path = os.path.join(output_dir, f"df3_Druggability_{target_chembl_id}_{target_organism}.csv")
 
         # Worker thread
         class LipinskiWorker(QThread):
@@ -8996,13 +9259,14 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 QMessageBox.warning(self, i18n.t("msg_title_warning", self._idioma), f"Could not save the file:\n{out_path}\n\n{e}")
 
-            # Update reference and show
+            # Update reference and show (contexto de dataframe da STEP 3 - mesmo padrão de scaling/
+            # selection/projection: df_name_view5, _step4_df_path, estado "step4")
             self.df_selecionado = df_out
             self.show_dataframe(df_out)
-            self.df_name_view.setText(os.path.basename(out_path))
-            self._step2_df_path = self._to_job_relative_path(out_path)
-            self._refresh_step2_dataframe_widgets()
-            self._save_step2_state()
+            self.df_name_view5.setText(os.path.basename(out_path))
+            self._step4_df_path = self._to_job_relative_path(out_path)
+            self._refresh_step4_dataframe_widgets()
+            self._save_step4_state()
 
             QMessageBox.information(self, i18n.t("msg_title_done", self._idioma),
                                     f"Lipinski parameters computed.\nFile saved at:\n{out_path}")
@@ -9025,6 +9289,12 @@ class MainWindow(QMainWindow):
 
         df_filtered = self.df_selecionado.copy()
 
+        def _col(*names):
+            # Nome gerado por run_set_lip (NumHDonors, NumHAcceptors, RotatableBonds) primeiro e o
+            # nome antigo como alternativa - antes só o antigo era procurado, e como run_set_lip nunca
+            # criou essas colunas, os filtros de H-Donor/H-Aceptor/Rotatable Bonds não tinham efeito.
+            return next((n for n in names if n in df_filtered.columns), None)
+
         try:
             # ====== MW ======
             if self.chk_MW.isChecked() and "MW" in df_filtered.columns:
@@ -9039,16 +9309,18 @@ class MainWindow(QMainWindow):
                 df_filtered = df_filtered[(df_filtered["LogP"] >= min_val) & (df_filtered["LogP"] <= max_val)]
 
             # ====== H-Donor ======
-            if self.chk_Hdonor.isChecked() and "Hdonor" in df_filtered.columns:
+            col = _col("NumHDonors", "Hdonor")
+            if self.chk_Hdonor.isChecked() and col:
                 min_val = float(self.ed_min_Hdonor.text().strip())
                 max_val = float(self.ed_max_Hdonor.text().strip())
-                df_filtered = df_filtered[(df_filtered["Hdonor"] >= min_val) & (df_filtered["Hdonor"] <= max_val)]
+                df_filtered = df_filtered[(df_filtered[col] >= min_val) & (df_filtered[col] <= max_val)]
 
             # ====== H-Aceptor ======
-            if self.chk_Haceptor.isChecked() and "Haceptor" in df_filtered.columns:
+            col = _col("NumHAcceptors", "Haceptor")
+            if self.chk_Haceptor.isChecked() and col:
                 min_val = float(self.ed_min_Haceptor.text().strip())
                 max_val = float(self.ed_max_Haceptor.text().strip())
-                df_filtered = df_filtered[(df_filtered["Haceptor"] >= min_val) & (df_filtered["Haceptor"] <= max_val)]
+                df_filtered = df_filtered[(df_filtered[col] >= min_val) & (df_filtered[col] <= max_val)]
 
             # ====== TPSA ======
             if self.chk_TPSA.isChecked() and "TPSA" in df_filtered.columns:
@@ -9057,10 +9329,11 @@ class MainWindow(QMainWindow):
                 df_filtered = df_filtered[(df_filtered["TPSA"] >= min_val) & (df_filtered["TPSA"] <= max_val)]
 
             # ====== Rotatable Bonds ======
-            if self.chk_RBonds.isChecked() and "RBonds" in df_filtered.columns:
+            col = _col("RotatableBonds", "RBonds")
+            if self.chk_RBonds.isChecked() and col:
                 min_val = float(self.ed_min_RBonds.text().strip())
                 max_val = float(self.ed_max_RBonds.text().strip())
-                df_filtered = df_filtered[(df_filtered["RBonds"] >= min_val) & (df_filtered["RBonds"] <= max_val)]
+                df_filtered = df_filtered[(df_filtered[col] >= min_val) & (df_filtered[col] <= max_val)]
 
             # ====== Nº Violations ======
             if self.chk_Vo5.isChecked() and "RO5_Violations" in df_filtered.columns:
@@ -9084,12 +9357,12 @@ class MainWindow(QMainWindow):
         target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
         target_organism  = self.ed_organism_name.text().strip() if hasattr(self, "ed_organism_name") else ""
         output_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
-        out_path = os.path.join(output_dir, f"df2_Druggability_filter_{target_chembl_id}_{target_organism}.csv")
+        out_path = os.path.join(output_dir, f"df3_Druggability_filter_{target_chembl_id}_{target_organism}.csv")
         df_filtered.to_csv(out_path, index=False)
-        self.df_name_view.setText(os.path.basename(out_path))
-        self._step2_df_path = self._to_job_relative_path(out_path)
-        self._refresh_step2_dataframe_widgets()
-        self._save_step2_state()
+        self.df_name_view5.setText(os.path.basename(out_path))
+        self._step4_df_path = self._to_job_relative_path(out_path)
+        self._refresh_step4_dataframe_widgets()
+        self._save_step4_state()
 
     def _on_compare_groups_selection_changed(self):
         """STEP 3 'Compare Classes': the 5 test buttons start disabled/gray and only light up
@@ -11980,14 +12253,16 @@ class MainWindow(QMainWindow):
                 session = json.loads(Path(skl_path).read_text(encoding="utf-8"))
                 task = str(session.get("task", "")).strip().lower()
                 model_name = session.get("current_model") or session.get("best_model")
-                metric_col = "R2 Test" if task == "regression" else "F1"
+                # "Q2 CV"/"F1 CV": Screening ranqueado por CV no treino; "R2 Test"/"F1": USIs antigas.
+                metric_cols = ("Q2 CV", "R2 Test") if task == "regression" else ("F1 CV", "F1")
                 screening_files = sorted(
                     glob.glob(os.path.join(usi_dir, "DATA", "skl_screening_*.csv")),
                     key=os.path.getmtime, reverse=True,
                 )
                 if model_name and screening_files:
                     df = pd.read_csv(screening_files[0])
-                    if "Model" in df.columns and metric_col in df.columns:
+                    metric_col = next((c for c in metric_cols if c in df.columns), None)
+                    if "Model" in df.columns and metric_col is not None:
                         match = df.loc[df["Model"] == model_name, metric_col]
                         if not match.empty and pd.notna(match.iloc[0]):
                             return float(match.iloc[0])
@@ -16497,6 +16772,7 @@ class MainWindow(QMainWindow):
         # STEP 6 "Remove Model and Predict" group's "Descriptors Columns Range" — mesma heurística de
         # detecção de descritores usada em STEP 4, aplicada ao External Dataframe (usado por Predict).
         self._apply_detected_feature_range(getattr(self, "df_ext", None), "ed_skl_pd_first_col", "ed_skl_pd_last_col")
+        self._skl_auto_set_with_y()
         return True
 
     def select_dataframe_ext(self):
@@ -18547,7 +18823,7 @@ class MainWindow(QMainWindow):
             select_column_cat_layout.addSpacing(15)
             select_column_cat_layout.addWidget(self.chk_cat_inverse_scale)
             select_column_cat_layout.addWidget(self.chk_cat_direct_scale)
-            g10_main_layout.addLayout(select_column_cat_layout)
+            select_column_cat_layout.addStretch()
 
             # Primeiro grid: 3 classes editáveis (nome, operador/faixa e valor de referência)
             gL16_widget = QWidget()
@@ -18562,7 +18838,7 @@ class MainWindow(QMainWindow):
 
             label_class2 = self._trL("s3_lbl_class2"); label_class2.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
             self.ed_class2_name = QLineEdit("Intermediate"); self.ed_class2_name.setFixedWidth(200); self.ed_class2_name.setAlignment(Qt.AlignCenter)
-            label_class2_range = self._trL("s3_lbl_range_value"); label_class2_range.setStyleSheet("color: #C9D1D9; font-size: 10pt"); label_class2_range.setAlignment(Qt.AlignRight)
+            label_class2_range = self._trL("s3_lbl_range_value"); label_class2_range.setStyleSheet("color: #C9D1D9; font-size: 10pt"); label_class2_range.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             self.ed_class2_min = QLineEdit(); self.ed_class2_min.setFixedWidth(120); self.ed_class2_min.setAlignment(Qt.AlignLeft);
             label_class2_to = self._trL("lbl_to"); label_class2_to.setAlignment(Qt.AlignLeft)
             self.ed_class2_max = QLineEdit(); self.ed_class2_max.setFixedWidth(120); self.ed_class2_max.setAlignment(Qt.AlignLeft)
@@ -18601,10 +18877,12 @@ class MainWindow(QMainWindow):
 
             gL16.addWidget(label_class2, 1, 0, alignment=Qt.AlignRight)
             gL16.addWidget(self.ed_class2_name, 1, 1)
-            gL16.addWidget(label_class2_range, 1, 2, alignment=Qt.AlignRight)
-            gL16.addWidget(self.ed_class2_min, 1, 3, alignment=Qt.AlignRight)
-            gL16.addWidget(label_class2_to, 1, 4, alignment=Qt.AlignCenter)
-            gL16.addWidget(self.ed_class2_max, 1, 5, alignment=Qt.AlignLeft)
+            # "Range value:" na mesma coluna dos "Reference value:" (3) e o campo mínimo na mesma
+            # coluna dos campos de referência (4), para os rótulos e campos das 3 classes alinharem.
+            gL16.addWidget(label_class2_range, 1, 3, alignment=Qt.AlignRight | Qt.AlignVCenter)
+            gL16.addWidget(self.ed_class2_min, 1, 4, alignment=Qt.AlignCenter)
+            gL16.addWidget(label_class2_to, 1, 5, alignment=Qt.AlignCenter)
+            gL16.addWidget(self.ed_class2_max, 1, 6, alignment=Qt.AlignLeft)
 
             gL16.addWidget(label_class3, 2, 0, alignment=Qt.AlignRight)
             gL16.addWidget(self.ed_class3_name, 2, 1)
@@ -18613,12 +18891,24 @@ class MainWindow(QMainWindow):
             gL16.addWidget(self.ed_class3_ref, 2, 4, alignment=Qt.AlignCenter)
 
             gL16.addWidget(btn_set_class, 3, 1, alignment=Qt.AlignCenter)
-            gL16.addWidget(label_view_class, 4, 1, alignment=Qt.AlignCenter)
-            gL16.addWidget(label_mol_chembl_id, 5, 0, alignment=Qt.AlignRight); gL16.addWidget(self.cb_molecule_chembl_id_cat, 5, 1)
-            gL16.addWidget(label_class, 5, 2, alignment=Qt.AlignRight); gL16.addWidget(self.ed_class, 5, 3)
-            gL16.addWidget(btn_view_class, 5, 4, alignment=Qt.AlignCenter)
-            gL16.addWidget(label_select_class_column, 6, 0, alignment=Qt.AlignRight); gL16.addWidget(self.list_class_column, 6, 1)
-            gL16.addWidget(btn_view_class_frequency, 6, 2, alignment=Qt.AlignCenter)
+
+            # Painel à direita das classes (antes abaixo de "Set Classes"), de cima para baixo:
+            # Molecule_ChEMBL_ID, Class, "View Class"; depois "Select Class column", "View Frequency".
+            view_class_widget = QWidget()
+            view_class_grid = QGridLayout(view_class_widget)
+            view_class_grid.setContentsMargins(0, 0, 0, 0)
+            view_class_grid.setVerticalSpacing(8)
+            label_mol_chembl_id.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            view_class_grid.addWidget(label_view_class, 0, 0, 1, 2, alignment=Qt.AlignCenter)
+            view_class_grid.addWidget(label_mol_chembl_id, 1, 0, alignment=Qt.AlignRight)
+            view_class_grid.addWidget(self.cb_molecule_chembl_id_cat, 1, 1, alignment=Qt.AlignLeft)
+            view_class_grid.addWidget(label_class, 2, 0, alignment=Qt.AlignRight)
+            view_class_grid.addWidget(self.ed_class, 2, 1, alignment=Qt.AlignLeft)
+            view_class_grid.addWidget(btn_view_class, 3, 1, alignment=Qt.AlignLeft)
+            view_class_grid.setRowMinimumHeight(4, 12)
+            view_class_grid.addWidget(label_select_class_column, 5, 0, alignment=Qt.AlignRight)
+            view_class_grid.addWidget(self.list_class_column, 5, 1, alignment=Qt.AlignLeft)
+            view_class_grid.addWidget(btn_view_class_frequency, 6, 1, alignment=Qt.AlignLeft)
 
             # CAT_COL_UNIT menor: com 100 (e 200 na coluna 1), setColumnMinimumWidth somado às
             # 6 colunas travava esse grupo em ~1041px de largura mínima IGUAL à sua largura
@@ -18632,7 +18922,8 @@ class MainWindow(QMainWindow):
             gL16.setColumnMinimumWidth(3, CAT_COL_UNIT)
             gL16.setColumnMinimumWidth(4, CAT_COL_UNIT)
             gL16.setColumnMinimumWidth(5, CAT_COL_UNIT)
-            gL16.setColumnStretch(0, 1); gL16.setColumnStretch(1, 2); gL16.setColumnStretch(2, 1); gL16.setColumnStretch(3, 1); gL16.setColumnStretch(4, 1); gL16.setColumnStretch(5, 1);
+            gL16.setColumnMinimumWidth(6, CAT_COL_UNIT)
+            gL16.setColumnStretch(0, 1); gL16.setColumnStretch(1, 2); gL16.setColumnStretch(2, 1); gL16.setColumnStretch(3, 1); gL16.setColumnStretch(4, 1); gL16.setColumnStretch(5, 1); gL16.setColumnStretch(6, 1);
 
             # Escala inversa/direta: mutuamente exclusivas, e atualizam o operador padrão de
             # Class 1/Class 3 (o usuário ainda pode trocar manualmente depois).
@@ -18665,124 +18956,34 @@ class MainWindow(QMainWindow):
             self.chk_cat_direct_scale.stateChanged.connect(_on_cat_direct_scale_changed)
             self.list_columns_cat.currentTextChanged.connect(_on_cat_column_changed)
 
-            g10_main_layout.addWidget(gL16_widget)
+            # Esquerda: coluna de valores + 3 classes + "Set Classes"; direita: painel de visualização
+            # (view_class_widget), separados por uma linha vertical.
+            cat_left_layout = QVBoxLayout()
+            cat_left_layout.addLayout(select_column_cat_layout)
+            cat_left_layout.addWidget(gL16_widget)
+            cat_left_layout.addStretch()
+            # Linha sólida na cor da borda dos grupos (#2A4A6B, stylesheet global de QGroupBox) - a
+            # versão "Sunken" padrão usava tons quase iguais ao fundo e mal aparecia. Mesmas dimensões
+            # de antes: 3px de largura, traço de 2px.
+            cat_separator = QFrame(); cat_separator.setFrameShape(QFrame.VLine); cat_separator.setFrameShadow(QFrame.Plain)
+            cat_separator.setLineWidth(2); cat_separator.setFixedWidth(3)
+            cat_separator.setStyleSheet("color: #2A4A6B;")
+            cat_body_layout = QHBoxLayout()
+            cat_body_layout.addLayout(cat_left_layout, 3)
+            cat_body_layout.addSpacing(10)
+            cat_body_layout.addWidget(cat_separator)
+            cat_body_layout.addSpacing(10)
+            cat_body_layout.addWidget(view_class_widget, 2, alignment=Qt.AlignTop | Qt.AlignHCenter)
+            g10_main_layout.addLayout(cat_body_layout)
             g10_main_layout.addStretch()
 
-
-            # ---------------------------------------------------------------------------------------------
-            # ========================= GRUPO PARA GERAR DESCRITORES DE LIPINSKI  =========================
-            # ---------------------------------------------------------------------------------------------
-
-            # Criar uma janela de agrupamento:
-            g11 = QGroupBox(); self._tr("s3_grp_druggability", g11.setTitle)
-            g11.setStyleSheet("QGroupBox { background-color: #F5F5F5; border: 1px solid #ccc; border-radius: 6px; }")
-            # Layout principal vertical para o QGroupBox
-            g11_main_layout = QVBoxLayout(g11)
-            g11_main_layout.addSpacing(10)
-
-            # Primeiro grid:
-            gL17_widget = QWidget()
-            gL17 = QGridLayout(gL17_widget)
-
-            # Cria os checkboxes
-            label_select_lip = self._trL("s3_lbl_select_properties"); label_select_lip.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
-            self.chk_MW = QCheckBox(); self._tr("s3_chk_molecular_weight", self.chk_MW.setText)
-            self.chk_logP = QCheckBox("LogP")
-            self.chk_Hdonor = QCheckBox(); self._tr("s3_chk_hdonor", self.chk_Hdonor.setText)
-            self.chk_Haceptor = QCheckBox(); self._tr("s3_chk_haceptor", self.chk_Haceptor.setText)
-            self.chk_TPSA = QCheckBox("TPSA")
-            self.chk_RBonds = QCheckBox(); self._tr("s3_chk_rotatable_bonds", self.chk_RBonds.setText)
-            self.chk_Vo5 = QCheckBox(); self._tr("s3_chk_violations", self.chk_Vo5.setText)
-
-            # Layout vertical para os checkboxes
-            checkbox_layout_lip = QVBoxLayout()
-            checkbox_layout_lip.addWidget(label_select_lip)
-            checkbox_layout_lip.addWidget(self.chk_MW)
-            checkbox_layout_lip.addWidget(self.chk_logP)
-            checkbox_layout_lip.addWidget(self.chk_Hdonor)
-            checkbox_layout_lip.addWidget(self.chk_Haceptor)
-            checkbox_layout_lip.addWidget(self.chk_TPSA)
-            checkbox_layout_lip.addWidget(self.chk_RBonds)
-            checkbox_layout_lip.addWidget(self.chk_Vo5)
-
-            # Layout vertical para os intervalos:
-            interval_layout_lip = QVBoxLayout()
-            label_select_range = self._trL("s3_lbl_select_range"); label_select_range.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;"); label_select_range.setAlignment(Qt.AlignCenter)
-            interval_layout_lip.addWidget(label_select_range)
-            self.ed_min_MW = QLineEdit(); self.ed_min_MW.setText("20"); self.ed_min_MW.setFixedSize(80, 20); self.ed_min_MW.setPlaceholderText("Min MW"); self.ed_min_MW.setAlignment(Qt.AlignCenter)
-            self.label_to1 = QLabel(" to "); self.label_to1.setAlignment(Qt.AlignCenter)
-            self.ed_max_MW = QLineEdit(); self.ed_max_MW.setText("600"); self.ed_max_MW.setFixedSize(80, 20); self.ed_max_MW.setPlaceholderText("Max MW"); self.ed_max_MW.setAlignment(Qt.AlignCenter)
-            self.ed_min_logP = QLineEdit(); self.ed_min_logP.setText("-6"); self.ed_min_logP.setFixedSize(80, 20); self.ed_min_logP.setPlaceholderText("Min logP"); self.ed_min_logP.setAlignment(Qt.AlignCenter)
-            self.label_to2 = QLabel(" to "); self.label_to2.setAlignment(Qt.AlignCenter)
-            self.ed_max_logP = QLineEdit(); self.ed_max_logP.setText("6"); self.ed_max_logP.setFixedSize(80, 20); self.ed_max_logP.setPlaceholderText("Max logP"); self.ed_max_logP.setAlignment(Qt.AlignCenter)
-            self.ed_min_Hdonor = QLineEdit(); self.ed_min_Hdonor.setText("0"); self.ed_min_Hdonor.setFixedSize(80, 20); self.ed_min_Hdonor.setPlaceholderText("Min H-Donor"); self.ed_min_Hdonor.setAlignment(Qt.AlignCenter)
-            self.label_to3 = QLabel(" to "); self.label_to3.setAlignment(Qt.AlignCenter)
-            self.ed_max_Hdonor = QLineEdit(); self.ed_max_Hdonor.setText("5"); self.ed_max_Hdonor.setFixedSize(80, 20); self.ed_max_Hdonor.setPlaceholderText("Max H-Donor"); self.ed_max_Hdonor.setAlignment(Qt.AlignCenter)
-            self.ed_min_Haceptor = QLineEdit(); self.ed_min_Haceptor.setText("0"); self.ed_min_Haceptor.setFixedSize(80, 20); self.ed_min_Haceptor.setPlaceholderText("Min H-Aceptor"); self.ed_min_Haceptor.setAlignment(Qt.AlignCenter)
-            self.label_to4 = QLabel(" to "); self.label_to4.setAlignment(Qt.AlignCenter)
-            self.ed_max_Haceptor = QLineEdit(); self.ed_max_Haceptor.setText("10"); self.ed_max_Haceptor.setFixedSize(80, 20); self.ed_max_Haceptor.setPlaceholderText("Max H-Aceptor"); self.ed_max_Haceptor.setAlignment(Qt.AlignCenter)
-            self.ed_min_TPSA = QLineEdit(); self.ed_min_TPSA.setText("0"); self.ed_min_TPSA.setFixedSize(80, 20); self.ed_min_TPSA.setPlaceholderText("Min TPSA"); self.ed_min_TPSA.setAlignment(Qt.AlignCenter)
-            self.label_to5 = QLabel(" to "); self.label_to5.setAlignment(Qt.AlignCenter)
-            self.ed_max_TPSA = QLineEdit(); self.ed_max_TPSA.setText("150"); self.ed_max_TPSA.setFixedSize(80, 20); self.ed_max_TPSA.setPlaceholderText("Max TPSA"); self.ed_max_TPSA.setAlignment(Qt.AlignCenter)
-            self.ed_min_RBonds = QLineEdit(); self.ed_min_RBonds.setText("0"); self.ed_min_RBonds.setFixedSize(80, 20); self.ed_min_RBonds.setPlaceholderText("Min R-Bonds"); self.ed_min_RBonds.setAlignment(Qt.AlignCenter)
-            self.label_to6 = QLabel(" to "); self.label_to6.setAlignment(Qt.AlignCenter)
-            self.ed_max_RBonds = QLineEdit(); self.ed_max_RBonds.setText("10"); self.ed_max_RBonds.setFixedSize(80, 20); self.ed_max_RBonds.setPlaceholderText("Max R-Bonds"); self.ed_max_RBonds.setAlignment(Qt.AlignCenter)
-            self.ed_min_Vo5 = QLineEdit(); self.ed_min_Vo5.setText("0"); self.ed_min_Vo5.setFixedSize(80, 20); self.ed_min_Vo5.setPlaceholderText("Min R-Bonds"); self.ed_min_Vo5.setAlignment(Qt.AlignCenter)
-            self.label_to7 = QLabel(" to "); self.label_to7.setAlignment(Qt.AlignCenter)
-            self.ed_max_Vo5 = QLineEdit(); self.ed_max_Vo5.setText("2"); self.ed_max_Vo5.setFixedSize(80, 20); self.ed_max_Vo5.setPlaceholderText("Max R-Bonds"); self.ed_max_Vo5.setAlignment(Qt.AlignCenter)
-            interval_layout_lip_inner1 = QHBoxLayout()
-            interval_layout_lip_inner1.addWidget(self.ed_min_MW); interval_layout_lip_inner1.addWidget(self.label_to1); interval_layout_lip_inner1.addWidget(self.ed_max_MW)
-            interval_layout_lip_inner2 = QHBoxLayout()
-            interval_layout_lip_inner2.addWidget(self.ed_min_logP); interval_layout_lip_inner2.addWidget(self.label_to2); interval_layout_lip_inner2.addWidget(self.ed_max_logP)
-            interval_layout_lip_inner3 = QHBoxLayout()
-            interval_layout_lip_inner3.addWidget(self.ed_min_Hdonor); interval_layout_lip_inner3.addWidget(self.label_to3); interval_layout_lip_inner3.addWidget(self.ed_max_Hdonor)
-            interval_layout_lip_inner4 = QHBoxLayout()
-            interval_layout_lip_inner4.addWidget(self.ed_min_Haceptor); interval_layout_lip_inner4.addWidget(self.label_to4); interval_layout_lip_inner4.addWidget(self.ed_max_Haceptor)
-            interval_layout_lip_inner5 = QHBoxLayout()
-            interval_layout_lip_inner5.addWidget(self.ed_min_TPSA); interval_layout_lip_inner5.addWidget(self.label_to5); interval_layout_lip_inner5.addWidget(self.ed_max_TPSA)
-            interval_layout_lip_inner6 = QHBoxLayout()
-            interval_layout_lip_inner6.addWidget(self.ed_min_RBonds); interval_layout_lip_inner6.addWidget(self.label_to6); interval_layout_lip_inner6.addWidget(self.ed_max_RBonds)
-            interval_layout_lip_inner7 = QHBoxLayout()
-            interval_layout_lip_inner7.addWidget(self.ed_min_Vo5); interval_layout_lip_inner7.addWidget(self.label_to7); interval_layout_lip_inner7.addWidget(self.ed_max_Vo5)
-            interval_layout_lip.addLayout(interval_layout_lip_inner1)
-            interval_layout_lip.addLayout(interval_layout_lip_inner2)
-            interval_layout_lip.addLayout(interval_layout_lip_inner3)
-            interval_layout_lip.addLayout(interval_layout_lip_inner4)
-            interval_layout_lip.addLayout(interval_layout_lip_inner5)
-            interval_layout_lip.addLayout(interval_layout_lip_inner6)
-            interval_layout_lip.addLayout(interval_layout_lip_inner7)
-
-            btn_lip_layout = QHBoxLayout()
-            btn_set_lip = QPushButton()
-            self._tr("s3_btn_set_druggability", btn_set_lip.setText)
-            btn_set_lip.setProperty("role", "primary")
-            btn_set_lip.setFixedSize(150, 50)
-            btn_set_lip.clicked.connect(self.run_set_lip)
-            btn_filter_lip = QPushButton()
-            self._tr("s3_btn_filter_druggability", btn_filter_lip.setText)
-            btn_filter_lip.setProperty("role", "secondary")
-            btn_filter_lip.setFixedSize(150, 50)
-            btn_filter_lip.clicked.connect(self.run_filter_lip)
-
-            gL17.addLayout(checkbox_layout_lip, 0, 0, alignment=Qt.AlignVCenter | Qt.AlignCenter)
-            gL17.addLayout(interval_layout_lip, 0, 1, alignment=Qt.AlignVCenter | Qt.AlignCenter)
-            gL17.setColumnStretch(0, 1); gL17.setColumnStretch(1, 1)
-
-            g11_main_layout.addWidget(gL17_widget)
-            g11_main_layout.addSpacing(10)
-            btn_lip_layout.addWidget(btn_set_lip)
-            btn_lip_layout.addWidget(btn_filter_lip)
-            g11_main_layout.addLayout(btn_lip_layout)
-            g11_main_layout.addSpacing(10)
-            g11_main_layout.addStretch()
-
+            # "Generating Druggability Descriptors" (antes ao lado, nesta mesma linha) foi movido para
+            # a STEP 3, abaixo do Descriptors Builder - "Generating Categories" ocupa agora a linha toda.
             g10_11_layout.addWidget(g10, alignment=Qt.AlignTop)
-            g10_11_layout.addWidget(g11, alignment=Qt.AlignTop)
 
             l3.addLayout(g10_11_layout)
-            # Grupos que iniciam colapsados (reduz a altura inicial da janela):
+            # Grupo que inicia colapsado (reduz a altura inicial da janela):
             g10.set_collapsed(True)
-            g11.set_collapsed(True)
 
             # Botão para o próximo:
             layout_btn_back_next3 = QHBoxLayout()
@@ -19447,6 +19648,116 @@ class MainWindow(QMainWindow):
             # self.btn_tb_set_weight.clicked.connect(self._tb_set_weight)
             # self.btn_tb_generate.clicked.connect(self._tb_generate)
 
+            # ---------------------------------------------------------------------------------------------
+            # ========================= GRUPO PARA GERAR DESCRITORES DE LIPINSKI  =========================
+            # (movido da STEP 2 para a STEP 3: fica abaixo do Descriptors Builder, na mesma coluna e com a
+            # mesma largura fixa dele; opera sobre o dataframe da STEP 3 e salva arquivos df3_Druggability_*)
+            # ---------------------------------------------------------------------------------------------
+
+            # Criar uma janela de agrupamento:
+            g11 = QGroupBox(); self._tr("s3_grp_druggability", g11.setTitle)
+            g11.setStyleSheet("QGroupBox { background-color: #F5F5F5; border: 1px solid #ccc; border-radius: 6px; }")
+            g11.setFixedWidth(500)  # mesma largura do Descriptors Builder (g14), logo acima
+            # Layout principal vertical para o QGroupBox
+            g11_main_layout = QVBoxLayout(g11)
+            g11_main_layout.addSpacing(10)
+
+            # Primeiro grid:
+            gL17_widget = QWidget()
+            gL17 = QGridLayout(gL17_widget)
+
+            # Cria os checkboxes
+            label_select_lip = self._trL("s3_lbl_select_properties"); label_select_lip.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
+            self.chk_MW = QCheckBox(); self._tr("s3_chk_molecular_weight", self.chk_MW.setText)
+            self.chk_logP = QCheckBox("LogP")
+            self.chk_Hdonor = QCheckBox(); self._tr("s3_chk_hdonor", self.chk_Hdonor.setText)
+            self.chk_Haceptor = QCheckBox(); self._tr("s3_chk_haceptor", self.chk_Haceptor.setText)
+            self.chk_TPSA = QCheckBox("TPSA")
+            self.chk_RBonds = QCheckBox(); self._tr("s3_chk_rotatable_bonds", self.chk_RBonds.setText)
+            self.chk_Vo5 = QCheckBox(); self._tr("s3_chk_violations", self.chk_Vo5.setText)
+
+            # Layout vertical para os checkboxes
+            checkbox_layout_lip = QVBoxLayout()
+            checkbox_layout_lip.addWidget(label_select_lip)
+            checkbox_layout_lip.addWidget(self.chk_MW)
+            checkbox_layout_lip.addWidget(self.chk_logP)
+            checkbox_layout_lip.addWidget(self.chk_Hdonor)
+            checkbox_layout_lip.addWidget(self.chk_Haceptor)
+            checkbox_layout_lip.addWidget(self.chk_TPSA)
+            checkbox_layout_lip.addWidget(self.chk_RBonds)
+            checkbox_layout_lip.addWidget(self.chk_Vo5)
+
+            # Layout vertical para os intervalos:
+            interval_layout_lip = QVBoxLayout()
+            label_select_range = self._trL("s3_lbl_select_range"); label_select_range.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;"); label_select_range.setAlignment(Qt.AlignCenter)
+            interval_layout_lip.addWidget(label_select_range)
+            self.ed_min_MW = QLineEdit(); self.ed_min_MW.setText("20"); self.ed_min_MW.setFixedSize(80, 20); self.ed_min_MW.setPlaceholderText("Min MW"); self.ed_min_MW.setAlignment(Qt.AlignCenter)
+            self.label_to1 = QLabel(" to "); self.label_to1.setAlignment(Qt.AlignCenter)
+            self.ed_max_MW = QLineEdit(); self.ed_max_MW.setText("600"); self.ed_max_MW.setFixedSize(80, 20); self.ed_max_MW.setPlaceholderText("Max MW"); self.ed_max_MW.setAlignment(Qt.AlignCenter)
+            self.ed_min_logP = QLineEdit(); self.ed_min_logP.setText("-6"); self.ed_min_logP.setFixedSize(80, 20); self.ed_min_logP.setPlaceholderText("Min logP"); self.ed_min_logP.setAlignment(Qt.AlignCenter)
+            self.label_to2 = QLabel(" to "); self.label_to2.setAlignment(Qt.AlignCenter)
+            self.ed_max_logP = QLineEdit(); self.ed_max_logP.setText("6"); self.ed_max_logP.setFixedSize(80, 20); self.ed_max_logP.setPlaceholderText("Max logP"); self.ed_max_logP.setAlignment(Qt.AlignCenter)
+            self.ed_min_Hdonor = QLineEdit(); self.ed_min_Hdonor.setText("0"); self.ed_min_Hdonor.setFixedSize(80, 20); self.ed_min_Hdonor.setPlaceholderText("Min H-Donor"); self.ed_min_Hdonor.setAlignment(Qt.AlignCenter)
+            self.label_to3 = QLabel(" to "); self.label_to3.setAlignment(Qt.AlignCenter)
+            self.ed_max_Hdonor = QLineEdit(); self.ed_max_Hdonor.setText("5"); self.ed_max_Hdonor.setFixedSize(80, 20); self.ed_max_Hdonor.setPlaceholderText("Max H-Donor"); self.ed_max_Hdonor.setAlignment(Qt.AlignCenter)
+            self.ed_min_Haceptor = QLineEdit(); self.ed_min_Haceptor.setText("0"); self.ed_min_Haceptor.setFixedSize(80, 20); self.ed_min_Haceptor.setPlaceholderText("Min H-Aceptor"); self.ed_min_Haceptor.setAlignment(Qt.AlignCenter)
+            self.label_to4 = QLabel(" to "); self.label_to4.setAlignment(Qt.AlignCenter)
+            self.ed_max_Haceptor = QLineEdit(); self.ed_max_Haceptor.setText("10"); self.ed_max_Haceptor.setFixedSize(80, 20); self.ed_max_Haceptor.setPlaceholderText("Max H-Aceptor"); self.ed_max_Haceptor.setAlignment(Qt.AlignCenter)
+            self.ed_min_TPSA = QLineEdit(); self.ed_min_TPSA.setText("0"); self.ed_min_TPSA.setFixedSize(80, 20); self.ed_min_TPSA.setPlaceholderText("Min TPSA"); self.ed_min_TPSA.setAlignment(Qt.AlignCenter)
+            self.label_to5 = QLabel(" to "); self.label_to5.setAlignment(Qt.AlignCenter)
+            self.ed_max_TPSA = QLineEdit(); self.ed_max_TPSA.setText("150"); self.ed_max_TPSA.setFixedSize(80, 20); self.ed_max_TPSA.setPlaceholderText("Max TPSA"); self.ed_max_TPSA.setAlignment(Qt.AlignCenter)
+            self.ed_min_RBonds = QLineEdit(); self.ed_min_RBonds.setText("0"); self.ed_min_RBonds.setFixedSize(80, 20); self.ed_min_RBonds.setPlaceholderText("Min R-Bonds"); self.ed_min_RBonds.setAlignment(Qt.AlignCenter)
+            self.label_to6 = QLabel(" to "); self.label_to6.setAlignment(Qt.AlignCenter)
+            self.ed_max_RBonds = QLineEdit(); self.ed_max_RBonds.setText("10"); self.ed_max_RBonds.setFixedSize(80, 20); self.ed_max_RBonds.setPlaceholderText("Max R-Bonds"); self.ed_max_RBonds.setAlignment(Qt.AlignCenter)
+            self.ed_min_Vo5 = QLineEdit(); self.ed_min_Vo5.setText("0"); self.ed_min_Vo5.setFixedSize(80, 20); self.ed_min_Vo5.setPlaceholderText("Min R-Bonds"); self.ed_min_Vo5.setAlignment(Qt.AlignCenter)
+            self.label_to7 = QLabel(" to "); self.label_to7.setAlignment(Qt.AlignCenter)
+            self.ed_max_Vo5 = QLineEdit(); self.ed_max_Vo5.setText("2"); self.ed_max_Vo5.setFixedSize(80, 20); self.ed_max_Vo5.setPlaceholderText("Max R-Bonds"); self.ed_max_Vo5.setAlignment(Qt.AlignCenter)
+            interval_layout_lip_inner1 = QHBoxLayout()
+            interval_layout_lip_inner1.addWidget(self.ed_min_MW); interval_layout_lip_inner1.addWidget(self.label_to1); interval_layout_lip_inner1.addWidget(self.ed_max_MW)
+            interval_layout_lip_inner2 = QHBoxLayout()
+            interval_layout_lip_inner2.addWidget(self.ed_min_logP); interval_layout_lip_inner2.addWidget(self.label_to2); interval_layout_lip_inner2.addWidget(self.ed_max_logP)
+            interval_layout_lip_inner3 = QHBoxLayout()
+            interval_layout_lip_inner3.addWidget(self.ed_min_Hdonor); interval_layout_lip_inner3.addWidget(self.label_to3); interval_layout_lip_inner3.addWidget(self.ed_max_Hdonor)
+            interval_layout_lip_inner4 = QHBoxLayout()
+            interval_layout_lip_inner4.addWidget(self.ed_min_Haceptor); interval_layout_lip_inner4.addWidget(self.label_to4); interval_layout_lip_inner4.addWidget(self.ed_max_Haceptor)
+            interval_layout_lip_inner5 = QHBoxLayout()
+            interval_layout_lip_inner5.addWidget(self.ed_min_TPSA); interval_layout_lip_inner5.addWidget(self.label_to5); interval_layout_lip_inner5.addWidget(self.ed_max_TPSA)
+            interval_layout_lip_inner6 = QHBoxLayout()
+            interval_layout_lip_inner6.addWidget(self.ed_min_RBonds); interval_layout_lip_inner6.addWidget(self.label_to6); interval_layout_lip_inner6.addWidget(self.ed_max_RBonds)
+            interval_layout_lip_inner7 = QHBoxLayout()
+            interval_layout_lip_inner7.addWidget(self.ed_min_Vo5); interval_layout_lip_inner7.addWidget(self.label_to7); interval_layout_lip_inner7.addWidget(self.ed_max_Vo5)
+            interval_layout_lip.addLayout(interval_layout_lip_inner1)
+            interval_layout_lip.addLayout(interval_layout_lip_inner2)
+            interval_layout_lip.addLayout(interval_layout_lip_inner3)
+            interval_layout_lip.addLayout(interval_layout_lip_inner4)
+            interval_layout_lip.addLayout(interval_layout_lip_inner5)
+            interval_layout_lip.addLayout(interval_layout_lip_inner6)
+            interval_layout_lip.addLayout(interval_layout_lip_inner7)
+
+            btn_lip_layout = QHBoxLayout()
+            btn_set_lip = QPushButton()
+            self._tr("s3_btn_set_druggability", btn_set_lip.setText)
+            btn_set_lip.setProperty("role", "primary")
+            btn_set_lip.setFixedSize(150, 50)
+            btn_set_lip.clicked.connect(self.run_set_lip)
+            btn_filter_lip = QPushButton()
+            self._tr("s3_btn_filter_druggability", btn_filter_lip.setText)
+            btn_filter_lip.setProperty("role", "secondary")
+            btn_filter_lip.setFixedSize(150, 50)
+            btn_filter_lip.clicked.connect(self.run_filter_lip)
+
+            gL17.addLayout(checkbox_layout_lip, 0, 0, alignment=Qt.AlignVCenter | Qt.AlignCenter)
+            gL17.addLayout(interval_layout_lip, 0, 1, alignment=Qt.AlignVCenter | Qt.AlignCenter)
+            gL17.setColumnStretch(0, 1); gL17.setColumnStretch(1, 1)
+
+            g11_main_layout.addWidget(gL17_widget)
+            g11_main_layout.addSpacing(10)
+            btn_lip_layout.addWidget(btn_set_lip)
+            btn_lip_layout.addWidget(btn_filter_lip)
+            g11_main_layout.addLayout(btn_lip_layout)
+            g11_main_layout.addSpacing(10)
+            g11_main_layout.addStretch()
+
             # ============== ORGANIZAÇÃO DOS LAYOUTS ==============
             g14_15_17_layout = QHBoxLayout()
             g15_17_layout = QVBoxLayout()
@@ -19457,6 +19768,10 @@ class MainWindow(QMainWindow):
             # espaço vazio grande entre o botão "Generate Descriptors" e a borda do grupo.
             g14_wrap_layout = QVBoxLayout()
             g14_wrap_layout.addWidget(g14)
+            # "Generating Druggability Descriptors" (vindo da STEP 2) logo abaixo do Descriptors
+            # Builder, iniciando colapsado.
+            g14_wrap_layout.addWidget(g11)
+            g11.set_collapsed(True)
             g14_wrap_layout.addStretch()
             g14_15_17_layout.addLayout(g14_wrap_layout)
             g14_15_17_layout.addLayout(g15_17_layout)
@@ -19684,9 +19999,17 @@ class MainWindow(QMainWindow):
             self.dsp_skl_test_size = QDoubleSpinBox()
             self.dsp_skl_test_size.setRange(0.05, 0.95)
             self.dsp_skl_test_size.setSingleStep(0.05)
-            self.dsp_skl_test_size.setValue(0.30)
+            self.dsp_skl_test_size.setValue(0.20)
             self.dsp_skl_test_size.setFixedWidth(90)
             metric_col_skl.addRow(self._trL("s6_lbl_select_test_size"), self.dsp_skl_test_size)
+
+            # Nº de folds da validação cruzada (só no conjunto de treino) usada para ranquear o Screening.
+            self.sp_skl_screen_cv_folds = QSpinBox()
+            self.sp_skl_screen_cv_folds.setRange(2, 20)
+            self.sp_skl_screen_cv_folds.setValue(5)
+            self.sp_skl_screen_cv_folds.setFixedWidth(90)
+            self._tr("s6_tooltip_screening_cv_folds", self.sp_skl_screen_cv_folds.setToolTip)
+            metric_col_skl.addRow(self._trL("s6_lbl_screening_cv_folds"), self.sp_skl_screen_cv_folds)
 
             screen_cols_row.addWidget(metric_col_skl_widget, 1)
             screen_cols_row.setAlignment(metric_col_skl_widget, Qt.AlignTop)
@@ -19915,29 +20238,50 @@ class MainWindow(QMainWindow):
             col_range_row_skl.addStretch()
             right_col_skl_save_pred.addLayout(col_range_row_skl)
 
-            # Marcado por padrão: o resultado do Predict mantém só Name, SMILES e as colunas de
-            # predição, descartando as colunas de descritores (intervalo "Descriptors Columns Range").
-            remove_desc_row_skl = QHBoxLayout()
-            remove_desc_row_skl.addStretch()
+            # Linha única com os dois checkboxes do Predict:
+            # - "Remove Descriptors" (marcado por padrão): o resultado do Predict mantém só Name, SMILES
+            #   e as colunas de predição, descartando as colunas de descritores ("Descriptors Columns Range").
+            # - "With Y": marcado automaticamente quando o External DataFrame tem a mesma coluna Y usada
+            #   no treino (ver _skl_detect_external_y_column) - nesse caso o Predict também calcula as
+            #   métricas de predictivity (Q²F1-F3, CCC, Golbraikh-Tropsha...) sobre o External DataFrame.
+            checks_row_skl = QHBoxLayout()
+            checks_row_skl.addStretch()
             self.chk_skl_pd_remove_descriptors = QCheckBox(); self._tr("s6_chk_remove_descriptors", self.chk_skl_pd_remove_descriptors.setText)
             self.chk_skl_pd_remove_descriptors.setChecked(True)
-            remove_desc_row_skl.addWidget(self.chk_skl_pd_remove_descriptors)
-            remove_desc_row_skl.addStretch()
-            right_col_skl_save_pred.addLayout(remove_desc_row_skl)
+            checks_row_skl.addWidget(self.chk_skl_pd_remove_descriptors)
+            checks_row_skl.addSpacing(20)
+            self.chk_skl_pd_with_y = QCheckBox(); self._tr("s6_chk_with_y", self.chk_skl_pd_with_y.setText)
+            self._tr("s6_tooltip_with_y", self.chk_skl_pd_with_y.setToolTip)
+            self.chk_skl_pd_with_y.setChecked(False)
+            self.chk_skl_pd_with_y.clicked.connect(self._on_skl_with_y_clicked)
+            checks_row_skl.addWidget(self.chk_skl_pd_with_y)
+            checks_row_skl.addStretch()
+            right_col_skl_save_pred.addLayout(checks_row_skl)
 
+            # Botões na ordem Evaluate Test | Remove Model | Predict.
             last_row_skl = QHBoxLayout()
-            self.btn_skl_predict = QPushButton(); self._tr("s5_subtab_predict", self.btn_skl_predict.setText)
-            self.btn_skl_predict.setProperty("role", "primary")
-            self.btn_skl_predict.setFixedWidth(120)
-            last_row_skl.addWidget(self.btn_skl_predict, alignment=Qt.AlignLeft)
+            # Avaliação final (predictivity) no conjunto de teste separado no Screening - feita uma
+            # única vez, com o modelo final já escolhido e tunado.
+            self.btn_skl_eval_test = QPushButton(); self._tr("s6_btn_evaluate_test", self.btn_skl_eval_test.setText)
+            self.btn_skl_eval_test.setProperty("role", "secondary")
+            self.btn_skl_eval_test.setFixedWidth(120)
+            self._tr("s6_tooltip_evaluate_test", self.btn_skl_eval_test.setToolTip)
+            last_row_skl.addWidget(self.btn_skl_eval_test, alignment=Qt.AlignLeft)
             last_row_skl.addStretch()
             self.btn_skl_remove_model = QPushButton(); self._tr("s6_btn_remove_model", self.btn_skl_remove_model.setText)
             self.btn_skl_remove_model.setProperty("role", "danger")
             self.btn_skl_remove_model.setFixedWidth(120)
-            last_row_skl.addWidget(self.btn_skl_remove_model, alignment=Qt.AlignRight)
+            last_row_skl.addWidget(self.btn_skl_remove_model, alignment=Qt.AlignCenter)
+            last_row_skl.addStretch()
+            self.btn_skl_predict = QPushButton(); self._tr("s5_subtab_predict", self.btn_skl_predict.setText)
+            self.btn_skl_predict.setProperty("role", "primary")
+            self.btn_skl_predict.setFixedWidth(120)
+            last_row_skl.addWidget(self.btn_skl_predict, alignment=Qt.AlignRight)
             right_col_skl_save_pred.addLayout(last_row_skl)
 
-            lay_skl_save_pred.addLayout(right_col_skl_save_pred, 1)
+            # Stretch 0: a coluna de controles fica só com a largura que seus botões/campos precisam e
+            # toda a sobra do grupo vai para a lista de modelos (list_skl_saved_models, stretch 1).
+            lay_skl_save_pred.addLayout(right_col_skl_save_pred, 0)
 
             # ---------- GROUP: PERFORMANCE CHARTS ----------
             gb_skl_charts = QGroupBox(); self._tr("s6_grp_performance_charts", gb_skl_charts.setTitle)
@@ -19969,9 +20313,11 @@ class MainWindow(QMainWindow):
             lay_skl_charts.addLayout(btn_col_skl_charts)
 
             # ---------- LINHA: PERFORMANCE CHARTS (esquerda, metade) + REMOVE MODEL AND PREDICT (direita, metade) ----------
+            # Proporção 2:3 (antes 1:1) a favor do Remove Model and Predict, cuja coluna de controles só
+            # ocupa o que precisa - a sobra vai para a lista de modelos.
             row_save_charts_lay = QHBoxLayout()
-            row_save_charts_lay.addWidget(gb_skl_charts, 1)
-            row_save_charts_lay.addWidget(gb_skl_save_pred, 1)
+            row_save_charts_lay.addWidget(gb_skl_charts, 2)
+            row_save_charts_lay.addWidget(gb_skl_save_pred, 3)
             l_skl.addLayout(row_save_charts_lay)
             l_skl.addStretch()
 
@@ -20031,6 +20377,8 @@ class MainWindow(QMainWindow):
             self.btn_skl_run_eval.clicked.connect(self.run_skl_evaluate)
             self.btn_skl_remove_model.clicked.connect(self.run_skl_remove_model)
             self.btn_skl_predict.clicked.connect(self.run_skl_predict)
+            self.btn_skl_eval_test.clicked.connect(self.run_skl_evaluate_test)
+            self.cb_skl_y.currentTextChanged.connect(lambda _txt: self._skl_auto_set_with_y())
             self.btn_skl_plot.clicked.connect(self.run_skl_plot)
             self._update_skl_tune_method_widgets()
             self._update_skl_cv_method_widgets()
@@ -22149,6 +22497,7 @@ class MainWindow(QMainWindow):
                 "x_last_col": self.ed_skl_x_last_col.text() if hasattr(self, "ed_skl_x_last_col") else "",
                 "y_column": self.cb_skl_y.currentText() if hasattr(self, "cb_skl_y") else "",
                 "test_size": self.dsp_skl_test_size.value() if hasattr(self, "dsp_skl_test_size") else None,
+                "cv_folds": self.sp_skl_screen_cv_folds.value() if hasattr(self, "sp_skl_screen_cv_folds") else None,
             },
             "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
@@ -22230,7 +22579,10 @@ class MainWindow(QMainWindow):
         # por modelo, valem para a USI inteira.
         screening_settings = config.get("screening_settings", {}) or {}
         if hasattr(self, "cb_skl_metric") and screening_settings.get("sort_metric"):
-            idx = self.cb_skl_metric.findText(screening_settings["sort_metric"])
+            # "R2 Test"/"Accuracy Test": nomes de USIs salvas antes do Screening ranquear por CV no treino.
+            sort_metric = {"R2 Test": "R2", "Accuracy Test": "Accuracy"}.get(
+                screening_settings["sort_metric"], screening_settings["sort_metric"])
+            idx = self.cb_skl_metric.findText(sort_metric)
             if idx != -1:
                 self.cb_skl_metric.setCurrentIndex(idx)
         if hasattr(self, "ed_skl_x_first_col") and screening_settings.get("x_first_col", "") != "":
@@ -22241,6 +22593,8 @@ class MainWindow(QMainWindow):
             self.cb_skl_y.setCurrentText(screening_settings["y_column"])
         if hasattr(self, "dsp_skl_test_size") and screening_settings.get("test_size") is not None:
             self.dsp_skl_test_size.setValue(float(screening_settings["test_size"]))
+        if hasattr(self, "sp_skl_screen_cv_folds") and screening_settings.get("cv_folds") is not None:
+            self.sp_skl_screen_cv_folds.setValue(int(screening_settings["cv_folds"]))
 
         names = list(self.skl_trained_models)
         select_name = config.get("current_model") or config.get("best_model")
@@ -22271,9 +22625,9 @@ class MainWindow(QMainWindow):
 
         self.cb_skl_metric.clear()
         if task == "regression":
-            self.cb_skl_metric.addItems(["R2 Test", "RMSE", "MAE", "MSE"])
+            self.cb_skl_metric.addItems(["R2", "RMSE", "MAE", "MSE"])
         elif task == "classification":
-            self.cb_skl_metric.addItems(["Accuracy Test", "F1", "Precision", "Recall", "Specificity", "MCC", "AUC"])
+            self.cb_skl_metric.addItems(["Accuracy", "F1", "Precision", "Recall", "Specificity", "MCC", "AUC"])
         elif task == "clustering":
             self.cb_skl_metric.addItems(["Silhouette", "Davies-Bouldin", "Calinski-Harabasz"])
 
@@ -22577,8 +22931,16 @@ class MainWindow(QMainWindow):
             self.pb_skl_screening.setValue(0)
             self._skl_screening_done = 0
 
-            test_size = self.dsp_skl_test_size.value() if hasattr(self, "dsp_skl_test_size") else 0.3
-            self._skl_screening_worker = SklScreeningWorker(task, model_specs, x, y, random_state, test_size=test_size)
+            test_size = self.dsp_skl_test_size.value() if hasattr(self, "dsp_skl_test_size") else 0.2
+            cv_folds = self.sp_skl_screen_cv_folds.value() if hasattr(self, "sp_skl_screen_cv_folds") else 5
+            n_train = len(x) - int(np.ceil(test_size * len(x)))
+            if task != "clustering" and n_train < cv_folds:
+                QMessageBox.warning(self, i18n.t("msg_title_screening", self._idioma),
+                    f"The training set has only {n_train} rows - fewer than the {cv_folds} CV folds. "
+                    "Reduce 'CV Folds (train)' or the test size.")
+                return
+            self._skl_screening_worker = SklScreeningWorker(task, model_specs, x, y, random_state,
+                                                            test_size=test_size, cv_folds=cv_folds)
             self._skl_screening_worker.progress.connect(self._on_skl_screening_progress)
             self._skl_screening_worker.finished_all.connect(self._on_skl_screening_finished)
             self._skl_screening_worker.error.connect(self._on_skl_screening_error)
@@ -22605,7 +22967,9 @@ class MainWindow(QMainWindow):
 
         metric = self.cb_skl_metric.currentText().strip()
         lower_is_better = metric in ("RMSE", "MAE", "MSE", "Davies-Bouldin")
-        sort_col = metric if metric in rank_df.columns else rank_df.columns[-1]
+        sort_col = _skl_screening_sort_column(metric)
+        if sort_col not in rank_df.columns:
+            sort_col = rank_df.columns[-1]
         rank_df = rank_df.sort_values(by=sort_col, ascending=lower_is_better, na_position="last").reset_index(drop=True)
         self.skl_screening_rank = rank_df
 
@@ -22625,6 +22989,11 @@ class MainWindow(QMainWindow):
         self.cb_skl_tune_model.clear()
         self.cb_skl_tune_model.addItems(rank_df["Model"].astype(str).tolist())
         self.cb_skl_tune_model.blockSignals(False)
+        # Mesma lista/ordem na seleção múltipla do grupo Remove Model and Predict (usada por Predict
+        # e Evaluate Test) - antes ela só era preenchida depois de um Tuning ou ao recarregar a USI.
+        if hasattr(self, "list_skl_saved_models"):
+            self.list_skl_saved_models.clear()
+            self.list_skl_saved_models.addItems(rank_df["Model"].astype(str).tolist())
         self._refresh_skl_hyperparam_table(self.cb_skl_tune_model.currentText())
         self._refresh_skl_tune_param_options(self.cb_skl_tune_model.currentText())
         self._refresh_skl_model_settings_widgets(self.cb_skl_tune_model.currentText())
@@ -22716,9 +23085,12 @@ class MainWindow(QMainWindow):
             self._skl_tune_method = method
             self._skl_tune_folds = folds
             self._skl_tune_n_iter = n_iter
+            # Otimiza a mesma métrica escolhida em "Sort metric" (Model Screening).
+            scoring, sign, metric_label = self._skl_scoring_for_metric(self.cb_skl_metric.currentText().strip())
+            self._skl_tune_metric_label = metric_label if scoring is not None else ("R2" if task == "regression" else "Accuracy")
             self._skl_tune_worker = SklTuneWorker(
                 cls, base_kwargs, param_grid, method, folds, n_iter, random_state,
-                self.skl_x_train, self.skl_y_train
+                self.skl_x_train, self.skl_y_train, scoring=scoring, sign=sign
             )
             self._skl_tune_worker.finished_ok.connect(self._on_skl_tune_finished)
             self._skl_tune_worker.error.connect(self._on_skl_tune_error)
@@ -22770,29 +23142,39 @@ class MainWindow(QMainWindow):
         # Lembra também Method/CV folds/n_iter usados para esse modelo, pelo mesmo motivo.
         if not hasattr(self, "_skl_tuning_settings") or self._skl_tuning_settings is None:
             self._skl_tuning_settings = {}
-        self._skl_tuning_settings[self._skl_tune_model_name] = {
+        record = {
             "method": getattr(self, "_skl_tune_method", None),
             "folds": getattr(self, "_skl_tune_folds", None),
             "n_iter": getattr(self, "_skl_tune_n_iter", None),
+            "metric": getattr(self, "_skl_tune_metric_label", None),
         }
+        # Também sob o nome da variante gerada (ex.: "Ridge_1", marcada com "variant"), que o relatório
+        # procura primeiro: é o registro de COMO essa variante foi produzida. Por isso, quando o modelo
+        # de origem já é uma variante (novo Tuning partindo de "Ridge_1"), o registro dela não é
+        # sobrescrito - senão "Ridge_1" (tunado por RMSE) herdaria a métrica do Tuning seguinte.
+        existing = self._skl_tuning_settings.get(self._skl_tune_model_name)
+        if not (isinstance(existing, dict) and existing.get("variant")):
+            self._skl_tuning_settings[self._skl_tune_model_name] = record
+        self._skl_tuning_settings[new_name] = {**record, "variant": True}
 
         self._save_skl_model_to_models_dir(new_name, best_model)
         self._save_skl_session_config()
         self._save_step6_sklearn_state()
         self._refresh_skl_usi_combo()
 
-        y_test_pred = self.skl_current_model.predict(self.skl_x_test)
-        if task == "regression":
-            msg = (f"New optimized model: {new_name}\n\n"
-                   f"Best params: {best_params}\n"
-                   f"R2 Test: {r2_score(self.skl_y_test, y_test_pred):.4f}  "
-                   f"RMSE: {mse(self.skl_y_test, y_test_pred) ** 0.5:.4f}  "
-                   f"MAE: {mae(self.skl_y_test, y_test_pred):.4f}")
-        else:
-            msg = (f"New optimized model: {new_name}\n\n"
-                   f"Best params: {best_params}\n"
-                   f"Accuracy Test: {accuracy_score(self.skl_y_test, y_test_pred):.4f}  "
-                   f"F1: {f1_score(self.skl_y_test, y_test_pred, average='weighted'):.4f}")
+        # Só o score da CV interna (no treino) - o conjunto de teste não é consultado durante o
+        # Tuning, senão ajustar hiperparâmetros olhando o teste o transformaria em parte do treino.
+        # A métrica é a 'Sort metric' do Screening (ver run_skl_tune).
+        worker = self._skl_tune_worker
+        score_label = getattr(self, "_skl_tune_metric_label", None) or ("R2" if task == "regression" else "Accuracy")
+        folds = getattr(self, "_skl_tune_folds", None)
+        msg = f"New optimized model: {new_name}\n\nBest params: {best_params}\n"
+        if worker is not None and worker.best_cv_score is not None:
+            score_txt = f"{worker.best_cv_score:.4f}"
+            if worker.best_cv_std is not None:
+                score_txt += f" ± {worker.best_cv_std:.4f}"
+            msg += f"Best CV score on the training set ({score_label}, {folds}-fold): {score_txt}\n"
+        msg += "\nThe test set was not used; it is reserved for the final evaluation."
         QMessageBox.information(self, i18n.t("msg_title_tuning_complete", self._idioma), msg)
 
         try:
@@ -22849,9 +23231,12 @@ class MainWindow(QMainWindow):
 
             self._skl_tune_plot_metric = metric
             self._skl_tune_plot_model_name = model_name
+            # Curva por validação cruzada no treino, com os mesmos "CV folds" do Tuning - o
+            # conjunto de teste não é usado para escolher hiperparâmetros.
+            self._skl_tune_plot_folds = self.sp_skl_tune_folds.value()
             self._skl_tune_plot_worker = SklTuneCurveWorker(
                 cls, base_kwargs, parameter, metric, random_state,
-                self.skl_x_train, self.skl_y_train, self.skl_x_test, self.skl_y_test, values=values
+                self.skl_x_train, self.skl_y_train, task, folds=self._skl_tune_plot_folds, values=values
             )
             self._skl_tune_plot_worker.finished_ok.connect(self._on_skl_tune_plot_finished)
             self._skl_tune_plot_worker.error.connect(self._on_skl_tune_plot_error)
@@ -22881,26 +23266,33 @@ class MainWindow(QMainWindow):
         try:
             x_values = result["x_values"]
             train_values = result["train_values"]
-            test_values = result["test_values"]
+            cv_values = result["cv_values"]
+            train_std = np.asarray(result["train_std"], dtype=float)
+            cv_std = np.asarray(result["cv_std"], dtype=float)
+            folds = getattr(self, "_skl_tune_plot_folds", None)
             x_label = result["x_label"]
             metric = self._skl_tune_plot_metric
             model_name = self._skl_tune_plot_model_name
 
             lower_is_better = metric in ("RMSE", "MAE", "MSE", "Davies-Bouldin")
-            valid_test = [v for v in test_values if v == v]  # descarta NaN
-            if not valid_test:
+            valid_cv = [v for v in cv_values if v == v]  # descarta NaN
+            if not valid_cv:
                 QMessageBox.warning(self, i18n.t("msg_title_plot", self._idioma), "No valid metric values were computed for this curve.")
                 return
-            best_val = min(valid_test) if lower_is_better else max(valid_test)
-            best_idx = test_values.index(best_val)
+            best_val = min(valid_cv) if lower_is_better else max(valid_cv)
+            best_idx = cv_values.index(best_val)
             best_x = x_values[best_idx]
 
             is_numeric_x = all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in x_values)
             plot_x = x_values if is_numeric_x else list(range(len(x_values)))
 
             fig, ax = plt.subplots(figsize=(9, 5))
-            ax.plot(plot_x, train_values, label=f"{metric} (Train)", color="steelblue", marker="o")
-            ax.plot(plot_x, test_values, label=f"{metric} (Test)", color="tomato", marker="o")
+            ax.plot(plot_x, train_values, label=f"{metric} (Train, mean of folds)", color="steelblue", marker="o")
+            ax.fill_between(plot_x, np.asarray(train_values) - train_std, np.asarray(train_values) + train_std,
+                            color="steelblue", alpha=0.15)
+            ax.plot(plot_x, cv_values, label=f"{metric} (CV, {folds}-fold on training set)", color="tomato", marker="o")
+            ax.fill_between(plot_x, np.asarray(cv_values) - cv_std, np.asarray(cv_values) + cv_std,
+                            color="tomato", alpha=0.15)
             if is_numeric_x:
                 ax.axvline(plot_x[best_idx], linestyle="--", color="gray", linewidth=1)
             ax.annotate(
@@ -22990,10 +23382,12 @@ class MainWindow(QMainWindow):
                     return
 
                 mode = "nested"
+                # Busca interna otimiza a mesma 'Sort metric' do Screening/Tuning.
+                inner_scoring, _sign, _label = self._skl_scoring_for_metric(self.cb_skl_metric.currentText().strip())
                 worker_kwargs = dict(
                     cls=cls, base_kwargs=base_kwargs, param_grid=param_grid,
                     folds=folds, shuffle=shuffle, random_state=random_state,
-                    inner_folds=self.sp_skl_tune_folds.value(),
+                    inner_folds=self.sp_skl_tune_folds.value(), scoring=inner_scoring,
                 )
             elif method == "Bootstrap":
                 mode = "bootstrap"
@@ -23173,6 +23567,19 @@ class MainWindow(QMainWindow):
             # natureza da métrica mesmo com vários modelos gerando várias colunas de predição.
             y_col = self.cb_skl_y.currentText().strip() if hasattr(self, "cb_skl_y") else ""
 
+            # "With Y": coluna Y observada no External DataFrame (mesma do treino), para calcular as
+            # métricas de predictivity. Ela nunca é descritor - sai de x_new, como no treino
+            # (_get_skl_xy também remove a coluna Y de X).
+            ext_y_col = None
+            if task != "clustering" and getattr(self, "chk_skl_pd_with_y", None) is not None \
+                    and self.chk_skl_pd_with_y.isChecked():
+                ext_y_col = self._skl_detect_external_y_column(df)
+                if ext_y_col is None:
+                    self.chk_skl_pd_with_y.setChecked(False)
+                    QMessageBox.warning(self, i18n.t("msg_title_predict", self._idioma),
+                        i18n.t("s6_msg_with_y_not_found", self._idioma, y=y_col or "-"))
+            x_new = x_new.drop(columns=[c for c in {y_col, ext_y_col} if c and c in x_new.columns])
+
             df_result = df.drop(columns=different_cols, errors="ignore").copy() if different_cols else df.copy()
 
             # Mensagem de espera (sem barra de progresso), fechada assim que a predição termina, logo
@@ -23209,9 +23616,148 @@ class MainWindow(QMainWindow):
             df_result.to_csv(file_path, index=False)
             self._next_dataframe_save_path = file_path
             self.show_dataframe(df_result)
+
+            if ext_y_col is not None:
+                self._skl_show_external_metrics(task, models, x_new, df[ext_y_col])
         except Exception as e:
             import traceback; traceback.print_exc()
             QMessageBox.critical(self, i18n.t("msg_title_predict_error", self._idioma), str(e))
+
+    def _skl_show_external_metrics(self, task, models, x_new, y_ext):
+        """Predict com "With Y": métricas de predictivity de cada modelo selecionado sobre as linhas
+        do External DataFrame que têm Y observado. Salvas em DATA da USI (skl_external_eval_*.csv,
+        lido pelo relatório) e exibidas numa tabela."""
+        if task == "regression":
+            y_ext = pd.to_numeric(y_ext, errors="coerce")
+        mask = y_ext.notna().to_numpy()
+        n_valid = int(mask.sum())
+        if n_valid < 3:
+            QMessageBox.warning(self, i18n.t("msg_title_predict", self._idioma),
+                i18n.t("s6_msg_with_y_too_few", self._idioma, n=n_valid))
+            return
+        metrics_df = _skl_external_metrics_table(
+            task, models, x_new[mask], y_ext[mask].to_numpy(), y_train=getattr(self, "skl_y_train", None)
+        )
+        out_path = os.path.join(
+            self.skl_out_data, f"skl_external_eval_{self.skl_usi_key}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        )
+        try:
+            metrics_df.to_csv(out_path, index=False)
+        except Exception:
+            pass
+        self._next_dataframe_save_path = out_path
+        self.show_dataframe(metrics_df)
+
+    def run_skl_evaluate_test(self):
+        """'Evaluate Test' (grupo Remove Model and Predict): avaliação final de predictivity
+        (Princípio 4 da OECD) do(s) modelo(s) selecionado(s) no conjunto de teste separado no
+        Screening - que não participou do Screening, do Tuning nem da Validation. Deve ser feita
+        uma única vez, com o modelo final; por isso pede confirmação antes."""
+        try:
+            selected_names = [item.text() for item in self.list_skl_saved_models.selectedItems()] \
+                if hasattr(self, "list_skl_saved_models") else []
+            if not selected_names:
+                QMessageBox.warning(self, i18n.t("msg_title_evaluate", self._idioma),
+                    "Select at least one model in the list on the left of this group "
+                    "(Run Screening first to populate it)."
+                )
+                return
+            models = {}
+            for name in selected_names:
+                model = getattr(self, "skl_trained_models", {}).get(name)
+                if model is None:
+                    QMessageBox.warning(self, i18n.t("msg_title_evaluate", self._idioma), f"Model '{name}' is not loaded/trained in this session.")
+                    return
+                models[name] = model
+            _registry, task = self._get_skl_registry()
+            if task not in ("regression", "classification"):
+                QMessageBox.information(self, i18n.t("msg_title_evaluate", self._idioma),
+                    "The test-set evaluation applies to regression/classification models only.")
+                return
+            x_test = getattr(self, "skl_x_test", None)
+            y_test = getattr(self, "skl_y_test", None)
+            if x_test is None or y_test is None:
+                QMessageBox.warning(self, i18n.t("msg_title_evaluate", self._idioma), "Run Screening first.")
+                return
+
+            answer = QMessageBox.question(
+                self, i18n.t("msg_title_evaluate", self._idioma),
+                i18n.t("s6_msg_evaluate_test_confirm", self._idioma, n=len(y_test)),
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes:
+                return
+
+            metrics_df = _skl_external_metrics_table(
+                task, models, x_test, np.asarray(y_test), y_train=getattr(self, "skl_y_train", None)
+            )
+            self._set_current_sklearn_usi_context()
+            out_path = os.path.join(
+                self.skl_out_data, f"skl_test_eval_{self.skl_usi_key}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            )
+            try:
+                metrics_df.to_csv(out_path, index=False)
+            except Exception:
+                pass
+            self._next_dataframe_save_path = out_path
+            self.show_dataframe(metrics_df)
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            QMessageBox.critical(self, i18n.t("msg_title_evaluate", self._idioma), str(e))
+
+    def _skl_detect_external_y_column(self, df_ext=None):
+        """Heurística do "With Y": procura no External DataFrame a coluna Y usada no treino da USI
+        atual ("Select Y column (internal df)"). Tenta, em ordem: nome idêntico; mesmo nome
+        ignorando maiúsculas/espaços nas pontas; mesmo nome só com letras e dígitos (ex.:
+        "pIC50" == "p_IC50" == "PIC50 "). A coluna só é aceita se tiver valores utilizáveis:
+        numéricos (>= 3) na regressão; na classificação, ao menos uma classe vista no treino.
+        Retorna o nome da coluna no External DataFrame, ou None."""
+        df_ext = getattr(self, "df_ext", None) if df_ext is None else df_ext
+        y_col = self.cb_skl_y.currentText().strip() if hasattr(self, "cb_skl_y") else ""
+        _registry, task = self._get_skl_registry()
+        if not y_col or task not in ("regression", "classification") or not isinstance(df_ext, pd.DataFrame):
+            return None
+
+        def _norm(name):
+            return re.sub(r"[^0-9a-z]", "", str(name).lower())
+
+        columns = list(df_ext.columns)
+        candidates = [c for c in columns if str(c) == y_col]
+        candidates += [c for c in columns if str(c).strip().lower() == y_col.lower() and c not in candidates]
+        candidates += [c for c in columns if _norm(c) == _norm(y_col) and _norm(c) and c not in candidates]
+
+        y_train = getattr(self, "skl_y_train", None)
+        for col in candidates:
+            values = df_ext[col]
+            if isinstance(values, pd.DataFrame):  # nome de coluna duplicado
+                continue
+            if task == "regression":
+                if pd.to_numeric(values, errors="coerce").notna().sum() >= 3:
+                    return col
+            else:
+                observed = set(values.dropna().tolist())
+                if observed and (y_train is None or observed & set(pd.Series(y_train).tolist())):
+                    return col
+        return None
+
+    def _skl_auto_set_with_y(self):
+        """Marca/desmarca "With Y" pela heurística (sem mensagem) - chamado ao carregar o External
+        DataFrame e ao mudar a coluna Y do Screening."""
+        chk = getattr(self, "chk_skl_pd_with_y", None)
+        if chk is None:
+            return
+        chk.setChecked(self._skl_detect_external_y_column() is not None)
+
+    def _on_skl_with_y_clicked(self, checked):
+        """Marcação manual de "With Y": confere se a coluna Y existe de fato no External DataFrame;
+        se não existir, avisa e desmarca."""
+        if not checked:
+            return
+        if self._skl_detect_external_y_column() is None:
+            self.chk_skl_pd_with_y.setChecked(False)
+            y_col = self.cb_skl_y.currentText().strip() if hasattr(self, "cb_skl_y") else ""
+            QMessageBox.warning(self, i18n.t("msg_title_predict", self._idioma),
+                i18n.t("s6_msg_with_y_not_found", self._idioma, y=y_col or "-"))
 
     # ---------- CHARTS ----------
 
@@ -23231,7 +23777,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "The Internal DataFrame has no rows.")
             return
 
-        test_size = self.dsp_skl_test_size.value() if hasattr(self, "dsp_skl_test_size") else 0.3
+        test_size = self.dsp_skl_test_size.value() if hasattr(self, "dsp_skl_test_size") else 0.2
         # Mesma conta usada por train_test_split (sklearn) quando só test_size é informado.
         n_test = int(np.ceil(test_size * n_total))
         n_test = max(0, min(n_total, n_test))
