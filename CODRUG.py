@@ -83,6 +83,10 @@ class CollapsibleGroupBox(_QtGroupBox):
     _ARROW_OPEN = "\u25BE "
     _ARROW_CLOSED = "\u25B8 "
 
+    # Emitido só quando o USUÁRIO colapsa/expande clicando no título (não em set_collapsed chamado
+    # pelo código); o argumento é o novo estado "collapsed".
+    userToggled = pyqtSignal(bool)
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._collapsed = False
@@ -149,6 +153,7 @@ class CollapsibleGroupBox(_QtGroupBox):
                 and event.pos().y() <= self._collapsed_height()):
             self.set_collapsed(not self._collapsed)
             event.accept()
+            self.userToggled.emit(self._collapsed)
             return
         super().mousePressEvent(event)
 
@@ -917,18 +922,20 @@ QComboBox QAbstractItemView::item:hover {
     color: #C9D1D9;
 }
 
+/* Controles desabilitados "apagados": fundo/borda próximos do painel e texto escuro, para ficar
+   claro que não aceitam seleção/edição (antes o fundo era o mesmo dos campos ativos). */
 QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled,
-QComboBox:disabled, QTextEdit:disabled {
-    background: #1C3249;
-    border: 1px solid #0D1B2A;
-    color: #6E8CA8;
+QComboBox:disabled, QTextEdit:disabled, QListWidget:disabled, QTableWidget:disabled {
+    background: #132131;
+    border: 1px solid #1C2E42;
+    color: #4F6A84;
 }
 QComboBox:disabled::drop-down {
-    background: #1C3249;
-    border-left: 1px solid #0D1B2A;
+    background: #132131;
+    border-left: 1px solid #1C2E42;
 }
 QComboBox:disabled QLineEdit {
-    color: #6E8CA8;
+    color: #4F6A84;
 }
 
 QScrollBar:vertical {
@@ -991,6 +998,17 @@ QCheckBox::indicator {
 QCheckBox::indicator:checked {
     background: #2ECC71;
     border-color: #2ECC71;
+}
+QCheckBox:disabled, QRadioButton:disabled {
+    color: #4F6A84;
+}
+QCheckBox::indicator:disabled {
+    background: #132131;
+    border-color: #1C2E42;
+}
+QCheckBox::indicator:checked:disabled {
+    background: #1E5C3A;
+    border-color: #1E5C3A;
 }
 QMenuBar {
     background: #0D1B2A;
@@ -15563,9 +15581,28 @@ class MainWindow(QMainWindow):
         if mi is not None and not shap_ok:
             msgs.append(i18n.t("s7i_warn_shap_missing", idioma))
         self.lbl_interp_explainer.setText(explainer_text)
-        self.lbl_interp_status.setText("  ".join(msgs))
-        self.lbl_interp_status.setStyleSheet("color: #E74C3C; font-weight: bold;" if blocked else "color: #E67E22;")
+        # Aviso de estado: não fica mais na interface - é exibido numa janela quando o usuário expande
+        # o grupo (ver _on_interp_group_toggled) e ao tentar rodar com o grupo bloqueado.
+        self._interp_status_text = "\n\n".join(msgs)
+        # Mesma regra do botão Run Interpretability para todos os controles do grupo: só ficam
+        # habilitados com uma USI utilizável (screening atual ou USI carregada, com modelo e
+        # conjuntos de treino/teste) e sem bloqueio (clustering, X de projeção, módulo ausente).
+        for widget in (self.cb_interp_model, self.chk_interp_perm, self.chk_interp_individual, self.chk_interp_group,
+                       self.dspn_interp_corr, self.spn_interp_repeats, self.spn_interp_shap_rows,
+                       self.spn_interp_top_n, self.spn_interp_workers):
+            widget.setEnabled(not blocked)
+        self.chk_interp_shap.setEnabled(shap_ok and not blocked)
         self.btn_interp_run.setEnabled(not blocked)
+
+    def _on_interp_group_toggled(self, collapsed):
+        """Ao EXPANDIR o grupo Interpretability Tools (clique no título), reavalia o estado e, se houver
+        aviso (sem USI, SHAP ausente, projeção...), mostra-o numa janela em vez de na interface."""
+        if collapsed:
+            return
+        self._refresh_interp_group()
+        text = getattr(self, "_interp_status_text", "")
+        if text:
+            QMessageBox.warning(self, i18n.t("msg_title_interp", self._idioma), text)
 
     def _interp_structure_payload(self, top_n):
         """SMILES/IDs (alinhados linha a linha a X_train/X_test) para ligar cada bit de fingerprint à
@@ -15598,7 +15635,7 @@ class MainWindow(QMainWindow):
             title = i18n.t("msg_title_interp", idioma)
             mi = module_interpretability
             if mi is None or not self.btn_interp_run.isEnabled():
-                QMessageBox.warning(self, title, self.lbl_interp_status.text() or i18n.t("s7i_warn_no_model", idioma))
+                QMessageBox.warning(self, title, getattr(self, "_interp_status_text", "") or i18n.t("s7i_warn_no_model", idioma))
                 return
             name = self.cb_interp_model.currentText()
             model = (getattr(self, "skl_trained_models", None) or {}).get(name)
@@ -20805,10 +20842,8 @@ class MainWindow(QMainWindow):
             interp_row4b.addStretch()
             lay_interp.addLayout(interp_row4b)
 
-            # Linha 5: aviso/estado (projeção, SHAP ausente, sem modelo...), centralizado
-            self.lbl_interp_status = QLabel(); self.lbl_interp_status.setWordWrap(True)
-            self.lbl_interp_status.setAlignment(Qt.AlignCenter)
-            lay_interp.addWidget(self.lbl_interp_status)
+            # (O aviso de estado - projeção, SHAP ausente, sem modelo... - não fica nesta área: é
+            # exibido numa janela ao expandir o grupo; ver _on_interp_group_toggled.)
 
             # Última linha: só o botão de execução, centralizado no grupo
             interp_row6 = QHBoxLayout()
@@ -20835,6 +20870,9 @@ class MainWindow(QMainWindow):
             right_col.addWidget(gb_interp)
             right_col.addWidget(self.pb_interp)
             right_col.addStretch()
+            # Inicia colapsado; ao ser expandido pelo usuário, mostra o aviso de estado numa janela.
+            gb_interp.set_collapsed(True)
+            gb_interp.userToggled.connect(self._on_interp_group_toggled)
             body_AD.addStretch()
             body_AD.addLayout(left_col)
             body_AD.addSpacing(14)
@@ -20851,6 +20889,8 @@ class MainWindow(QMainWindow):
             # Conexões
             self.btn_interp_run.clicked.connect(self.run_interpretability)
             self.cb_interp_model.currentTextChanged.connect(self._update_interp_info)
+            # Estado inicial: sem USI ainda, todos os controles do grupo começam desabilitados.
+            self._update_interp_info()
             self.btn_ad_compute.clicked.connect(self.run_ad_assessment)
             self.btn_ad_expl_pred.clicked.connect(self.select_ad_expl_predictions)
             self.btn_ad_expl_load.clicked.connect(self.run_ad_expl_load)
