@@ -1467,6 +1467,14 @@ _STEP4_ML_TEXTS = {
     "ranked_by_en": " Models were ranked by ",
     "test_train_split_pt": " O conjunto teste representa {test}% e o conjunto treino {train}% do conjunto total de dados. ",
     "test_train_split_en": " The test set represented {test}% and the training set {train}% of the total data. ",
+    "split_random_pt": "A divisão entre treino e teste foi aleatória{rs}. ",
+    "split_random_en": "The training/test split was random{rs}. ",
+    "split_ks_pt": "A divisão entre treino e teste foi feita pelo algoritmo de Kennard-Stone, que seleciona o conjunto de treino de modo a cobrir o espaço dos descritores e mantém o conjunto teste dentro desse espaço. ",
+    "split_ks_en": "The training/test split was performed with the Kennard-Stone algorithm, which selects the training set to cover the descriptor space and keeps the test set within that space. ",
+    "split_se_pt": "A divisão entre treino e teste foi feita por sphere exclusion (Golbraikh & Tropsha, 2002), que mantém o conjunto teste dentro do espaço químico do conjunto de treino. ",
+    "split_se_en": "The training/test split was performed by sphere exclusion (Golbraikh & Tropsha, 2002), which keeps the test set within the chemical space of the training set. ",
+    "no_test_split_pt": " Todo o conjunto interno foi usado como conjunto de treino (sem conjunto teste); a capacidade preditiva foi avaliada no conjunto externo. ",
+    "no_test_split_en": " The whole internal dataset was used as the training set (no test set); predictivity was assessed on the external set. ",
     "test_eval_pt": "A capacidade preditiva (predictivity) foi avaliada uma única vez no conjunto teste ({n} compostos), que não participou da triagem, do ajuste de hiperparâmetros nem da validação cruzada. Os critérios de aceitação seguem Golbraikh & Tropsha (2002) e Chirico & Gramatica (2012):",
     "test_eval_en": "Predictivity was assessed once on the test set ({n} compounds), which took no part in screening, hyperparameter tuning or cross-validation. Acceptance criteria follow Golbraikh & Tropsha (2002) and Chirico & Gramatica (2012):",
     "external_eval_pt": "Os modelos também foram aplicados ao conjunto externo, com {n} compostos com valor experimental conhecido, gerando as métricas a seguir:",
@@ -1526,7 +1534,8 @@ _STEP4_ML_TEXTS = {
 _STEP4_COLOR_HIGHLIGHT = "DEEBF6"
 _STEP4_COLOR_OVERALL = "FEF2CC"
 
-_STEP4_CHART_KINDS = ["predicted_vs_actual", "residuals", "manifold", "feature_importance"]
+_STEP4_CHART_KINDS = ["predicted_vs_actual", "residuals", "manifold", "feature_importance",
+                      "cv_predicted_vs_actual", "cv_confusion_matrix"]
 
 
 def _find_skl_csv(data_dir: str, prefix: str, usi: str, model_name: Optional[str] = None) -> Optional[str]:
@@ -1743,13 +1752,24 @@ def _add_step5_section(document: Any, job_dir: str, state: dict[str, Any], idiom
             add_bi(texts["ranked_by_pt"], texts["ranked_by_en"], False)
             add(str(screening["sort_metric"]), True)
             add(". ", False)
-        if screening.get("test_size"):
+        if screening.get("test_size") is not None and float(screening["test_size"]) == 0:
+            add_bi(texts["no_test_split_pt"], texts["no_test_split_en"], False)
+        elif screening.get("test_size"):
             test_size = float(screening["test_size"])
             add_bi(
                 texts["test_train_split_pt"].format(test=f"{test_size * 100:.0f}", train=f"{100 - test_size * 100:.0f}"),
                 texts["test_train_split_en"].format(test=f"{test_size * 100:.0f}", train=f"{100 - test_size * 100:.0f}"),
                 False,
             )
+            split_method = screening.get("split_method") or "Random"
+            if split_method == "Kennard-Stone":
+                add_bi(texts["split_ks_pt"], texts["split_ks_en"], False)
+            elif split_method == "Sphere Exclusion":
+                add_bi(texts["split_se_pt"], texts["split_se_en"], False)
+            else:
+                rs = screening.get("random_state")
+                add_bi(texts["split_random_pt"].format(rs=f" (random state = {rs})" if rs is not None else ""),
+                       texts["split_random_en"].format(rs=f" (random state = {rs})" if rs is not None else ""), False)
         if screening.get("cv_folds"):
             k = int(screening["cv_folds"])
             add_bi(texts["ranked_by_cv_pt"].format(k=k), texts["ranked_by_cv_en"].format(k=k), False)

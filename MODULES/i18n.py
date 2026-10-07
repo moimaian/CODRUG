@@ -607,6 +607,63 @@ _TEXTOS = {
               "voltar e alterar o modelo o transformaria em dado de treino.\n\nAvaliar o(s) modelo(s) "
               "selecionado(s) agora?",
     },
+    "s6_tooltip_test_size": {
+        "en": "Fraction of the Internal DataFrame held out as the test set (final predictivity evaluation). "
+              "0 = no test set: the whole Internal DataFrame is used for Screening, Tuning and Validation, "
+              "and external validation is done with the External DataFrame (Predict with 'With Y').",
+        "pt": "Fração do Internal DataFrame separada como conjunto teste (avaliação final de predictivity). "
+              "0 = sem conjunto teste: todo o Internal DataFrame é usado no Screening, Tuning e Validation, "
+              "e a validação externa é feita com o External DataFrame (Predict com 'Com Y').",
+    },
+    "s6_msg_no_test_set": {
+        "en": "This USI has no test set (Test Size = 0): the whole Internal DataFrame was used for training. "
+              "For external validation, select the External DataFrame and run Predict with 'With Y' checked.",
+        "pt": "Esta USI não tem conjunto teste (Tamanho do Teste = 0): todo o Internal DataFrame foi usado no treino. "
+              "Para a validação externa, selecione o External DataFrame e rode o Predict com 'Com Y' marcado.",
+    },
+    "s6_msg_chart_no_test_set": {
+        "en": "The chart '{chart}' evaluates the model on the test set, and this USI has no test set (Test Size = 0). "
+              "Use 'Plot CV Predictions' (Validation and Model Robustness) to inspect the model on the training set.",
+        "pt": "O gráfico '{chart}' avalia o modelo no conjunto teste, e esta USI não tem conjunto teste (Tamanho do "
+              "Teste = 0). Use 'Gráfico da CV' (Validação e Robustez do Modelo) para inspecionar o modelo no treino.",
+    },
+    "s6_btn_cv_plot": {"en": "Plot CV Predictions", "pt": "Gráfico da CV"},
+    "s6_tooltip_cv_plot": {
+        "en": "Predicted vs Experimental (regression) or Confusion Matrix (classification) with the out-of-fold "
+              "predictions of the last cross-validation of the selected model - training set only, the test set is not used.",
+        "pt": "Predito vs Experimental (regressão) ou Matriz de Confusão (classificação) com as predições out-of-fold "
+              "da última validação cruzada do modelo selecionado - só o conjunto de treino, o teste não é usado.",
+    },
+    "s6_msg_cv_plot_run_first": {
+        "en": "Run Cross-Validation for the model '{model}' first (KFold, StratifiedKFold, LOOCV, Time Series or Nested CV).",
+        "pt": "Rode primeiro a validação cruzada do modelo '{model}' (KFold, StratifiedKFold, LOOCV, Time Series ou Nested CV).",
+    },
+    "s6_msg_cv_plot_unavailable": {
+        "en": "The method '{method}' predicts the same compound more than once (Leave-P-Out with p > 1, Bootstrap), so "
+              "there is no single out-of-fold prediction per compound to plot. Use KFold, StratifiedKFold, LOOCV or Nested CV.",
+        "pt": "O método '{method}' prevê o mesmo composto mais de uma vez (Leave-P-Out com p > 1, Bootstrap), então "
+              "não há uma predição out-of-fold única por composto. Use KFold, StratifiedKFold, LOOCV ou Nested CV.",
+    },
+    "s6_lbl_split_method": {"en": "Split:", "pt": "Divisão:"},
+    "s6_tooltip_split_method": {
+        "en": "How the Internal DataFrame is divided into training and test sets.\n"
+              "Random: random split, reproducible with the Random State (default).\n"
+              "Kennard-Stone: picks the training set to cover the descriptor space (max-min distance); "
+              "the test set lies inside the training space. Exact test size.\n"
+              "Sphere Exclusion (Golbraikh & Tropsha): sphere centres go to training and the compounds "
+              "inside each sphere go to test; the radius is tuned to approach the chosen test size.\n"
+              "Rational methods use Euclidean distances on autoscaled descriptors (first principal "
+              "components, up to 50, when there are more columns) and are applied per class in classification.",
+        "pt": "Como o Internal DataFrame é dividido em conjuntos de treino e teste.\n"
+              "Random: divisão aleatória, reprodutível pelo Random State (padrão).\n"
+              "Kennard-Stone: escolhe o treino para cobrir o espaço dos descritores (distância max-min); "
+              "o teste fica dentro do espaço do treino. Tamanho do teste exato.\n"
+              "Sphere Exclusion (Golbraikh & Tropsha): os centros das esferas vão para o treino e os "
+              "compostos dentro de cada esfera vão para o teste; o raio é ajustado para se aproximar do "
+              "tamanho de teste escolhido.\n"
+              "Os métodos racionais usam distâncias euclidianas nos descritores autoescalados (primeiras "
+              "componentes principais, até 50, quando há mais colunas) e são aplicados por classe na classificação.",
+    },
     "s6_lbl_screening_cv_folds": {"en": "CV Folds (train):", "pt": "Folds da CV (treino):"},
     "s6_tooltip_screening_cv_folds": {
         "en": "Number of k-fold cross-validation folds used to rank the models. The cross-validation "
@@ -858,6 +915,10 @@ _TEXTOS = {
     "s7i_warn_clustering": {
         "en": "Interpretability applies to regression/classification models only (clustering has no test set or response).",
         "pt": "A interpretabilidade se aplica apenas a modelos de regressão/classificação (clusterização não tem conjunto de teste nem resposta).",
+    },
+    "s7i_warn_no_test_set": {
+        "en": "This USI has no test set (Test Size = 0 in STEP 4): the interpretability tools measure the model on the test set.",
+        "pt": "Esta USI não tem conjunto teste (Tamanho do Teste = 0 na ETAPA 4): as ferramentas de interpretabilidade medem o modelo no conjunto teste.",
     },
     "s7i_warn_no_model": {
         "en": "Run Screening in STEP 4 (or load a USI) to enable this group: it needs a trained model and the test set of that USI.",

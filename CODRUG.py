@@ -742,6 +742,14 @@ except Exception as e:
     module_feature_structures = None
 
 try:
+    import MODULES.rational_split as rational_split
+    print("✅ rational_split imported successfully.")
+except Exception as e:
+    print("⚠️ rational_split not available - STEP 4 Model Screening will only offer the random split.")
+    print(f"Details: {e}")
+    rational_split = None
+
+try:
     import MODULES.module_interpretability as module_interpretability
     print("✅ module_interpretability imported successfully.")
 except Exception as e:
@@ -2400,7 +2408,7 @@ class SklScreeningWorker(QThread): # type: ignore
     finished_all = pyqtSignal(object)
     error = pyqtSignal(str)
 
-    def __init__(self, task, model_specs, x, y, random_state, test_size=0.2, cv_folds=5):
+    def __init__(self, task, model_specs, x, y, random_state, test_size=0.2, cv_folds=5, split_method="Random"):
         super().__init__()
         self.task = task
         self.model_specs = model_specs  # lista de (nome, classe, kwargs)
@@ -2409,6 +2417,7 @@ class SklScreeningWorker(QThread): # type: ignore
         self.random_state = random_state
         self.test_size = test_size
         self.cv_folds = cv_folds
+        self.split_method = split_method  # "Random", "Kennard-Stone" ou "Sphere Exclusion"
         self.trained_models = {}
         self.x_train = self.x_test = self.y_train = self.y_test = None
 
@@ -2447,9 +2456,23 @@ class SklScreeningWorker(QThread): # type: ignore
                     except Exception as e:
                         self.progress.emit(f"Error evaluating model {name}: {e}", {})
             else:
-                self.x_train, self.x_test, self.y_train, self.y_test = train_test_split(
-                    self.x, self.y, test_size=self.test_size, random_state=self.random_state
-                )
+                if self.test_size and self.test_size > 0:
+                    if rational_split is not None and self.split_method != "Random":
+                        # Split racional (Kennard-Stone / Sphere Exclusion): o teste fica dentro do
+                        # espaço químico do treino - ver MODULES/rational_split.py.
+                        self.x_train, self.x_test, self.y_train, self.y_test = rational_split.split(
+                            self.x, self.y, self.test_size, self.split_method, self.task,
+                            random_state=self.random_state,
+                        )
+                    else:
+                        self.x_train, self.x_test, self.y_train, self.y_test = train_test_split(
+                            self.x, self.y, test_size=self.test_size, random_state=self.random_state
+                        )
+                else:
+                    # Modo sem teste (Test Size = 0): o Internal DataFrame inteiro é o treino; não há
+                    # conjunto teste (x_test/y_test = None) - a validação externa vem do External DataFrame.
+                    self.x_train, self.y_train = self.x, self.y
+                    self.x_test = self.y_test = None
                 # O ranking do Screening usa SÓ o conjunto de treino (validação cruzada k-fold): o
                 # conjunto de teste fica guardado, sem influenciar nenhuma escolha (algoritmo,
                 # hiperparâmetros), para a avaliação final de predictivity (Princípio 4 da OECD).
@@ -2997,6 +3020,10 @@ class SklEvaluateWorker(QThread): # type: ignore
         self.x_reset = x_reset
         self.y_reset = y_reset
         self.kwargs = kwargs
+        # Predições out-of-fold (y_true, y_pred), uma por composto do treino - usadas pelo gráfico
+        # "Predicted vs Experimental (CV)". None quando o método prevê o mesmo composto várias vezes
+        # (Leave-P-Out com p > 1, Bootstrap), em que não há uma predição única por composto.
+        self.oof = None
 
     def run(self):
         # Força threads em vez de processos (fork) para o joblib — ver comentário em SklScreeningWorker.run().
@@ -3073,6 +3100,9 @@ class SklEvaluateWorker(QThread): # type: ignore
                     row["Correct"] = bool(np.mean(np.asarray(y_te) == np.asarray(y_pred)) >= 0.5)
             rows.append(row)
 
+        if not (method == "Leave-P-Out" and self.kwargs.get("p", 1) > 1):
+            self.oof = (list(all_y_true), list(all_y_pred))
+
         cv_df = pd.DataFrame(rows)
         # "Fold" = "Mean" (antes "OVERALL"): a linha de resumo é, de fato, a média entre folds
         # para as colunas de treino (ex.: Accuracy Train) - para as de teste (Accuracy Test, F1,
@@ -3129,6 +3159,7 @@ class SklEvaluateWorker(QThread): # type: ignore
             outer_split_iter = outer_splitter.split(x_reset)
 
         rows = []
+        oof_true, oof_pred = [], []
         for fold_num, (train_idx, test_idx) in enumerate(outer_split_iter, start=1):
             x_tr, x_te = x_reset.iloc[train_idx], x_reset.iloc[test_idx]
             y_tr, y_te = y_reset.iloc[train_idx], y_reset.iloc[test_idx]
@@ -3137,6 +3168,7 @@ class SklEvaluateWorker(QThread): # type: ignore
                                         scoring=self.kwargs.get("scoring"))
             inner_search.fit(x_tr, y_tr)
             y_pred = inner_search.predict(x_te)
+            oof_true.extend(list(y_te)); oof_pred.extend(list(y_pred))
             row = {"Outer Fold": fold_num, "Best Params": str(inner_search.best_params_)}
             if task == "regression":
                 row["R2 Test"] = float(r2_score(y_te, y_pred))
@@ -3149,6 +3181,7 @@ class SklEvaluateWorker(QThread): # type: ignore
                 row["F1"] = float(f1_score(y_te, y_pred, average="weighted"))
                 row["MCC"] = float(matthews_corrcoef(y_te, y_pred))
             rows.append(row)
+        self.oof = (oof_true, oof_pred)
         return pd.DataFrame(rows)
 
     def _run_bootstrap(self):
@@ -15565,6 +15598,9 @@ class MainWindow(QMainWindow):
             warn_key, blocked = "s7i_warn_module_missing", True
         elif task == "clustering":
             warn_key, blocked = "s7i_warn_clustering", True
+        elif model is not None and x_tr is not None and x_te is None:
+            # USI em modo sem teste (Test Size = 0): as ferramentas medem no conjunto teste.
+            warn_key, blocked = "s7i_warn_no_test_set", True
         elif model is None or x_tr is None or x_te is None:
             warn_key, blocked = "s7i_warn_no_model", True
         elif mi.looks_like_projection(x_tr.columns, getattr(self, "_df_int_path", "") or ""):
@@ -20034,7 +20070,10 @@ class MainWindow(QMainWindow):
             metric_col_skl.addRow(self._trL("s6_lbl_select_y_column_internal"), self.cb_skl_y)
 
             self.dsp_skl_test_size = QDoubleSpinBox()
-            self.dsp_skl_test_size.setRange(0.05, 0.95)
+            # 0 = "modo sem teste": todo o Internal DataFrame vira treino (Screening/Tuning/Validation);
+            # a validação externa fica a cargo do External DataFrame (Predict com "With Y").
+            self.dsp_skl_test_size.setRange(0.0, 0.95)
+            self._tr("s6_tooltip_test_size", self.dsp_skl_test_size.setToolTip)
             self.dsp_skl_test_size.setSingleStep(0.05)
             self.dsp_skl_test_size.setValue(0.20)
             self.dsp_skl_test_size.setFixedWidth(90)
@@ -20081,6 +20120,18 @@ class MainWindow(QMainWindow):
             self.btn_skl_view_train_test_freq.clicked.connect(self.run_view_skl_train_test_frequency)
             screen_btns_row.addWidget(self.btn_skl_view_train_test_freq, alignment=Qt.AlignCenter)
             screen_btns_row.addStretch()
+
+            # Método de divisão treino/teste, ao lado do Run Screening: aleatório (padrão, reprodutível
+            # pelo Random State) ou racional (Kennard-Stone / Sphere Exclusion - MODULES/rational_split.py).
+            screen_btns_row.addWidget(self._trL("s6_lbl_split_method"), alignment=Qt.AlignRight)
+            self.cb_skl_split_method = QComboBox()
+            self.cb_skl_split_method.addItems(["Random", "Kennard-Stone", "Sphere Exclusion"] if rational_split is not None else ["Random"])
+            self.cb_skl_split_method.setFixedWidth(200)
+            self._tr("s6_tooltip_split_method", self.cb_skl_split_method.setToolTip)
+            screen_btns_row.addWidget(self.cb_skl_split_method, alignment=Qt.AlignRight)
+            # Com Test Size = 0 (modo sem teste) não há divisão - o método fica desabilitado.
+            self.dsp_skl_test_size.valueChanged.connect(lambda v: self.cb_skl_split_method.setEnabled(v > 0))
+            screen_btns_row.addSpacing(10)
 
             self.btn_skl_run_screening = QPushButton(); self._tr("s6_btn_run_screening", self.btn_skl_run_screening.setText)
             self.btn_skl_run_screening.setProperty("role", "primary")
@@ -20225,6 +20276,15 @@ class MainWindow(QMainWindow):
             self._tr("s6_tooltip_yrand_run", self.btn_skl_yrand_run.setToolTip)
             self.btn_skl_yrand_run.clicked.connect(self.run_skl_yrandomization)
             eval_btn_row.addWidget(self.btn_skl_yrand_run)
+
+            # Predicted vs Experimental (regressão) / Confusion Matrix (classificação) com as predições
+            # out-of-fold da última validação cruzada - inspeção do modelo sem usar o conjunto teste.
+            self.btn_skl_cv_plot = QPushButton(); self._tr("s6_btn_cv_plot", self.btn_skl_cv_plot.setText)
+            self.btn_skl_cv_plot.setProperty("role", "secondary")
+            self.btn_skl_cv_plot.setFixedWidth(180)
+            self._tr("s6_tooltip_cv_plot", self.btn_skl_cv_plot.setToolTip)
+            self.btn_skl_cv_plot.clicked.connect(self.run_skl_cv_plot)
+            eval_btn_row.addWidget(self.btn_skl_cv_plot)
             eval_btn_row.addStretch()
             lay_skl_eval.addLayout(eval_btn_row)
 
@@ -22473,12 +22533,13 @@ class MainWindow(QMainWindow):
         x_tr = getattr(self, "skl_x_train", None)
         x_te = getattr(self, "skl_x_test", None)
         out_dir = getattr(self, "skl_out_data", None)
-        if df is None or x_tr is None or x_te is None or not out_dir:
+        if df is None or x_tr is None or not out_dir:
             return
         try:
             usi = getattr(self, "skl_usi_key", "") or "LOAD"
             df.loc[x_tr.index].to_csv(os.path.join(out_dir, f"skl_train_set_{usi}.csv"), index=False)
-            df.loc[x_te.index].to_csv(os.path.join(out_dir, f"skl_test_set_{usi}.csv"), index=False)
+            if x_te is not None:  # modo sem teste (Test Size = 0): só há o conjunto de treino
+                df.loc[x_te.index].to_csv(os.path.join(out_dir, f"skl_test_set_{usi}.csv"), index=False)
         except Exception:
             import traceback; traceback.print_exc()
 
@@ -22538,6 +22599,8 @@ class MainWindow(QMainWindow):
                 "y_column": self.cb_skl_y.currentText() if hasattr(self, "cb_skl_y") else "",
                 "test_size": self.dsp_skl_test_size.value() if hasattr(self, "dsp_skl_test_size") else None,
                 "cv_folds": self.sp_skl_screen_cv_folds.value() if hasattr(self, "sp_skl_screen_cv_folds") else None,
+                "split_method": self.cb_skl_split_method.currentText() if hasattr(self, "cb_skl_split_method") else "Random",
+                "random_state": self._get_skl_random_state(),
             },
             "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
@@ -22635,6 +22698,10 @@ class MainWindow(QMainWindow):
             self.dsp_skl_test_size.setValue(float(screening_settings["test_size"]))
         if hasattr(self, "sp_skl_screen_cv_folds") and screening_settings.get("cv_folds") is not None:
             self.sp_skl_screen_cv_folds.setValue(int(screening_settings["cv_folds"]))
+        if hasattr(self, "cb_skl_split_method"):
+            # USIs anteriores ao split racional não têm a chave: foram divididas aleatoriamente.
+            idx = self.cb_skl_split_method.findText(screening_settings.get("split_method") or "Random")
+            self.cb_skl_split_method.setCurrentIndex(idx if idx >= 0 else 0)
 
         names = list(self.skl_trained_models)
         select_name = config.get("current_model") or config.get("best_model")
@@ -22979,8 +23046,10 @@ class MainWindow(QMainWindow):
                     f"The training set has only {n_train} rows - fewer than the {cv_folds} CV folds. "
                     "Reduce 'CV Folds (train)' or the test size.")
                 return
+            split_method = self.cb_skl_split_method.currentText() if hasattr(self, "cb_skl_split_method") else "Random"
             self._skl_screening_worker = SklScreeningWorker(task, model_specs, x, y, random_state,
-                                                            test_size=test_size, cv_folds=cv_folds)
+                                                            test_size=test_size, cv_folds=cv_folds,
+                                                            split_method=split_method)
             self._skl_screening_worker.progress.connect(self._on_skl_screening_progress)
             self._skl_screening_worker.finished_all.connect(self._on_skl_screening_finished)
             self._skl_screening_worker.error.connect(self._on_skl_screening_error)
@@ -23475,6 +23544,16 @@ class MainWindow(QMainWindow):
         self._fill_table_from_df(self.tbl_skl_cv, cv_df)
 
         eval_model_name = getattr(self, "_skl_evaluate_model_name", "model")
+        # Predições out-of-fold desta validação (só treino), para o gráfico "Plot CV Predictions" -
+        # vinculadas ao modelo e à USI, para não plotar resultados de outro modelo/USI.
+        worker = getattr(self, "_skl_evaluate_worker", None)
+        oof = getattr(worker, "oof", None) if worker is not None else None
+        _registry, cv_task = self._get_skl_registry()
+        self._skl_cv_oof = {
+            "model": eval_model_name, "usi": getattr(self, "skl_usi_key", None), "task": cv_task,
+            "method": getattr(self, "_skl_evaluate_cv_method", ""), "folds": getattr(self, "_skl_evaluate_cv_folds", None),
+            "y_true": oof[0] if oof else None, "y_pred": oof[1] if oof else None,
+        }
         # Lembra Method/shuffle/Folds/p usados para esse modelo, para restaurá-los quando essa USI for
         # recarregada e o mesmo modelo for reselecionado.
         if not hasattr(self, "_skl_validation_settings") or self._skl_validation_settings is None:
@@ -23493,6 +23572,63 @@ class MainWindow(QMainWindow):
             cv_df.to_csv(out_path, index=False)
         except Exception:
             pass
+
+    def run_skl_cv_plot(self):
+        """Botão "Plot CV Predictions" (grupo Validation and Model Robustness): Predicted vs Experimental
+        (regressão) ou Confusion Matrix (classificação) com as predições OUT-OF-FOLD da última
+        validação cruzada do modelo selecionado - cada composto do treino previsto por um modelo que não
+        o viu. Serve para inspecionar o modelo durante o desenvolvimento sem consumir o conjunto teste
+        (os gráficos do grupo Performance Charts usam o teste)."""
+        idioma = self._idioma
+        title = i18n.t("msg_title_plot", idioma)
+        model_name = self.cb_skl_tune_model.currentText().strip() if hasattr(self, "cb_skl_tune_model") else ""
+        oof = getattr(self, "_skl_cv_oof", None)
+        if not oof or oof.get("model") != model_name or oof.get("usi") != getattr(self, "skl_usi_key", None):
+            QMessageBox.information(self, title, i18n.t("s6_msg_cv_plot_run_first", idioma, model=model_name or "-"))
+            return
+        if oof.get("y_true") is None:
+            QMessageBox.information(self, title, i18n.t("s6_msg_cv_plot_unavailable", idioma, method=oof.get("method", "")))
+            return
+        try:
+            y_true = np.asarray(oof["y_true"])
+            y_pred = np.asarray(oof["y_pred"])
+            method, folds = oof.get("method", ""), oof.get("folds")
+            # Ex.: "KFold (5 folds)", "Nested CV (3 folds)", "Leave-One-Out (LOOCV)".
+            cv_desc = f"{method} ({folds} folds)" if folds and method in ("KFold", "StratifiedKFold", "Nested CV") else method
+            if oof.get("task") == "regression":
+                kind = "cv_predicted_vs_actual"
+                fig, ax = plt.subplots(figsize=(6, 5))
+                ax.scatter(y_true, y_pred, alpha=0.5, color="steelblue")
+                lims = [min(y_true.min(), y_pred.min()), max(y_true.max(), y_pred.max())]
+                ax.plot(lims, lims, "--", color="gray")
+                ax.set_xlabel("Experimental"); ax.set_ylabel("Predicted (out-of-fold)")
+                ax.set_title(f"{model_name}: Predicted vs Experimental\n{cv_desc} - training set (n={len(y_true)})")
+                if getattr(self, "chk_skl_metric_legend", None) is not None and self.chk_skl_metric_legend.isChecked():
+                    # Predições out-of-fold: o R² delas é o Q² da validação cruzada.
+                    ax.plot([], [], " ", label=_skl_regression_metrics_label(y_true, y_pred).replace("R²", "Q² (CV)"))
+                    ax.legend(loc="best")
+            else:
+                kind = "cv_confusion_matrix"
+                labels = sorted(set(y_true.tolist()) | set(y_pred.tolist()))
+                cm = confusion_matrix(y_true, y_pred, labels=labels)
+                fig, ax = plt.subplots(figsize=(6, 5))
+                im = ax.imshow(cm, cmap="Blues")
+                ax.set_xticks(range(len(labels))); ax.set_xticklabels(labels)
+                ax.set_yticks(range(len(labels))); ax.set_yticklabels(labels)
+                ax.set_xlabel("Predicted (out-of-fold)"); ax.set_ylabel("True")
+                ax.set_title(f"{model_name}: Confusion Matrix\n{cv_desc} - training set (n={len(y_true)})")
+                thresh = cm.max() / 2.0
+                for i in range(cm.shape[0]):
+                    for j in range(cm.shape[1]):
+                        ax.text(j, i, format(cm[i, j], "d"), ha="center", va="center",
+                                color="white" if cm[i, j] > thresh else "black")
+                fig.colorbar(im, ax=ax)
+            fig.tight_layout()
+            self._set_current_sklearn_usi_context()
+            self._show_skl_plot_dialog(fig, kind, f"{model_name}_{kind}_{self.skl_usi_key}")
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            QMessageBox.critical(self, i18n.t("msg_title_plot_error", idioma), str(e))
 
     def _on_skl_evaluate_error(self, message):
         dlg = getattr(self, "_skl_evaluate_progress_dlg", None)
@@ -23717,7 +23853,11 @@ class MainWindow(QMainWindow):
             x_test = getattr(self, "skl_x_test", None)
             y_test = getattr(self, "skl_y_test", None)
             if x_test is None or y_test is None:
-                QMessageBox.warning(self, i18n.t("msg_title_evaluate", self._idioma), "Run Screening first.")
+                if getattr(self, "skl_x_train", None) is not None:
+                    QMessageBox.information(self, i18n.t("msg_title_evaluate", self._idioma),
+                        i18n.t("s6_msg_no_test_set", self._idioma))
+                else:
+                    QMessageBox.warning(self, i18n.t("msg_title_evaluate", self._idioma), "Run Screening first.")
                 return
 
             answer = QMessageBox.question(
@@ -24175,10 +24315,15 @@ class MainWindow(QMainWindow):
             "manifold", "pr", "threshold", "calibration", "lift", "gain", "ks",
         )
         if needs_test_split and (getattr(self, "skl_x_test", None) is None or getattr(self, "skl_y_test", None) is None):
-            QMessageBox.warning(self, i18n.t("msg_title_plot", self._idioma),
-                "This chart needs the train/test split from Run Screening. Run Screening at least once "
-                "in this session (Tuning/Load can be used afterward) before plotting this chart."
-            )
+            if getattr(self, "skl_x_train", None) is not None:
+                # Modo sem teste (Test Size = 0): esses gráficos avaliam o conjunto teste, que não existe.
+                QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma),
+                    i18n.t("s6_msg_chart_no_test_set", self._idioma, chart=kind))
+            else:
+                QMessageBox.warning(self, i18n.t("msg_title_plot", self._idioma),
+                    "This chart needs the train/test split from Run Screening. Run Screening at least once "
+                    "in this session (Tuning/Load can be used afterward) before plotting this chart."
+                )
             return None
 
         show_metric_legend = (
