@@ -546,7 +546,7 @@ _TEXTOS = {
     "btn_select_ad_df": {"en": "Select AD DataFrame", "pt": "Selecionar DataFrame de DA"},
     "s5_lbl_usi": {"en": "USI:", "pt": "USI:"},
     "s5_subtab_predict": {"en": "Predict", "pt": "Predizer"},
-    "lbl_descriptors_columns_range": {"en": "Descriptors Columns Range:", "pt": "Intervalo de Colunas de Descritores:"},
+    "lbl_descriptors_columns_range": {"en": "Descriptors Columns:", "pt": "Colunas de Descritores:"},
     "btn_plot_model": {"en": "Plot Model", "pt": "Plotar Modelo"},
     "msg_step5_build_error_title": {"en": "STEP 5 build error", "pt": "Erro ao construir a ETAPA 5"},
     "msg_step5_build_error": {
@@ -664,6 +664,63 @@ _TEXTOS = {
               "Os métodos racionais usam distâncias euclidianas nos descritores autoescalados (primeiras "
               "componentes principais, até 50, quando há mais colunas) e são aplicados por classe na classificação.",
     },
+    "msg_title_refit": {"en": "Refit", "pt": "Refit"},
+    "s6_btn_refit": {"en": "Refit", "pt": "Refit"},
+    "s6_tooltip_refit": {
+        "en": "Retrains the selected model(s) with the SAME hyperparameters on training + test sets (100% of the "
+              "Internal DataFrame) and saves each one as '<name>_refit'. Use it after Evaluate Test, to get a final "
+              "model with all data: the test metrics remain those of the source model (a conservative estimate for "
+              "the _refit model), whose external validation is done with Predict + 'With Y'.",
+        "pt": "Retreina o(s) modelo(s) selecionado(s) com os MESMOS hiperparâmetros em treino + teste (100% do "
+              "Internal DataFrame) e salva cada um como '<nome>_refit'. Use depois do Evaluate Test, para ter um "
+              "modelo final com todos os dados: as métricas de teste continuam sendo as do modelo de origem (uma "
+              "estimativa conservadora para o _refit), cuja validação externa é feita com Predict + 'Com Y'.",
+    },
+    "s6_msg_refit_no_test": {
+        "en": "This USI has no test set (Test Size = 0): its models were already trained on 100% of the Internal "
+              "DataFrame, so there is nothing to refit.",
+        "pt": "Esta USI não tem conjunto teste (Tamanho do Teste = 0): seus modelos já foram treinados com 100% do "
+              "Internal DataFrame, então não há o que retreinar.",
+    },
+    "s6_msg_refit_already": {
+        "en": "These models are already refit models (trained on training + test): {models}.",
+        "pt": "Estes modelos já são modelos refit (treinados em treino + teste): {models}.",
+    },
+    "s6_msg_refit_confirm": {
+        "en": "Refit {models} with the same hyperparameters on training ({n_train}) + test ({n_test}) = {n_total} "
+              "compounds?\n\nEach one is saved as '<name>_refit' (the source model is kept). The test set then "
+              "becomes training data of the _refit model: Evaluate Test, the test-based Performance Charts and the "
+              "Interpretability Tools are not available for it - its external validation is done with Predict + "
+              "'With Y' on the External DataFrame. Run Evaluate Test on the source model first, if you have not yet.",
+        "pt": "Retreinar {models} com os mesmos hiperparâmetros em treino ({n_train}) + teste ({n_test}) = {n_total} "
+              "compostos?\n\nCada um é salvo como '<nome>_refit' (o modelo de origem é mantido). O conjunto teste "
+              "passa a ser dado de treino do modelo _refit: Evaluate Test, os gráficos de Performance Charts "
+              "baseados no teste e as Interpretability Tools não ficam disponíveis para ele - sua validação externa é "
+              "feita com Predict + 'Com Y' no External DataFrame. Rode antes o Evaluate Test no modelo de origem, se "
+              "ainda não rodou.",
+    },
+    "s6_msg_refit_done": {
+        "en": "Refit done ({n_total} compounds): {models}.",
+        "pt": "Refit concluído ({n_total} compostos): {models}.",
+    },
+    "s6_msg_refit_no_test_eval": {
+        "en": "Refit models were trained WITH the test set, so they cannot be evaluated on it: {models}. Their test "
+              "metrics are those of the source models; use Predict + 'With Y' on the External DataFrame for their "
+              "external validation.",
+        "pt": "Modelos refit foram treinados COM o conjunto teste e por isso não podem ser avaliados nele: {models}. "
+              "Suas métricas de teste são as dos modelos de origem; use Predict + 'Com Y' no External DataFrame para "
+              "a validação externa deles.",
+    },
+    "s6_msg_refit_no_test_chart": {
+        "en": "The chart '{chart}' evaluates the model on the test set, which is part of the training data of the "
+              "refit model '{model}' - it would show fit, not prediction. Plot it for the source model instead.",
+        "pt": "O gráfico '{chart}' avalia o modelo no conjunto teste, que faz parte do treino do modelo refit "
+              "'{model}' - mostraria ajuste, não predição. Gere-o para o modelo de origem.",
+    },
+    "s6_msg_refit_no_tuning": {
+        "en": "'{model}' is a refit (final) model. To tune, select its source model '{source}' and refit again afterwards.",
+        "pt": "'{model}' é um modelo refit (final). Para tunar, selecione o modelo de origem '{source}' e faça o refit de novo depois.",
+    },
     "s6_lbl_screening_cv_folds": {"en": "CV Folds (train):", "pt": "Folds da CV (treino):"},
     "s6_tooltip_screening_cv_folds": {
         "en": "Number of k-fold cross-validation folds used to rank the models. The cross-validation "
@@ -693,7 +750,7 @@ _TEXTOS = {
     "s6_lbl_folds": {"en": "Folds:", "pt": "Folds:"},
     "s6_lbl_p_leave_p_out": {"en": "p (Leave-P-Out):", "pt": "p (Leave-P-Out):"},
     "s6_btn_run_cross_validation": {"en": "Run Cross-Validation", "pt": "Executar Validação Cruzada"},
-    "s6_grp_remove_model_predict": {"en": "Remove Model and Predict", "pt": "Remover Modelo e Predizer"},
+    "s6_grp_remove_model_predict": {"en": "Refit, Evaluate, Predict and Remove", "pt": "Retreinar, Avaliar, Predizer e Remover"},
     "s6_chk_remove_descriptors": {"en": "Remove Descriptors", "pt": "Remover Descritores"},
     "s6_btn_remove_model": {"en": "Remove Model", "pt": "Remover Modelo"},
     "s6_grp_performance_charts": {"en": "Performance Charts", "pt": "Gráficos de Desempenho"},
@@ -828,6 +885,14 @@ _TEXTOS = {
         "en": "Applicability domain defined on the TRAINING set only ({n} compounds of USI {usi}); the test set is not part of the domain.",
         "pt": "Domínio de aplicabilidade definido apenas sobre o conjunto de TREINO ({n} compostos da USI {usi}); o conjunto de teste não faz parte do domínio.",
     },
+    "s7_msg_ad_reference_no_test": {
+        "en": "Applicability domain defined on the WHOLE Internal DataFrame ({n} compounds): USI {usi} has no test set (Test Size = 0), so all compounds were used to build the model.",
+        "pt": "Domínio de aplicabilidade definido sobre o Internal DataFrame INTEIRO ({n} compostos): a USI {usi} não tem conjunto teste (Tamanho do Teste = 0), então todos os compostos foram usados para gerar o modelo.",
+    },
+    "s7_msg_ad_reference_refit": {
+        "en": "Applicability domain defined on the WHOLE Internal DataFrame ({n} compounds): USI {usi} has refit model(s) trained on training + test ({models}).",
+        "pt": "Domínio de aplicabilidade definido sobre o Internal DataFrame INTEIRO ({n} compostos): a USI {usi} tem modelo(s) refit treinado(s) em treino + teste ({models}).",
+    },
     "s7_msg_ad_reference_full": {
         "en": "No train/test split of the current USI was found for this Internal DataFrame, so the domain was defined on the ENTIRE internal DataFrame ({n} compounds). Run Screening in STEP 4 (or load a USI) with this DataFrame to restrict it to the training set.",
         "pt": "Nenhum split de treino/teste da USI atual foi encontrado para este Internal DataFrame, então o domínio foi definido sobre o Internal DataFrame INTEIRO ({n} compostos). Rode o Screening na ETAPA 4 (ou carregue uma USI) com este DataFrame para restringi-lo ao conjunto de treino.",
@@ -838,8 +903,8 @@ _TEXTOS = {
     "s7i_grp_title": {"en": "Interpretability Tools", "pt": "Ferramentas de Interpretabilidade"},
     "s7i_lbl_model": {"en": "Model:", "pt": "Modelo:"},
     "s7i_tooltip_model": {
-        "en": "Trained models of the current USI (STEP 4), in ranking order. The analysis always uses the test set of that USI.",
-        "pt": "Modelos treinados da USI atual (ETAPA 4), na ordem do ranking. A análise sempre usa o conjunto de teste dessa USI.",
+        "en": "Trained models of the current USI (STEP 4), in ranking order. The analysis uses the set chosen in 'Data:' (test set of the USI or External DataFrame).",
+        "pt": "Modelos treinados da USI atual (ETAPA 4), na ordem do ranking. A análise usa o conjunto escolhido em 'Dados:' (conjunto teste da USI ou External DataFrame).",
     },
     "s7i_tooltip_explainer": {
         "en": "SHAP explainer chosen automatically for this model family: trees and boosting -> TreeExplainer (exact); linear/regularised models -> LinearExplainer (exact); SVM/KNN/MLP and the rest -> PermutationExplainer (approximate, linear cost in the number of descriptors).",
@@ -863,13 +928,13 @@ _TEXTOS = {
     "s7i_lbl_modality": {"en": "Modality:", "pt": "Modalidade:"},
     "s7i_chk_shap": {"en": "SHAP", "pt": "SHAP"},
     "s7i_tooltip_shap": {
-        "en": "SHAP values on (a sample of) the test set. Optional dependency: install it with 'pip install shap'.",
-        "pt": "Valores SHAP sobre (uma amostra do) conjunto de teste. Dependência opcional: instale com 'pip install shap'.",
+        "en": "SHAP values on (a sample of) the set chosen in 'Data:' - the External DataFrame does not need the Y column. Optional dependency: install it with 'pip install shap'.",
+        "pt": "Valores SHAP sobre (uma amostra do) conjunto escolhido em 'Dados:' - o External DataFrame não precisa da coluna Y. Dependência opcional: instale com 'pip install shap'.",
     },
     "s7i_chk_perm": {"en": "Permutation importance", "pt": "Importância por permutação"},
     "s7i_tooltip_perm": {
-        "en": "Drop in the score when a descriptor (or a whole group) is shuffled. Computed on the TEST set only - on the training set it would measure memorisation, not predictive ability - and scored with the same metric as the Screening 'Sort metric'.",
-        "pt": "Queda do escore ao embaralhar um descritor (ou um grupo inteiro). Calculada SOMENTE no conjunto de TESTE - no treino mediria memorização, não capacidade preditiva - e com a mesma métrica do 'Sort metric' do Screening.",
+        "en": "Drop in the score when a descriptor (or a whole group) is shuffled, scored with the same metric as the Screening 'Sort metric'. Computed only on compounds the model did not see - the test set or the External DataFrame (rows with an observed Y) - since on the training set it would measure memorisation, not predictive ability.",
+        "pt": "Queda do escore ao embaralhar um descritor (ou um grupo inteiro), com a mesma métrica do 'Sort metric' do Screening. Calculada só em compostos que o modelo não viu - o conjunto teste ou o External DataFrame (linhas com Y observado) - pois no treino mediria memorização, não capacidade preditiva.",
     },
     "s7i_chk_individual": {"en": "Individual", "pt": "Individual"},
     "s7i_tooltip_individual": {
@@ -893,8 +958,8 @@ _TEXTOS = {
     },
     "s7i_lbl_shap_rows": {"en": "SHAP rows:", "pt": "Linhas do SHAP:"},
     "s7i_tooltip_shap_rows": {
-        "en": "Maximum number of test compounds explained by SHAP (random sample when the test set is larger). Mainly bounds the cost of the PermutationExplainer.",
-        "pt": "Número máximo de compostos de teste explicados pelo SHAP (amostra aleatória quando o teste é maior). Limita principalmente o custo do PermutationExplainer.",
+        "en": 'Maximum number of compounds (test set or External DataFrame) explained by SHAP (random sample when the set is larger). Mainly bounds the cost of the PermutationExplainer.',
+        "pt": 'Número máximo de compostos (conjunto teste ou External DataFrame) explicados pelo SHAP (amostra aleatória quando o conjunto é maior). Limita principalmente o custo do PermutationExplainer.',
     },
     "s7i_lbl_top_n": {"en": "Top N:", "pt": "Top N:"},
     "s7i_lbl_workers": {"en": "Workers:", "pt": "Núcleos:"},
@@ -916,13 +981,40 @@ _TEXTOS = {
         "en": "Interpretability applies to regression/classification models only (clustering has no test set or response).",
         "pt": "A interpretabilidade se aplica apenas a modelos de regressão/classificação (clusterização não tem conjunto de teste nem resposta).",
     },
+    "s7i_warn_refit": {
+        "en": "The selected model is a refit model (trained on training + test), so its test set is training data. Choose 'External DataFrame' in 'Data:' (or select the source model).",
+        "pt": "O modelo selecionado é um modelo refit (treinado em treino + teste), então o seu conjunto teste é dado de treino. Escolha 'External DataFrame' em 'Dados:' (ou selecione o modelo de origem).",
+    },
+    "s7i_lbl_data": {"en": "Data:", "pt": "Dados:"},
+    "s7i_data_test": {"en": "Test set", "pt": "Conjunto teste"},
+    "s7i_data_external": {"en": "External DataFrame", "pt": "External DataFrame"},
+    "s7i_tooltip_data": {
+        "en": "Set on which the tools measure the model. Test set: the test set of the USI (not available with Test Size = 0 or for refit models - then 'External DataFrame' is selected automatically). External DataFrame: the selected external set, with the same descriptor columns as the model; SHAP does not need Y, permutation importance uses only the rows with an observed Y.",
+        "pt": "Conjunto em que as ferramentas medem o modelo. Conjunto teste: o teste da USI (indisponível com Tamanho do Teste = 0 ou para modelos refit - nesses casos 'External DataFrame' é escolhido automaticamente). External DataFrame: o conjunto externo selecionado, com as mesmas colunas de descritores do modelo; o SHAP não precisa de Y, e a importância por permutação usa só as linhas com Y observado.",
+    },
+    "s7i_warn_ext_missing": {
+        "en": "Select the External DataFrame (STEP 4 or STEP 5) to run the interpretability tools on it.",
+        "pt": "Selecione o External DataFrame (ETAPA 4 ou ETAPA 5) para rodar as ferramentas de interpretabilidade sobre ele.",
+    },
+    "s7i_warn_ext_columns": {
+        "en": "The External DataFrame lacks {n} of the model's {total} descriptor columns (or has no row with all of them numeric). It must contain the same descriptors used to train the model.",
+        "pt": "O External DataFrame não tem {n} das {total} colunas de descritores do modelo (ou nenhuma linha com todas numéricas). Ele precisa conter os mesmos descritores usados no treino do modelo.",
+    },
+    "s7i_warn_ext_no_y": {
+        "en": "The External DataFrame has no Y column ('{y}'): only SHAP is available - permutation importance needs the observed values.",
+        "pt": "O External DataFrame não tem a coluna Y ('{y}'): só o SHAP está disponível - a importância por permutação precisa dos valores observados.",
+    },
+    "s7i_msg_ext_too_few": {
+        "en": "Only {n} compound(s) of the External DataFrame have a usable observed Y - at least 3 are needed for permutation importance.",
+        "pt": "Apenas {n} composto(s) do External DataFrame têm Y observado utilizável - são necessários ao menos 3 para a importância por permutação.",
+    },
     "s7i_warn_no_test_set": {
-        "en": "This USI has no test set (Test Size = 0 in STEP 4): the interpretability tools measure the model on the test set.",
-        "pt": "Esta USI não tem conjunto teste (Tamanho do Teste = 0 na ETAPA 4): as ferramentas de interpretabilidade medem o modelo no conjunto teste.",
+        "en": "This USI has no test set (Test Size = 0 in STEP 4). Choose 'External DataFrame' in 'Data:' to run the interpretability tools on the external set.",
+        "pt": "Esta USI não tem conjunto teste (Tamanho do Teste = 0 na ETAPA 4). Escolha 'External DataFrame' em 'Dados:' para rodar as ferramentas de interpretabilidade no conjunto externo.",
     },
     "s7i_warn_no_model": {
-        "en": "Run Screening in STEP 4 (or load a USI) to enable this group: it needs a trained model and the test set of that USI.",
-        "pt": "Rode o Screening na ETAPA 4 (ou carregue uma USI) para habilitar este grupo: ele precisa de um modelo treinado e do conjunto de teste dessa USI.",
+        "en": 'Run Screening in STEP 4 (or load a USI) to enable this group: it needs a trained model of that USI.',
+        "pt": 'Rode o Screening na ETAPA 4 (ou carregue uma USI) para habilitar este grupo: ele precisa de um modelo treinado dessa USI.',
     },
     "s7i_warn_projection": {
         "en": "Disabled: this model was trained on projected components (PCA/UMAP/t-SNE/...), so SHAP and permutation would refer to components, not descriptors, and the mechanistic reading is lost.",

@@ -4983,6 +4983,10 @@ class MainWindow(QMainWindow):
     STEP7_PLAIN_SPEC = [
         ("internal_dataframe_path", "_df_int_path"),
         ("external_dataframe_path", "_df_ext_path"),
+        # Conjunto de referência do último Compute AD (ver _ad_restrict_to_training_set) - usado pelo relatório.
+        ("ad_reference_mode", "_ad_reference_mode"),
+        ("ad_reference_n", "_ad_reference_n"),
+        ("ad_reference_usi", "_ad_reference_usi"),
     ]
 
     def _collect_step7_state(self):
@@ -5071,12 +5075,22 @@ class MainWindow(QMainWindow):
         except Exception:
             import traceback; traceback.print_exc()
 
+    def _ad_refit_models(self):
+        """Modelos refit (treinados em treino + teste) que ainda existem na USI atual."""
+        existing = getattr(self, "skl_trained_models", None) or {}
+        return [n for n in (getattr(self, "_skl_refit_settings", None) or {}) if n in existing]
+
     def _ad_restrict_to_training_set(self, df_full):
-        """O domínio de aplicabilidade deve descrever o espaço químico do conjunto que GEROU o modelo
-        (treino), não o Internal DataFrame inteiro - senão os compostos do teste também "definiriam" o
-        domínio. Usa o split de treino/teste da USI atual (skl_x_train, índice = linhas do Internal
-        DataFrame) e devolve (df_treino, True). Sem split utilizável (nenhuma USI com treino/teste, ou o
+        """Conjunto de referência do domínio de aplicabilidade: o espaço químico dos dados que GERARAM
+        o modelo final da USI atual (skl_x_train/skl_x_test, índice = linhas do Internal DataFrame).
+        - USI com teste (Test Size > 0) e sem Refit: só o TREINO - o teste não gerou o modelo e não
+          pode "definir" o domínio (self._ad_reference_mode = "train").
+        - USI sem teste (Test Size = 0): todo o Internal DataFrame já é treino ("no_test").
+        - USI com modelo(s) "_refit" (treino + teste): todo o Internal DataFrame ("refit").
+        Devolve (df_referência, True). Sem split utilizável (nenhuma USI com treino/teste, ou o
         DataFrame não é o mesmo do Screening), devolve (df_full, False) para o chamador avisar."""
+        self._ad_reference_mode = "full"
+        self._ad_reference_usi = getattr(self, "skl_usi_key", None)
         x_tr = getattr(self, "skl_x_train", None)
         x_all = getattr(self, "skl_x", None)
         if x_tr is None or x_all is None or df_full is None:
@@ -5084,8 +5098,16 @@ class MainWindow(QMainWindow):
         try:
             if len(df_full) != len(x_all) or not x_tr.index.isin(df_full.index).all():
                 return df_full, False
+            if getattr(self, "skl_x_test", None) is None:
+                self._ad_reference_mode = "no_test"
+                return df_full.reset_index(drop=True), True
+            if self._ad_refit_models():
+                self._ad_reference_mode = "refit"
+                return df_full.reset_index(drop=True), True
+            self._ad_reference_mode = "train"
             return df_full.loc[x_tr.index].reset_index(drop=True), True
         except Exception:
+            self._ad_reference_mode = "full"
             return df_full, False
 
     def _ad_ensure_exploration_ready(self):
@@ -15403,7 +15425,14 @@ class MainWindow(QMainWindow):
             # automaticamente — usam o botão "LOAD" ao lado de "Plot AD Exploration".
             self._ad_autosave_report_plots()
             self._save_step7_state()
-            if getattr(self, "_ad_used_train_split", False):
+            ref_mode = getattr(self, "_ad_reference_mode", "full")
+            if getattr(self, "_ad_used_train_split", False) and ref_mode == "no_test":
+                ref_note = i18n.t("s7_msg_ad_reference_no_test", self._idioma,
+                                  n=getattr(self, "_ad_reference_n", 0), usi=getattr(self, "skl_usi_key", ""))
+            elif getattr(self, "_ad_used_train_split", False) and ref_mode == "refit":
+                ref_note = i18n.t("s7_msg_ad_reference_refit", self._idioma, n=getattr(self, "_ad_reference_n", 0),
+                                  usi=getattr(self, "skl_usi_key", ""), models=", ".join(self._ad_refit_models()))
+            elif getattr(self, "_ad_used_train_split", False):
                 ref_note = i18n.t("s7_msg_ad_reference_train", self._idioma,
                                   n=getattr(self, "_ad_reference_n", 0), usi=getattr(self, "skl_usi_key", ""))
             else:
@@ -15575,15 +15604,38 @@ class MainWindow(QMainWindow):
         self.cb_interp_model.blockSignals(False)
         self._update_interp_info()
 
+    def _interp_external_data(self):
+        """Dados do External DataFrame para as Interpretability Tools: as colunas de descritores do
+        modelo (as mesmas de skl_x_train, na mesma ordem), só as linhas com todos os descritores
+        numéricos, e a coluna Y detectada pela mesma heurística do "With Y" do Predict (None se não
+        houver). Devolve (chave_de_aviso_ou_None, kwargs_do_aviso, dados_ou_None)."""
+        x_tr = getattr(self, "skl_x_train", None)
+        df = getattr(self, "df_ext", None)
+        if not isinstance(df, pd.DataFrame) or df.empty:
+            return "s7i_warn_ext_missing", {}, None
+        cols = list(x_tr.columns)
+        missing = [c for c in cols if c not in df.columns]
+        if missing:
+            return "s7i_warn_ext_columns", {"n": len(missing), "total": len(cols)}, None
+        X = df[cols].apply(pd.to_numeric, errors="coerce")
+        X = X[X.notna().all(axis=1)]
+        if X.empty:
+            return "s7i_warn_ext_columns", {"n": len(cols), "total": len(cols)}, None
+        return None, {}, {"X": X, "y_col": self._skl_detect_external_y_column(df)}
+
     def _update_interp_info(self, *_args):
         """Texto informativo do explicador (exato x aproximado, por família de modelo) e avisos que
-        bloqueiam o grupo: sem modelo/teste, clustering, ou X vindo de projeção (PCA/UMAP/t-SNE...)."""
+        bloqueiam o grupo. As ferramentas medem no conjunto escolhido em "Data:":
+        - Test set: o teste da USI (indisponível com Test Size = 0 e para modelos "_refit", cujo
+          treino inclui o teste);
+        - External DataFrame: o conjunto externo selecionado - SHAP não precisa de Y; a importância
+          por permutação precisa do Y observado (mesma detecção do "With Y" do Predict).
+        Quando o teste não pode ser usado, "Data:" passa sozinho para External DataFrame."""
         if not hasattr(self, "lbl_interp_explainer"):
             return
         idioma = self._idioma
         mi = module_interpretability
         shap_ok = mi is not None and mi.shap_installed()
-        self.chk_interp_shap.setEnabled(shap_ok)
         if not shap_ok:
             self.chk_interp_shap.setChecked(False)
 
@@ -15592,17 +15644,37 @@ class MainWindow(QMainWindow):
         x_tr = getattr(self, "skl_x_train", None)
         x_te = getattr(self, "skl_x_test", None)
         _reg, task = self._get_skl_registry()
+        has_usi = mi is not None and task != "clustering" and model is not None and x_tr is not None
+        is_refit = model is not None and self._skl_is_refit(name)
+        test_usable = has_usi and x_te is not None and not is_refit
 
-        explainer_text, warn_key, blocked = "", "", False
+        ext_warn, ext_kw, ext = (None, {}, None)
+        if has_usi:
+            ext_warn, ext_kw, ext = self._interp_external_data()
+        # Teste indisponível (Test Size = 0 ou modelo _refit) -> usa o External DataFrame.
+        if has_usi and not test_usable and self.cb_interp_data.currentData() == "test":
+            self.cb_interp_data.blockSignals(True)
+            self.cb_interp_data.setCurrentIndex(self.cb_interp_data.findData("external"))
+            self.cb_interp_data.blockSignals(False)
+        source = self.cb_interp_data.currentData() or "test"
+
+        explainer_text, warn_key, warn_kw, blocked = "", "", {}, False
+        perm_ok = True
+        extra_msgs = []
         if mi is None:
             warn_key, blocked = "s7i_warn_module_missing", True
         elif task == "clustering":
             warn_key, blocked = "s7i_warn_clustering", True
-        elif model is not None and x_tr is not None and x_te is None:
-            # USI em modo sem teste (Test Size = 0): as ferramentas medem no conjunto teste.
-            warn_key, blocked = "s7i_warn_no_test_set", True
-        elif model is None or x_tr is None or x_te is None:
+        elif model is None or x_tr is None:
             warn_key, blocked = "s7i_warn_no_model", True
+        elif source == "test" and is_refit:
+            # Modelo "_refit": o conjunto teste faz parte do seu treino.
+            warn_key, blocked = "s7i_warn_refit", True
+        elif source == "test" and x_te is None:
+            # USI em modo sem teste (Test Size = 0).
+            warn_key, blocked = "s7i_warn_no_test_set", True
+        elif source == "external" and ext_warn:
+            warn_key, warn_kw, blocked = ext_warn, ext_kw, True
         elif mi.looks_like_projection(x_tr.columns, getattr(self, "_df_int_path", "") or ""):
             warn_key, blocked = "s7i_warn_projection", True
         else:
@@ -15610,23 +15682,33 @@ class MainWindow(QMainWindow):
             desc = i18n.t(f"s7i_exp_{d['key']}", idioma, limit=d.get("limit", ""))
             kind = i18n.t("s7i_kind_exact" if d["exact"] else "s7i_kind_approx", idioma)
             explainer_text = i18n.t("s7i_explainer_line", idioma, desc=desc, kind=kind)
+            if source == "external" and ext is not None and ext.get("y_col") is None:
+                # Sem Y observado no externo: só o SHAP (a permutação mede a queda da métrica).
+                perm_ok = False
+                y_col = self.cb_skl_y.currentText().strip() if hasattr(self, "cb_skl_y") else ""
+                extra_msgs.append(i18n.t("s7i_warn_ext_no_y", idioma, y=y_col or "-"))
 
+        if not perm_ok:
+            self.chk_interp_perm.setChecked(False)
         msgs = []
         if warn_key:
-            msgs.append(i18n.t(warn_key, idioma))
+            msgs.append(i18n.t(warn_key, idioma, **warn_kw))
+        msgs += extra_msgs
         if mi is not None and not shap_ok:
             msgs.append(i18n.t("s7i_warn_shap_missing", idioma))
         self.lbl_interp_explainer.setText(explainer_text)
-        # Aviso de estado: não fica mais na interface - é exibido numa janela quando o usuário expande
+        # Aviso de estado: não fica na interface - é exibido numa janela quando o usuário expande
         # o grupo (ver _on_interp_group_toggled) e ao tentar rodar com o grupo bloqueado.
         self._interp_status_text = "\n\n".join(msgs)
-        # Mesma regra do botão Run Interpretability para todos os controles do grupo: só ficam
-        # habilitados com uma USI utilizável (screening atual ou USI carregada, com modelo e
-        # conjuntos de treino/teste) e sem bloqueio (clustering, X de projeção, módulo ausente).
-        for widget in (self.cb_interp_model, self.chk_interp_perm, self.chk_interp_individual, self.chk_interp_group,
+        # Modelo e "Data:" ficam disponíveis com uma USI utilizável (para o usuário poder trocar de
+        # modelo ou de conjunto); os demais controles seguem a mesma regra do Run Interpretability.
+        self.cb_interp_model.setEnabled(has_usi)
+        self.cb_interp_data.setEnabled(has_usi)
+        for widget in (self.chk_interp_individual, self.chk_interp_group,
                        self.dspn_interp_corr, self.spn_interp_repeats, self.spn_interp_shap_rows,
                        self.spn_interp_top_n, self.spn_interp_workers):
             widget.setEnabled(not blocked)
+        self.chk_interp_perm.setEnabled(perm_ok and not blocked)
         self.chk_interp_shap.setEnabled(shap_ok and not blocked)
         self.btn_interp_run.setEnabled(not blocked)
 
@@ -15640,27 +15722,46 @@ class MainWindow(QMainWindow):
         if text:
             QMessageBox.warning(self, i18n.t("msg_title_interp", self._idioma), text)
 
-    def _interp_structure_payload(self, top_n):
-        """SMILES/IDs (alinhados linha a linha a X_train/X_test) para ligar cada bit de fingerprint à
-        sua subestrutura. Só devolve algo quando o Internal DataFrame é o mesmo do Screening (mesmo
-        tamanho e índices) e tem uma coluna SMILES; senão None (gráfico de subestruturas omitido)."""
+    def _interp_structure_payload(self, top_n, x_eval=None, source="test"):
+        """SMILES/IDs (alinhados linha a linha a X_train e ao conjunto avaliado) para ligar cada bit de
+        fingerprint à sua subestrutura. Treino: Internal DataFrame (precisa ser o mesmo do Screening -
+        mesmo tamanho e índices - e ter coluna SMILES). Conjunto avaliado: o teste da USI (mesmo
+        Internal DataFrame) ou, com source="external", o External DataFrame (linhas de x_eval).
+        Devolve None quando não dá para alinhar (gráfico de subestruturas omitido)."""
+        def _smiles_col(df):
+            return next((c for c in df.columns if str(c).lower() in ("smiles", "canonical_smiles", "smile")), None)
+
+        def _names(df):
+            name_col = next((c for c in ("Name", "name", "molecule_chembl_id") if c in df.columns), None)
+            return df[name_col] if name_col else pd.Series(df.index.astype(str), index=df.index)
+
         df = getattr(self, "df_int", None)
         x_all = getattr(self, "skl_x", None)
-        x_tr, x_te = getattr(self, "skl_x_train", None), getattr(self, "skl_x_test", None)
-        if df is None or x_all is None or x_tr is None or x_te is None or len(df) != len(x_all):
+        x_tr = getattr(self, "skl_x_train", None)
+        x_ev = x_eval if x_eval is not None else getattr(self, "skl_x_test", None)
+        if df is None or x_all is None or x_tr is None or x_ev is None or len(df) != len(x_all):
             return None
-        if not (x_tr.index.isin(df.index).all() and x_te.index.isin(df.index).all()):
+        if not x_tr.index.isin(df.index).all():
             return None
-        smi_col = next((c for c in df.columns if str(c).lower() in ("smiles", "canonical_smiles", "smile")), None)
+        smi_col = _smiles_col(df)
         if smi_col is None:
             return None
-        name_col = next((c for c in ("Name", "name", "molecule_chembl_id") if c in df.columns), None)
-        names = df[name_col] if name_col else pd.Series(df.index.astype(str), index=df.index)
+        names = _names(df)
+        if source == "external":
+            df_e = getattr(self, "df_ext", None)
+            smi_e = _smiles_col(df_e) if isinstance(df_e, pd.DataFrame) else None
+            if smi_e is None or not x_ev.index.isin(df_e.index).all():
+                return None
+            smiles_ev, names_ev = list(df_e.loc[x_ev.index, smi_e]), list(_names(df_e).loc[x_ev.index])
+        else:
+            if not x_ev.index.isin(df.index).all():
+                return None
+            smiles_ev, names_ev = list(df.loc[x_ev.index, smi_col]), list(names.loc[x_ev.index])
         bits = int(self.spn_ecfp_bits.value()) if hasattr(self, "spn_ecfp_bits") else 2048
         chir = bool(self.chk_fp_chirality.isChecked()) if hasattr(self, "chk_fp_chirality") else True
         return {
-            "smiles_train": list(df.loc[x_tr.index, smi_col]), "smiles_test": list(df.loc[x_te.index, smi_col]),
-            "names_train": list(names.loc[x_tr.index]), "names_test": list(names.loc[x_te.index]),
+            "smiles_train": list(df.loc[x_tr.index, smi_col]), "smiles_test": smiles_ev,
+            "names_train": list(names.loc[x_tr.index]), "names_test": names_ev,
             "fp_bits": bits, "fp_chirality": chir, "n_show": min(int(top_n), 16),
         }
 
@@ -15705,20 +15806,43 @@ class MainWindow(QMainWindow):
             # Mesma métrica escolhida na triagem (Sort metric), para os números serem comparáveis
             # ao resto do relatório.
             scoring, sign, label = self._skl_scoring_for_metric(self.cb_skl_metric.currentText().strip())
+
+            # Conjunto avaliado ("Data:"): teste da USI ou External DataFrame. No externo, o SHAP usa
+            # todas as linhas com descritores válidos; a permutação, só as que têm Y observado (e,
+            # na classificação, uma classe conhecida pelo modelo).
+            source = self.cb_interp_data.currentData() or "test"
+            if source == "external":
+                _w, _kw, ext = self._interp_external_data()
+                if ext is None:
+                    QMessageBox.warning(self, title, i18n.t(_w or "s7i_warn_ext_missing", idioma, **_kw)); return
+                x_eval, y_eval = ext["X"], None
+                if "permutation" in methods:
+                    y_raw = self.df_ext.loc[x_eval.index, ext["y_col"]]
+                    y_raw = pd.to_numeric(y_raw, errors="coerce") if task == "regression" else y_raw
+                    keep = y_raw.notna()
+                    if task == "classification" and hasattr(model, "classes_"):
+                        keep &= y_raw.isin(list(model.classes_))
+                    x_eval, y_eval = x_eval[keep], y_raw[keep]
+                    if len(x_eval) < 3:
+                        QMessageBox.warning(self, title, i18n.t("s7i_msg_ext_too_few", idioma, n=len(x_eval))); return
+            else:
+                x_eval, y_eval = self.skl_x_test, self.skl_y_test
+
             self._set_current_sklearn_usi_context()
             self._interp_ctx = {
                 "model_name": name, "task": task, "label": label, "sign": sign, "usi": self.skl_usi_key,
                 "top_n": int(self.spn_interp_top_n.value()), "modalities": set(modalities), "methods": set(methods),
+                "source": source, "n_eval": int(len(x_eval)),
             }
             payload = dict(
-                model=model, task=task, X_train=self.skl_x_train, X_test=self.skl_x_test, y_test=self.skl_y_test,
+                model=model, task=task, X_train=self.skl_x_train, X_test=x_eval, y_test=y_eval,
                 scoring=scoring, methods=methods, modalities=modalities,
                 corr_threshold=float(self.dspn_interp_corr.value()), n_repeats=int(self.spn_interp_repeats.value()),
                 shap_max_rows=int(self.spn_interp_shap_rows.value()), n_jobs=int(self.spn_interp_workers.value()),
                 seed=self._get_skl_random_state(),
             )
             if "shap" in methods:
-                payload["structures"] = self._interp_structure_payload(self.spn_interp_top_n.value())
+                payload["structures"] = self._interp_structure_payload(self.spn_interp_top_n.value(), x_eval, source)
             self.pb_interp.setValue(0)
             self.btn_interp_run.setEnabled(False)
             self._interp_worker = InterpretabilityWorker(payload)
@@ -15757,7 +15881,9 @@ class MainWindow(QMainWindow):
             top_n, modalities = ctx["top_n"], ctx["modalities"]
             out_dir = getattr(self, "skl_out_data", None) or self.job_dir
             plot_dir = getattr(self, "skl_plot_path", None) or out_dir
-            stem = f"{model_name}_{usi}"
+            source = ctx.get("source", "test")
+            # Resultados no External DataFrame ganham o sufixo "_external" (não sobrescrevem os do teste).
+            stem = f"{model_name}_external_{usi}" if source == "external" else f"{model_name}_{usi}"
             saved, tabs = [], []   # tabs: (i18n key, Figure|None, DataFrame)
 
             def _csv(df, name):
@@ -15771,7 +15897,7 @@ class MainWindow(QMainWindow):
             base = res.get("perm_baseline")
             base_txt = f" (baseline {label} = {sign * base:.3g})" if base is not None else ""
             word = "Increase" if sign < 0 else "Decrease"
-            perm_x = f"{word} in {label} when permuted (test set)"
+            perm_x = f"{word} in {label} when permuted ({'External DataFrame' if source == 'external' else 'test set'})"
             if "perm_individual" in res:
                 df = res["perm_individual"]; _csv(df, "permutation_individual")
                 fig = mi.bar_figure(df, "Feature", "Importance_mean", "Importance_std",
@@ -15810,7 +15936,8 @@ class MainWindow(QMainWindow):
             try:
                 summary = {
                     "model": model_name, "usi": usi, "task": ctx["task"], "metric_label": label,
-                    "n_features": len(res["columns"]), "n_test": int(len(self.skl_x_test)),
+                    "n_features": len(res["columns"]), "data_source": source,
+                    "n_test": int(ctx.get("n_eval", 0)), "n_eval": int(ctx.get("n_eval", 0)),
                     "methods": sorted(ctx["methods"]), "modalities": sorted(modalities),
                     "explainer_key": res.get("explainer_key"), "explainer_exact": res.get("explainer_exact"),
                     "shap_rows": int(len(res["shap_X"])) if "shap_X" in res else None,
@@ -20318,14 +20445,10 @@ class MainWindow(QMainWindow):
             # sempre roda sobre o External Dataframe (não há mais opção de Internal Dataframe).
             right_col_skl_save_pred = QVBoxLayout()
 
-            range_label_row_skl = QHBoxLayout()
-            range_label_row_skl.addStretch()
-            range_label_row_skl.addWidget(self._trL("lbl_descriptors_columns_range"))
-            range_label_row_skl.addStretch()
-            right_col_skl_save_pred.addLayout(range_label_row_skl)
-
+            # Rótulo "Descriptors Columns:" e o intervalo (primeira "To" última coluna) na mesma linha.
             col_range_row_skl = QHBoxLayout()
             col_range_row_skl.addStretch()
+            col_range_row_skl.addWidget(self._trL("lbl_descriptors_columns_range"))
             self.ed_skl_pd_first_col = QLineEdit(); self.ed_skl_pd_first_col.setToolTip("First Column Index"); self.ed_skl_pd_first_col.setFixedSize(70, 25); self.ed_skl_pd_first_col.setAlignment(Qt.AlignCenter); self.ed_skl_pd_first_col.setValidator(QIntValidator()); self.ed_skl_pd_first_col.setText("2")
             col_range_row_skl.addWidget(self.ed_skl_pd_first_col)
             label_skl_pd_to = self._trL("lbl_to_short"); label_skl_pd_to.setAlignment(Qt.AlignCenter); label_skl_pd_to.setFixedSize(20, 25)
@@ -20334,6 +20457,18 @@ class MainWindow(QMainWindow):
             col_range_row_skl.addWidget(self.ed_skl_pd_last_col)
             col_range_row_skl.addStretch()
             right_col_skl_save_pred.addLayout(col_range_row_skl)
+
+            # Refit: retreina o(s) modelo(s) selecionado(s), com os mesmos hiperparâmetros, em treino +
+            # teste (100% do Internal DataFrame) - nova variante "<nome>_refit" (ver run_skl_refit).
+            refit_row_skl = QHBoxLayout()
+            refit_row_skl.addStretch()
+            self.btn_skl_refit = QPushButton(); self._tr("s6_btn_refit", self.btn_skl_refit.setText)
+            self.btn_skl_refit.setProperty("role", "secondary")
+            self.btn_skl_refit.setFixedWidth(120)
+            self._tr("s6_tooltip_refit", self.btn_skl_refit.setToolTip)
+            refit_row_skl.addWidget(self.btn_skl_refit)
+            refit_row_skl.addStretch()
+            right_col_skl_save_pred.addLayout(refit_row_skl)
 
             # Linha única com os dois checkboxes do Predict:
             # - "Remove Descriptors" (marcado por padrão): o resultado do Predict mantém só Name, SMILES
@@ -20475,6 +20610,7 @@ class MainWindow(QMainWindow):
             self.btn_skl_remove_model.clicked.connect(self.run_skl_remove_model)
             self.btn_skl_predict.clicked.connect(self.run_skl_predict)
             self.btn_skl_eval_test.clicked.connect(self.run_skl_evaluate_test)
+            self.btn_skl_refit.clicked.connect(self.run_skl_refit)
             self.cb_skl_y.currentTextChanged.connect(lambda _txt: self._skl_auto_set_with_y())
             self.btn_skl_plot.clicked.connect(self.run_skl_plot)
             self._update_skl_tune_method_widgets()
@@ -20854,6 +20990,20 @@ class MainWindow(QMainWindow):
             interp_row1.addStretch()
             lay_interp.addLayout(interp_row1)
 
+            # Linha 1b: conjunto em que as ferramentas medem (teste da USI ou External DataFrame)
+            interp_row_data = QHBoxLayout()
+            interp_row_data.addStretch()
+            interp_row_data.addWidget(self._trL("s7i_lbl_data"))
+            self.cb_interp_data = QComboBox(); self.cb_interp_data.setFixedWidth(220)
+            self.cb_interp_data.addItem("Test set", "test")
+            self.cb_interp_data.addItem("External DataFrame", "external")
+            self._tr("s7i_data_test", lambda t: self.cb_interp_data.setItemText(0, t))
+            self._tr("s7i_data_external", lambda t: self.cb_interp_data.setItemText(1, t))
+            self._tr("s7i_tooltip_data", self.cb_interp_data.setToolTip)
+            interp_row_data.addWidget(self.cb_interp_data)
+            interp_row_data.addStretch()
+            lay_interp.addLayout(interp_row_data)
+
             # Linha 2: texto informativo do explicador (exato x aproximado), centralizado
             self.lbl_interp_explainer = QLabel(); self.lbl_interp_explainer.setWordWrap(True)
             self.lbl_interp_explainer.setAlignment(Qt.AlignCenter)
@@ -20949,6 +21099,7 @@ class MainWindow(QMainWindow):
             # Conexões
             self.btn_interp_run.clicked.connect(self.run_interpretability)
             self.cb_interp_model.currentTextChanged.connect(self._update_interp_info)
+            self.cb_interp_data.currentIndexChanged.connect(self._update_interp_info)
             # Estado inicial: sem USI ainda, todos os controles do grupo começam desabilitados.
             self._update_interp_info()
             self.btn_ad_compute.clicked.connect(self.run_ad_assessment)
@@ -22592,6 +22743,7 @@ class MainWindow(QMainWindow):
             "tuned_param_grids": getattr(self, "_skl_tuned_param_grids", {}) or {},
             "tuning_settings": getattr(self, "_skl_tuning_settings", {}) or {},
             "validation_settings": getattr(self, "_skl_validation_settings", {}) or {},
+            "refit_settings": getattr(self, "_skl_refit_settings", {}) or {},
             "screening_settings": {
                 "sort_metric": self.cb_skl_metric.currentText() if hasattr(self, "cb_skl_metric") else "",
                 "x_first_col": self.ed_skl_x_first_col.text() if hasattr(self, "ed_skl_x_first_col") else "",
@@ -22677,6 +22829,7 @@ class MainWindow(QMainWindow):
         # _refresh_skl_model_settings_widgets() para o modelo selecionado.
         self._skl_tuning_settings = config.get("tuning_settings", {}) or {}
         self._skl_validation_settings = config.get("validation_settings", {}) or {}
+        self._skl_refit_settings = config.get("refit_settings", {}) or {}
 
         # Campos de configuração do Screening (Sort metric, X range, Y column, Test Size) — não são
         # por modelo, valem para a USI inteira.
@@ -22808,6 +22961,7 @@ class MainWindow(QMainWindow):
         self._skl_tuned_param_grids = {}
         self._skl_tuning_settings = {}
         self._skl_validation_settings = {}
+        self._skl_refit_settings = {}
 
     def _skl_hp_add_row(self):
         """Acrescenta uma linha vazia à grade de hiperparâmetros do Tuning e deixa o usuário
@@ -23091,6 +23245,7 @@ class MainWindow(QMainWindow):
         self._skl_tuned_param_grids = {}
         self._skl_tuning_settings = {}
         self._skl_validation_settings = {}
+        self._skl_refit_settings = {}
 
         # Combobox "Model" único (grupo Hyperparameter Tuning), na ordem do ranking (melhor primeiro) —
         # usado como referência por Tuning, Validation, Remove Model and Predict e Performance Charts.
@@ -23154,6 +23309,12 @@ class MainWindow(QMainWindow):
                 return
             if getattr(self, "skl_x_train", None) is None:
                 QMessageBox.warning(self, i18n.t("msg_title_tuning", self._idioma), "Run Screening first.")
+                return
+            if self._skl_is_refit(model_name):
+                # Um modelo "_refit" é final; tunar a partir dele voltaria a treinar só no treino.
+                QMessageBox.information(self, i18n.t("msg_title_tuning", self._idioma),
+                    i18n.t("s6_msg_refit_no_tuning", self._idioma, model=model_name,
+                           source=(getattr(self, "_skl_refit_settings", {}) or {}).get(model_name, {}).get("source", "-")))
                 return
 
             param_grid = {}
@@ -23667,6 +23828,9 @@ class MainWindow(QMainWindow):
                     continue
                 if hasattr(self, "skl_trained_models") and self.skl_trained_models and name in self.skl_trained_models:
                     del self.skl_trained_models[name]
+                # Registro de Refit do modelo removido - sem ele, a USI deixa de "ter refit" (afeta o
+                # conjunto de referência do domínio de aplicabilidade, STEP 5).
+                (getattr(self, "_skl_refit_settings", None) or {}).pop(name, None)
                 if getattr(self, "skl_current_model_name", None) == name:
                     self.skl_current_model = None
                     self.skl_current_model_name = None
@@ -23824,6 +23988,93 @@ class MainWindow(QMainWindow):
         self._next_dataframe_save_path = out_path
         self.show_dataframe(metrics_df)
 
+    def _skl_is_refit(self, name):
+        """True se 'name' é um modelo gerado pelo Refit (treinado em treino + teste)."""
+        name = (name or "").strip()
+        return bool(name) and (name in (getattr(self, "_skl_refit_settings", None) or {}) or name.endswith("_refit"))
+
+    def run_skl_refit(self):
+        """Botão "Refit" (grupo Refit, Evaluate, Predict and Remove): retreina o(s) modelo(s)
+        selecionado(s), com OS MESMOS hiperparâmetros (sklearn.clone), em treino + teste - 100% do
+        Internal DataFrame - e registra cada um como uma nova variante "<nome>_refit", sem alterar o
+        original. Uso: depois de avaliar o modelo no teste (Evaluate Test), gerar o modelo final com
+        todos os dados. As métricas de teste continuam valendo para o modelo de origem (estimativa,
+        geralmente conservadora, para o _refit); a validação externa do _refit é feita com o
+        External DataFrame (Predict com "With Y")."""
+        idioma = self._idioma
+        title = i18n.t("msg_title_refit", idioma)
+        try:
+            selected = [item.text() for item in self.list_skl_saved_models.selectedItems()] \
+                if hasattr(self, "list_skl_saved_models") else []
+            if not selected:
+                QMessageBox.warning(self, title, "Select at least one model in the list on the left of this group "
+                                                 "(Run Screening first to populate it).")
+                return
+            _registry, task = self._get_skl_registry()
+            if task not in ("regression", "classification"):
+                QMessageBox.information(self, title, "Refit applies to regression/classification models only.")
+                return
+            x_tr, y_tr = getattr(self, "skl_x_train", None), getattr(self, "skl_y_train", None)
+            x_te, y_te = getattr(self, "skl_x_test", None), getattr(self, "skl_y_test", None)
+            if x_tr is None or y_tr is None:
+                QMessageBox.warning(self, title, "Run Screening first.")
+                return
+            if x_te is None or y_te is None or len(x_te) == 0:
+                QMessageBox.information(self, title, i18n.t("s6_msg_refit_no_test", idioma))
+                return
+            already = [n for n in selected if self._skl_is_refit(n)]
+            if already:
+                QMessageBox.information(self, title, i18n.t("s6_msg_refit_already", idioma, models=", ".join(already)))
+                return
+            models = {}
+            for name in selected:
+                model = getattr(self, "skl_trained_models", {}).get(name)
+                if model is None:
+                    QMessageBox.warning(self, title, f"Model '{name}' is not loaded/trained in this session.")
+                    return
+                models[name] = model
+
+            n_total = len(x_tr) + len(x_te)
+            answer = QMessageBox.question(
+                self, title,
+                i18n.t("s6_msg_refit_confirm", idioma, models=", ".join(models), n_train=len(x_tr),
+                       n_test=len(x_te), n_total=n_total),
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes:
+                return
+
+            x_all = pd.concat([x_tr, x_te])
+            y_all = pd.concat([pd.Series(y_tr, index=x_tr.index), pd.Series(y_te, index=x_te.index)])
+            self._set_current_sklearn_usi_context()
+            if not hasattr(self, "_skl_refit_settings") or self._skl_refit_settings is None:
+                self._skl_refit_settings = {}
+            created = []
+            dlg = self.show_wait_message_dialog("Refit", "Refitting model(s) on training + test sets... Please wait!")
+            try:
+                for name, model in models.items():
+                    refit_model = clone(model)  # mesmos hiperparâmetros, sem o ajuste anterior
+                    refit_model.fit(x_all, y_all)
+                    new_name = f"{name}_refit"
+                    self.skl_trained_models[new_name] = refit_model
+                    self._save_skl_model_to_models_dir(new_name, refit_model)
+                    self._skl_refit_settings[new_name] = {
+                        "source": name, "n_train": len(x_tr), "n_test": len(x_te), "n_total": n_total,
+                        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    }
+                    created.append(new_name)
+            finally:
+                dlg.close()
+
+            self._refresh_skl_model_combo(select=created[-1], preserve_order=True)
+            self._save_skl_session_config()
+            self._save_step6_sklearn_state()
+            self._refresh_skl_usi_combo()
+            QMessageBox.information(self, title, i18n.t("s6_msg_refit_done", idioma, models=", ".join(created), n_total=n_total))
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            QMessageBox.critical(self, title, str(e))
+
     def run_skl_evaluate_test(self):
         """'Evaluate Test' (grupo Remove Model and Predict): avaliação final de predictivity
         (Princípio 4 da OECD) do(s) modelo(s) selecionado(s) no conjunto de teste separado no
@@ -23849,6 +24100,12 @@ class MainWindow(QMainWindow):
             if task not in ("regression", "classification"):
                 QMessageBox.information(self, i18n.t("msg_title_evaluate", self._idioma),
                     "The test-set evaluation applies to regression/classification models only.")
+                return
+            # Modelos "_refit" foram treinados COM o conjunto teste - avaliá-los nele seria avaliar no treino.
+            refits = [n for n in models if self._skl_is_refit(n)]
+            if refits:
+                QMessageBox.information(self, i18n.t("msg_title_evaluate", self._idioma),
+                    i18n.t("s6_msg_refit_no_test_eval", self._idioma, models=", ".join(refits)))
                 return
             x_test = getattr(self, "skl_x_test", None)
             y_test = getattr(self, "skl_y_test", None)
@@ -24314,6 +24571,11 @@ class MainWindow(QMainWindow):
             "predicted_vs_actual", "residuals", "confusion_matrix", "roc_auc", "class_report",
             "manifold", "pr", "threshold", "calibration", "lift", "gain", "ks",
         )
+        if needs_test_split and self._skl_is_refit(model_name):
+            # O conjunto teste faz parte do treino de um modelo "_refit": o gráfico mostraria ajuste, não predição.
+            QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma),
+                i18n.t("s6_msg_refit_no_test_chart", self._idioma, chart=kind, model=model_name))
+            return None
         if needs_test_split and (getattr(self, "skl_x_test", None) is None or getattr(self, "skl_y_test", None) is None):
             if getattr(self, "skl_x_train", None) is not None:
                 # Modo sem teste (Test Size = 0): esses gráficos avaliam o conjunto teste, que não existe.

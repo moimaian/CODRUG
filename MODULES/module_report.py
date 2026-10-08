@@ -1475,6 +1475,8 @@ _STEP4_ML_TEXTS = {
     "split_se_en": "The training/test split was performed by sphere exclusion (Golbraikh & Tropsha, 2002), which keeps the test set within the chemical space of the training set. ",
     "no_test_split_pt": " Todo o conjunto interno foi usado como conjunto de treino (sem conjunto teste); a capacidade preditiva foi avaliada no conjunto externo. ",
     "no_test_split_en": " The whole internal dataset was used as the training set (no test set); predictivity was assessed on the external set. ",
+    "refit_pt": "O modelo {model} foi retreinado (refit) com os mesmos hiperparâmetros do modelo {source} usando todos os {n_total} compostos do conjunto interno (treino: {n_train}; teste: {n_test}). As métricas do conjunto teste referem-se ao modelo {source} e constituem uma estimativa conservadora para {model}. ",
+    "refit_en": "The model {model} was refit with the same hyperparameters as {source} on all {n_total} compounds of the internal set (training: {n_train}; test: {n_test}). The test-set metrics refer to {source} and are a conservative estimate for {model}. ",
     "test_eval_pt": "A capacidade preditiva (predictivity) foi avaliada uma única vez no conjunto teste ({n} compostos), que não participou da triagem, do ajuste de hiperparâmetros nem da validação cruzada. Os critérios de aceitação seguem Golbraikh & Tropsha (2002) e Chirico & Gramatica (2012):",
     "test_eval_en": "Predictivity was assessed once on the test set ({n} compounds), which took no part in screening, hyperparameter tuning or cross-validation. Acceptance criteria follow Golbraikh & Tropsha (2002) and Chirico & Gramatica (2012):",
     "external_eval_pt": "Os modelos também foram aplicados ao conjunto externo, com {n} compostos com valor experimental conhecido, gerando as métricas a seguir:",
@@ -1887,6 +1889,15 @@ def _add_step5_section(document: Any, job_dir: str, state: dict[str, Any], idiom
                     _add_caption(document, texts["table_yrand_caption_pt" if lang == "pt" else "table_yrand_caption_en"].format(model=model_name))
                     _add_image(document, yrand_png)
 
+        # Refit models (training + test, same hyperparameters as their source model).
+        for refit_name, info in (session.get("refit_settings") or {}).items():
+            try:
+                _para(document).add_run(texts[f"refit_{'pt' if lang == 'pt' else 'en'}"].format(
+                    model=refit_name, source=info.get("source", "?"), n_total=info.get("n_total", "?"),
+                    n_train=info.get("n_train", "?"), n_test=info.get("n_test", "?")))
+            except Exception:
+                continue
+
         # Final predictivity evaluation on the held-out test set ("Evaluate Test" button) and on
         # the External DataFrame (Predict with "With Y") - one column per evaluated model.
         for prefix, key in (("skl_test_eval", "test_eval"), ("skl_external_eval", "external_eval")):
@@ -1946,22 +1957,34 @@ _INTERP_TEXTS = {
         "({n_test} compounds), never on the training set, so that it reflects predictive ability "
         "rather than memorisation. "
     ),
+    "intro_ext_pt": (
+        "A interpretabilidade do modelo {model} (USI {usi}) foi avaliada sobre o conjunto externo "
+        "({n_test} compostos), que não participou do treinamento do modelo. "
+    ),
+    "intro_ext_en": (
+        "The interpretability of the {model} model (USI {usi}) was evaluated on the external set "
+        "({n_test} compounds), which took no part in training the model. "
+    ),
+    "set_test_pt": "do conjunto de teste", "set_test_en": "test-set",
+    "set_ext_pt": "do conjunto externo", "set_ext_en": "external-set",
+    "ref_test_pt": "no teste", "ref_test_en": "test",
+    "ref_ext_pt": "no conjunto externo", "ref_ext_en": "external-set",
     "shap_pt": (
-        "Os valores SHAP foram calculados com o {explainer} ({kind}) para {rows} compostos do "
-        "conjunto de teste; a importância global de cada descritor é a média do módulo dos valores SHAP. "
+        "Os valores SHAP foram calculados com o {explainer} ({kind}) para {rows} compostos "
+        "{set}; a importância global de cada descritor é a média do módulo dos valores SHAP. "
     ),
     "shap_en": (
-        "SHAP values were computed with the {explainer} ({kind}) for {rows} test-set compounds; the "
+        "SHAP values were computed with the {explainer} ({kind}) for {rows} {set} compounds; the "
         "global importance of each descriptor is the mean absolute SHAP value. "
     ),
     "exact_pt": "valores exatos", "exact_en": "exact values",
     "approx_pt": "valores aproximados", "approx_en": "approximate values",
     "perm_pt": (
         "A importância por permutação usou o mesmo escore da triagem ({metric}; escore de referência "
-        "no teste = {baseline}) com {repeats} repetições por descritor. "
+        "{ref} = {baseline}) com {repeats} repetições por descritor. "
     ),
     "perm_en": (
-        "Permutation importance used the same score as the screening ({metric}; reference test score "
+        "Permutation importance used the same score as the screening ({metric}; reference {ref} score "
         "= {baseline}) with {repeats} repeats per descriptor. "
     ),
     "perm_group_pt": (
@@ -1980,7 +2003,7 @@ _INTERP_TEXTS = {
         "Para os fingerprints, cada bit importante foi associado à subestrutura que o gera: nos "
         "fingerprints circulares (ECFP/FCFP) o ambiente atômico foi recuperado pelo bitInfo do RDKit e "
         "desenhado com DrawMorganBit (átomo central em azul, átomos aromáticos em amarelo e demais "
-        "átomos do ambiente em cinza), em um composto do teste em que o descritor mais contribui; ao "
+        "átomos do ambiente em cinza), em um composto do conjunto avaliado (teste ou externo) em que o descritor mais contribui; ao "
         "lado de cada subestrutura estão o valor médio de |SHAP| e se a presença do descritor aumenta "
         "ou diminui a predição. "
     ),
@@ -1988,7 +2011,7 @@ _INTERP_TEXTS = {
         "For fingerprints, each important bit was paired with the substructure that generates it: for "
         "circular fingerprints (ECFP/FCFP) the atom environment was recovered with RDKit's bitInfo and "
         "drawn with DrawMorganBit (central atom in blue, aromatic atoms in yellow, remaining "
-        "environment atoms in grey), on a test compound where the descriptor contributes most; next to "
+        "environment atoms in grey), on a compound of the evaluated set (test or external) where the descriptor contributes most; next to "
         "each substructure are its mean |SHAP| value and whether its presence raises or lowers the "
         "prediction. "
     ),
@@ -2000,10 +2023,12 @@ _INTERP_TEXTS = {
     "cap_shap_bee_en": "Figure. SHAP summary plot for the {model} model: impact of each descriptor (x axis) coloured by its value.",
     "cap_shap_grp_pt": "Figura. Importância pelo SHAP por grupo de descritores correlacionados para o modelo {model}.",
     "cap_shap_grp_en": "Figure. SHAP importance by group of correlated descriptors for the {model} model.",
-    "cap_perm_grp_pt": "Figura. Importância por permutação (conjunto de teste) por grupo de descritores correlacionados para o modelo {model}.",
-    "cap_perm_grp_en": "Figure. Permutation importance (test set) by group of correlated descriptors for the {model} model.",
-    "cap_perm_ind_pt": "Figura. Importância por permutação (conjunto de teste) por descritor individual para o modelo {model}.",
-    "cap_perm_ind_en": "Figure. Permutation importance (test set) per individual descriptor for the {model} model.",
+    "cap_perm_grp_pt": "Figura. Importância por permutação ({setname}) por grupo de descritores correlacionados para o modelo {model}.",
+    "cap_perm_grp_en": "Figure. Permutation importance ({setname}) by group of correlated descriptors for the {model} model.",
+    "cap_perm_ind_pt": "Figura. Importância por permutação ({setname}) por descritor individual para o modelo {model}.",
+    "cap_perm_ind_en": "Figure. Permutation importance ({setname}) per individual descriptor for the {model} model.",
+    "setname_test_pt": "conjunto de teste", "setname_test_en": "test set",
+    "setname_ext_pt": "conjunto externo", "setname_ext_en": "external set",
     "cap_table_pt": "Tabela. Subestruturas associadas aos descritores de maior importância SHAP do modelo {model}.",
     "cap_table_en": "Table. Substructures associated with the descriptors of highest SHAP importance for the {model} model.",
 }
@@ -2041,36 +2066,43 @@ def _add_step5_interpretability_section(document: Any, job_dir: str, idioma: str
     texts = _INTERP_TEXTS
     _bar(document, "STEP 5 - Model Interpretability: SHAP, Permutation Importance and Key Substructures", COLOR_SECTION_BAR)
 
-    for usi, model, sm, data_dir, midia_dir in entries:
+    for usi, stem_model, sm, data_dir, midia_dir in entries:
+        # stem_model = parte do nome dos arquivos ("<modelo>" ou "<modelo>_external"); o nome do modelo
+        # e o conjunto avaliado vêm do resumo (resumos antigos não têm "data_source": teste).
+        model = sm.get("model", stem_model)
+        ext = sm.get("data_source") == "external"
+        sfx = "ext_" if ext else "test_"
         heading = document.add_paragraph()
-        heading.add_run(f"USI: {usi} - {model}").bold = True
+        heading.add_run(f"USI: {usi} - {model}" + (" (External DataFrame)" if ext else "")).bold = True
 
         p = _para(document)
-        _add(p, texts["intro_" + lang].format(model=model, usi=usi, n_test=sm.get("n_test", "?")), False)
+        _add(p, texts[("intro_ext_" if ext else "intro_") + lang].format(
+            model=model, usi=usi, n_test=sm.get("n_eval", sm.get("n_test", "?"))), False)
         methods = sm.get("methods", [])
         modalities = sm.get("modalities", [])
         if "shap" in methods:
             kind = texts[("exact_" if sm.get("explainer_exact") else "approx_") + lang]
             _add(p, texts["shap_" + lang].format(
                 explainer=_INTERP_EXPLAINER_NAMES.get(sm.get("explainer_key"), "SHAP"), kind=kind,
-                rows=sm.get("shap_rows", "?")), False)
+                rows=sm.get("shap_rows", "?"), set=texts[f"set_{sfx}{lang}"]), False)
         if "permutation" in methods:
             base = sm.get("baseline_score")
             _add(p, texts["perm_" + lang].format(
                 metric=sm.get("metric_label", "score"), baseline="n/a" if base is None else f"{base:.3g}",
-                repeats=sm.get("n_repeats", "?")), False)
+                repeats=sm.get("n_repeats", "?"), ref=texts[f"ref_{sfx}{lang}"]), False)
         if "group" in modalities and sm.get("n_groups"):
             _add(p, texts["perm_group_" + lang].format(thr=f"{sm.get('corr_threshold', 0):.2f}", groups=sm["n_groups"]), False)
         if sm.get("n_structures"):
             _add(p, texts["struct_" + lang], False)
 
         for kind, cap_stem in _INTERP_FIGURES:
-            path = os.path.join(midia_dir, f"Interpretability_{kind}_{model}_{usi}.png")
+            path = os.path.join(midia_dir, f"Interpretability_{kind}_{stem_model}_{usi}.png")
             if os.path.isfile(path):
-                _add_caption(document, texts[f"{cap_stem}_{lang}"].format(model=model))
+                _add_caption(document, texts[f"{cap_stem}_{lang}"].format(
+                    model=model, setname=texts[f"setname_{sfx}{lang}"]))
                 _add_image(document, path, width_cm=16.0 if kind == "shap_substructures" else 14.0)
 
-        struct_df = _read_csv(os.path.join(data_dir, f"interp_shap_substructures_{model}_{usi}.csv"))
+        struct_df = _read_csv(os.path.join(data_dir, f"interp_shap_substructures_{stem_model}_{usi}.csv"))
         if struct_df is not None and not struct_df.empty:
             _add_caption(document, texts["cap_table_" + lang].format(model=model))
             cols = [c for c in ("rank", "descriptor", "mean_abs_shap", "direction", "radius", "smarts") if c in struct_df.columns]
@@ -2121,6 +2153,12 @@ _STEP5_TEXTS = {
         "applying the models for the predictions. This approach will ensure the developed QSAR "
         "model is robust and applicable within the defined limits."
     ),
+    "ad_reference_train_pt": "O domínio de aplicabilidade foi definido apenas pelos {n} compostos do conjunto de treino, que geraram o modelo final; o conjunto teste não participou da sua definição.",
+    "ad_reference_train_en": "The applicability domain was defined only by the {n} training-set compounds that generated the final model; the test set took no part in its definition.",
+    "ad_reference_no_test_pt": "O domínio de aplicabilidade foi definido por todos os {n} compostos do conjunto interno, usados integralmente no treinamento do modelo final (sem conjunto teste).",
+    "ad_reference_no_test_en": "The applicability domain was defined by all {n} compounds of the internal set, all of which were used to train the final model (no test set).",
+    "ad_reference_refit_pt": "O domínio de aplicabilidade foi definido por todos os {n} compostos do conjunto interno (treino + teste), usados no retreinamento (refit) do modelo final.",
+    "ad_reference_refit_en": "The applicability domain was defined by all {n} compounds of the internal set (training + test), used to refit the final model.",
     "cutoffs_intro_pt": "A análise do domínio de aplicabilidade e da similaridade entre o dataframe interno e externo através dos métodos de ",
     "cutoffs_intro_en": "The applicability domain and similarity analysis between the internal and external dataframe through the ",
     "cutoffs_verdict_pt": " gerou o veredito de ",
@@ -2156,6 +2194,13 @@ def _add_step7_section(document: Any, job_dir: str, state: dict[str, Any], idiom
 
     _para(document).add_run(texts["leverage_pt"] if lang == "pt" else texts["leverage_en"])
     _para(document).add_run(texts["mahalanobis_pt"] if lang == "pt" else texts["mahalanobis_en"])
+
+    # Which compounds defined the domain (CODRUG._ad_restrict_to_training_set): only the training set
+    # when the final model didn't use the test set; the whole internal set with Test Size = 0 or Refit.
+    ref_mode, ref_n = step7.get("ad_reference_mode"), step7.get("ad_reference_n")
+    ref_key = {"train": "ad_reference_train", "no_test": "ad_reference_no_test", "refit": "ad_reference_refit"}.get(ref_mode)
+    if ref_key and ref_n:
+        _para(document).add_run(texts[f"{ref_key}_{'pt' if lang == 'pt' else 'en'}"].format(n=ref_n))
 
     p = _para(document)
 
