@@ -66,7 +66,7 @@ _COL_PATTERNS = [
 ]
 
 # BASE/DESCRIPTORS/pubchem_fingerprint_bits.json lives two directories up from this file
-# (CODRUG/MODULES/module_feature_structures.py -> CODRUG/BASE/DESCRIPTORS/...).
+# (CODRUG/BIN/module_feature_structures.py -> CODRUG/BASE/DESCRIPTORS/...).
 _DEFAULT_PUBCHEM_TABLE_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "BASE", "DESCRIPTORS", "pubchem_fingerprint_bits.json",
@@ -502,7 +502,7 @@ def draw_smarts_match_png(smiles, smarts: str, size=(300, 260)) -> Optional[byte
 # One-off/reproducible builder for BASE/DESCRIPTORS/pubchem_fingerprint_bits.json - not called
 # at runtime by resolve_feature()/resolve_pubchem_bit() (they just read the JSON file), only
 # here so the table can be regenerated from the source PDF if NCBI ever revises the spec. Run
-# as a script: `python -m MODULES.module_feature_structures <path-to-pdftotext--layout-output>`.
+# as a script: `python -m BIN.module_feature_structures <path-to-pdftotext--layout-output>`.
 # ==========================================================================================
 
 _PUBCHEM_SECTION_RE = re.compile(r"^Section\s+(\d+):\s*(.*)$")
@@ -642,7 +642,7 @@ def build_pubchem_fingerprint_table(pdftotext_layout_text: str) -> dict:
 if __name__ == "__main__":
     import sys
     if len(sys.argv) != 2:
-        print("Usage: python -m MODULES.module_feature_structures <pdftotext--layout-output.txt>")
+        print("Usage: python -m BIN.module_feature_structures <pdftotext--layout-output.txt>")
         raise SystemExit(1)
     with open(sys.argv[1], "r", encoding="utf-8") as f:
         _payload = build_pubchem_fingerprint_table(f.read())

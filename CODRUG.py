@@ -27,7 +27,7 @@ def _bootstrap_codrug_venv():
     if os.environ.get("CODRUG_VENV_ACTIVE") == "1":
         return
     try:
-        from MODULES.module_requirements import bootstrap_pyqt5
+        from BIN.module_requirements import bootstrap_pyqt5
     except Exception as e:
         print(f"[CODRUG] Bootstrap falhou ao importar module_requirements: {e}")
         sys.exit(1)
@@ -683,14 +683,14 @@ class QComboBox(_QtQComboBox): # type: ignore
 # ==========================================================================================================================================
 print("")
 print("----- Importing modules... -----")
-from MODULES.module_requirements import RequirementsInstaller
+from BIN.module_requirements import RequirementsInstaller
 print("✅ RequirementsInstaller imported successfully.")
-import MODULES.i18n as i18n
+import BIN.i18n as i18n
 print("✅ i18n imported successfully.")
-from MODULES.splash_screen import SplashScreen
+from BIN.splash_screen import SplashScreen
 print("✅ SplashScreen imported successfully.")
 try:
-    from MODULES.recommended_selection import apply_recommended_selection
+    from BIN.recommended_selection import apply_recommended_selection
     print("✅ recommended_selection imported successfully.")
 except Exception as e:
     print("⚠️ recommended_selection not available. Use 'Install requirements' at home menu.")
@@ -699,7 +699,7 @@ except Exception as e:
         raise RuntimeError("recommended_selection dependencies are not installed. Use 'Install requirements' at home menu.")
 
 try:
-    from MODULES.recommended_scaling import apply_recommended_scaling
+    from BIN.recommended_scaling import apply_recommended_scaling
     print("✅ recommended_scaling imported successfully.")
 except Exception as e:
     print("⚠️ recommended_scaling not available. Use 'Install requirements' at home menu.")
@@ -708,7 +708,7 @@ except Exception as e:
         raise RuntimeError("recommended_scaling dependencies are not installed. Use 'Install requirements' at home menu.")
 
 try:
-    from MODULES.recommended_projection import apply_recommended_projection
+    from BIN.recommended_projection import apply_recommended_projection
     print("✅ recommended_projection imported successfully.")
 except Exception as e:
     print("⚠️ recommended_projection not available. Use 'Install requirements' at home menu.")
@@ -717,7 +717,7 @@ except Exception as e:
         raise RuntimeError("recommended_projection dependencies are not installed. Use 'Install requirements' at home menu.")
 
 try:
-    from MODULES.module_report import generate_final_report as _generate_final_report_docx
+    from BIN.module_report import generate_final_report as _generate_final_report_docx
     print("✅ module_report imported successfully.")
 except Exception as e:
     print("⚠️ module_report not available. Use 'Install requirements' at home menu (python-docx).")
@@ -726,7 +726,7 @@ except Exception as e:
         raise RuntimeError("python-docx is not installed. Use 'Install requirements' at home menu.")
 
 try:
-    import MODULES.module_compound_names as module_compound_names
+    import BIN.module_compound_names as module_compound_names
     print("✅ module_compound_names imported successfully.")
 except Exception as e:
     print("⚠️ module_compound_names not available - Hits tables will show compound IDs without names.")
@@ -734,7 +734,7 @@ except Exception as e:
     module_compound_names = None
 
 try:
-    import MODULES.module_feature_structures as module_feature_structures
+    import BIN.module_feature_structures as module_feature_structures
     print("✅ module_feature_structures imported successfully.")
 except Exception as e:
     print("⚠️ module_feature_structures not available - Feature Importance charts won't identify substructures.")
@@ -742,7 +742,7 @@ except Exception as e:
     module_feature_structures = None
 
 try:
-    import MODULES.rational_split as rational_split
+    import BIN.rational_split as rational_split
     print("✅ rational_split imported successfully.")
 except Exception as e:
     print("⚠️ rational_split not available - STEP 4 Model Screening will only offer the random split.")
@@ -750,7 +750,7 @@ except Exception as e:
     rational_split = None
 
 try:
-    import MODULES.module_interpretability as module_interpretability
+    import BIN.module_interpretability as module_interpretability
     print("✅ module_interpretability imported successfully.")
 except Exception as e:
     print("⚠️ module_interpretability not available - the STEP 5 Interpretability Tools group will be disabled.")
@@ -2459,7 +2459,7 @@ class SklScreeningWorker(QThread): # type: ignore
                 if self.test_size and self.test_size > 0:
                     if rational_split is not None and self.split_method != "Random":
                         # Split racional (Kennard-Stone / Sphere Exclusion): o teste fica dentro do
-                        # espaço químico do treino - ver MODULES/rational_split.py.
+                        # espaço químico do treino - ver BIN/rational_split.py.
                         self.x_train, self.x_test, self.y_train, self.y_test = rational_split.split(
                             self.x, self.y, self.test_size, self.split_method, self.task,
                             random_state=self.random_state,
@@ -3221,7 +3221,7 @@ class SklEvaluateWorker(QThread): # type: ignore
 
 
 class _WaitMessageProcessHandle:
-    """Referência ao processo separado da janela de espera (MODULES/wait_message_window.py), com um
+    """Referência ao processo separado da janela de espera (BIN/wait_message_window.py), com um
     método close() no mesmo formato do QDialog que ela substituiu, para não exigir mudanças nos
     pontos que chamam show_wait_message_dialog()."""
 
@@ -3248,7 +3248,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        # Idioma da interface (PT-BR/EN, ver MODULES/i18n.py): lido de QSettings para persistir
+        # Idioma da interface (PT-BR/EN, ver BIN/i18n.py): lido de QSettings para persistir
         # entre sessões, com o mesmo padrão de bandeiras BR/UK do AgendaLab (i18n.py + widget de
         # bandeiras ao lado do CPU/GPU Monitor). self._i18n_registry guarda (chave, apply_fn,
         # kwargs) para cada texto traduzido, permitindo reaplicar tudo instantaneamente ao trocar
@@ -3511,9 +3511,9 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 4, 0)
         layout.setSpacing(6)
 
-        # Bandeiras BR/UK de seleção de idioma (mesmo padrão do AgendaLab, MODULES/i18n.py) — ao
+        # Bandeiras BR/UK de seleção de idioma (mesmo padrão do AgendaLab, BIN/i18n.py) — ao
         # lado do CPU/GPU Monitor, no canto superior direito da janela principal. Usa ícones SVG
-        # próprios (ICONS/flag_br.svg, ICONS/flag_gb.svg) em vez de emoji de bandeira: em muitos
+        # próprios (MIDIA/flag_br.svg, MIDIA/flag_gb.svg) em vez de emoji de bandeira: em muitos
         # ambientes Linux/Qt o emoji de bandeira (par de "Regional Indicator Symbols") não tem
         # glifo colorido combinado disponível na fonte do sistema e cai no fallback textual (as
         # duas letras do código do país, ex. "BR"/"GB"), em vez de desenhar a bandeira.
@@ -3524,7 +3524,7 @@ class MainWindow(QMainWindow):
         flag_icon_size = QSize(24, 16)
 
         self.btn_bandeira_pt = QPushButton()
-        self.btn_bandeira_pt.setIcon(QIcon(os.path.join(self.dp_dir, "ICONS", "flag_br.svg")))
+        self.btn_bandeira_pt.setIcon(QIcon(os.path.join(self.dp_dir, "MIDIA", "flag_br.svg")))
         self.btn_bandeira_pt.setIconSize(flag_icon_size)
         self.btn_bandeira_pt.setFlat(True)
         self.btn_bandeira_pt.setFixedSize(30, 22)
@@ -3534,7 +3534,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.btn_bandeira_pt)
 
         self.btn_bandeira_en = QPushButton()
-        self.btn_bandeira_en.setIcon(QIcon(os.path.join(self.dp_dir, "ICONS", "flag_gb.svg")))
+        self.btn_bandeira_en.setIcon(QIcon(os.path.join(self.dp_dir, "MIDIA", "flag_gb.svg")))
         self.btn_bandeira_en.setIconSize(flag_icon_size)
         self.btn_bandeira_en.setFlat(True)
         self.btn_bandeira_en.setFixedSize(30, 22)
@@ -3584,10 +3584,10 @@ class MainWindow(QMainWindow):
                 self._ensure_button_text_fits(target)
 
     def open_hw_monitor_window(self):
-        """Abre MODULES/hw_monitor_window.py como um processo separado (não uma QThread): assim ele
+        """Abre BIN/hw_monitor_window.py como um processo separado (não uma QThread): assim ele
         mantém seu próprio QApplication/event loop e continua atualizando a cada 1,5s mesmo quando a
         janela principal está travada rodando uma tarefa síncrona pesada (STEP 6)."""
-        script_path = os.path.join(self.dp_dir, "MODULES", "hw_monitor_window.py")
+        script_path = os.path.join(self.dp_dir, "BIN", "hw_monitor_window.py")
         if not os.path.isfile(script_path):
             QMessageBox.warning(self, i18n.t("msg_title_monitor", self._idioma), f"Monitor script not found:\n{script_path}")
             return
@@ -4136,7 +4136,7 @@ class MainWindow(QMainWindow):
     def show_wait_message_dialog(self, title, message):
         """Janela de espera com texto simples (sem barra de progresso), usada pela STEP 6.
 
-        Roda como um PROCESSO separado (MODULES/wait_message_window.py), pelo mesmo motivo do botão
+        Roda como um PROCESSO separado (BIN/wait_message_window.py), pelo mesmo motivo do botão
         CPU/GPU Monitor: como os cálculos da STEP 6 são síncronos na própria thread da GUI (sem
         QThread em background, para evitar os crashes já relatados), o processo principal para de
         responder a eventos do X server/compositor durante o cálculo inteiro — e é o próprio
@@ -4145,7 +4145,7 @@ class MainWindow(QMainWindow):
         bloqueado resolve isso; só um processo à parte, com seu próprio event loop, continua
         respondendo e desenhando normalmente independente do processo principal estar travado.
         Retorna um objeto com um método close() que encerra esse processo."""
-        script_path = os.path.join(self.dp_dir, "MODULES", "wait_message_window.py")
+        script_path = os.path.join(self.dp_dir, "BIN", "wait_message_window.py")
         try:
             proc = subprocess.Popen([sys.executable, script_path, title, message])
             return _WaitMessageProcessHandle(proc)
@@ -14505,7 +14505,7 @@ class MainWindow(QMainWindow):
         full-rank PCA on the current feature block (same range read by Recommended
         Scaling/Selection/Projection) and finds the "knee" of the explained-variance-ratio
         curve, using the same kneedle-style heuristic as Selection's top_k='auto'
-        (_elbow_k_from_scores in MODULES/recommended_selection.py). Returns None (leaving
+        (_elbow_k_from_scores in BIN/recommended_selection.py). Returns None (leaving
         the field for the existing Variance-threshold auto-fallback) if it can't be
         computed - e.g. not enough numeric feature columns yet."""
         try:
@@ -17666,7 +17666,7 @@ class MainWindow(QMainWindow):
             scroll0.setWidget(inner0)
 
             logo_label = QLabel()
-            logo_path = os.path.join(self.dp_dir, "ICONS", "LOGO_CODRUG2.png")
+            logo_path = os.path.join(self.dp_dir, "MIDIA", "LOGO_CODRUG2.png")
             if os.path.exists(logo_path):
                 pix = QPixmap(logo_path)
                 if not pix.isNull():
@@ -17897,7 +17897,7 @@ class MainWindow(QMainWindow):
             """)
             class_layout = QVBoxLayout(class_widget)
             class_btn = QPushButton()
-            class_btn_path = os.path.join(self.dp_dir, "ICONS", "classification_w.png")
+            class_btn_path = os.path.join(self.dp_dir, "MIDIA", "classification_w.png")
             if os.path.exists(class_btn_path):
                 pix = QPixmap(class_btn_path)
                 icon = QIcon(pix)
@@ -17911,7 +17911,7 @@ class MainWindow(QMainWindow):
             class_overlay = QVBoxLayout()
             class_overlay.setSpacing(0)
             check_class = QLabel(class_widget)
-            # check_icon_path = os.path.join(self.dp_dir, "ICONS", "check_green.png")
+            # check_icon_path = os.path.join(self.dp_dir, "MIDIA", "check_green.png")
             check_class.setText("✔")
             check_class.setStyleSheet("color: green; font-size: 24pt; font-weight: bold;")
             check_class.setAlignment(Qt.AlignCenter)
@@ -17945,7 +17945,7 @@ class MainWindow(QMainWindow):
             """)
             regress_layout = QVBoxLayout(regress_widget)
             regress_btn = QPushButton()
-            regress_btn_path = os.path.join(self.dp_dir, "ICONS", "regression_w.png")
+            regress_btn_path = os.path.join(self.dp_dir, "MIDIA", "regression_w.png")
             if os.path.exists(regress_btn_path):
                 pix = QPixmap(regress_btn_path)
                 icon = QIcon(pix)
@@ -18014,7 +18014,7 @@ class MainWindow(QMainWindow):
             clust_layout = QVBoxLayout(clust_widget)
             clust_layout.setSpacing(0)
             clust_btn = QPushButton()
-            clust_btn_path = os.path.join(self.dp_dir, "ICONS", "clustering_w.png")
+            clust_btn_path = os.path.join(self.dp_dir, "MIDIA", "clustering_w.png")
             if os.path.exists(clust_btn_path):
                 pix = QPixmap(clust_btn_path)
                 icon = QIcon(pix)
@@ -20249,7 +20249,7 @@ class MainWindow(QMainWindow):
             screen_btns_row.addStretch()
 
             # Método de divisão treino/teste, ao lado do Run Screening: aleatório (padrão, reprodutível
-            # pelo Random State) ou racional (Kennard-Stone / Sphere Exclusion - MODULES/rational_split.py).
+            # pelo Random State) ou racional (Kennard-Stone / Sphere Exclusion - BIN/rational_split.py).
             screen_btns_row.addWidget(self._trL("s6_lbl_split_method"), alignment=Qt.AlignRight)
             self.cb_skl_split_method = QComboBox()
             self.cb_skl_split_method.addItems(["Random", "Kennard-Stone", "Sphere Exclusion"] if rational_split is not None else ["Random"])
@@ -24485,7 +24485,7 @@ class MainWindow(QMainWindow):
     def _save_feature_importance_structures(self, model_name, feat_names, order, importances):
         """Side artifact of the STEP 4 'Feature Importance' chart (Performance Charts group,
         'Plot Model'): for each of the Top 15 highlighted features, identifies its structural
-        substructure WHEN POSSIBLE (see MODULES/module_feature_structures.py for exactly which
+        substructure WHEN POSSIBLE (see BIN/module_feature_structures.py for exactly which
         descriptor families are supported - ECFP4/FCFP6/ECFP4_count and PubchemFP exactly (the
         latter via BASE/DESCRIPTORS/pubchem_fingerprint_bits.json, NCBI's own bit definitions),
         MACCSFP as a best-effort approximation - and why MomentOfInertia/etc. are skipped rather

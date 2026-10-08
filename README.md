@@ -24,7 +24,7 @@ Use the following command if you do not have python3 on your system:
 sudo apt update
 sudo apt install python3 -y
 
-A window will then appear describing the requirements that are not installed in the environment so that the user knows what needs to be installed beforehand. This installation can be done through the interface itself, which will open automatically, or with the module_requirements.py file in the MODULES folder.
+A window will then appear describing the requirements that are not installed in the environment so that the user knows what needs to be installed beforehand. This installation can be done through the interface itself, which will open automatically, or with the module_requirements.py file in the BIN folder.
 In this first run, the Python virtual environment will be created in $HOME/.venv/CODRUG, where the program packages that are dependencies for running CODRUG will be installed (see topic 3).
 
 For installations via the terminal, this environment can be activated with the command:

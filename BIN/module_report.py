@@ -1849,7 +1849,7 @@ def _add_step5_section(document: Any, job_dir: str, state: dict[str, Any], idiom
 
             # Structural identification of the Top 15 Feature Importance features (CODRUG.
             # _save_feature_importance_structures) - CSV table + grid drawing, when at least one
-            # feature could be resolved (see MODULES/module_feature_structures.py for which
+            # feature could be resolved (see BIN/module_feature_structures.py for which
             # descriptor families are supported and why the rest are skipped rather than guessed).
             struct_csv = _find_feature_structures_csv(midia_dir, model_name, usi)
             struct_df = _read_csv(struct_csv)
@@ -2303,7 +2303,7 @@ def _add_step7_section(document: Any, job_dir: str, state: dict[str, Any], idiom
 # ID -> SMILES lookup and ID -> common-name resolution (PubChem, by structure) now live in
 # module_compound_names.py, shared with CODRUG.run_consensus_generate (STEP 6) so both places
 # that show the Hits table use the exact same lookup/cache logic.
-from MODULES import module_compound_names as _mcn
+from BIN import module_compound_names as _mcn
 
 _find_smiles_lookup = _mcn.find_smiles_lookup
 
@@ -2558,7 +2558,7 @@ def generate_final_report(
     Time); the STEP 1-6 section bodies are still English-only, to be ported over topic by topic.
     app_dir: CODRUG's own install directory (CODRUG.py's self.dp_dir), used to find the fixed
     BASE/workflow.png asset for the Introduction section. Defaults to this module's own parent
-    directory (MODULES/../) when not given, matching CODRUG.py's own dp_dir computation."""
+    directory (BIN/../) when not given, matching CODRUG.py's own dp_dir computation."""
     require_docx()
     app_dir = app_dir or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

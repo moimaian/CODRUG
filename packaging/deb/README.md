@@ -31,13 +31,13 @@ Isso cria:
 2. `CODRUG.py` (código já existente, inalterado por este empacotamento)
    detecta que ainda não está rodando no venv-alvo e chama
    `bootstrap_pyqt5(interactive=True, reexec=True)` em
-   `MODULES/module_requirements.py`, que:
+   `BIN/module_requirements.py`, que:
    - cria `$HOME/.venv/CODRUG` com Python 3.10;
    - instala PyQt5 e, em seguida, o restante das dependências científicas
      (RDKit, scikit-learn, PyCaret, etc.) — pelo botão "Instalação de
      Requisitos" na aba HOME ou pela splash screen;
    - se reinicia (`os.execve`) já dentro do venv.
-3. A splash screen (`MODULES/splash_screen.py`) recria/atualiza também o
+3. A splash screen (`BIN/splash_screen.py`) recria/atualiza também o
    `.desktop` em `~/.local/share/applications/CODRUG.desktop` e a estrutura
    de subpastas dentro de `$HOME/CODRUG`.
 

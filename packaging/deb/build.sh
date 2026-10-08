@@ -41,8 +41,8 @@ rsync -a \
     --exclude='*.pyc' \
     --exclude='.git/' \
     "$PROJECT_ROOT/CODRUG.py" \
-    "$PROJECT_ROOT/MODULES" \
-    "$PROJECT_ROOT/ICONS" \
+    "$PROJECT_ROOT/BIN" \
+    "$PROJECT_ROOT/MIDIA" \
     "$PROJECT_ROOT/BASE" \
     "$PROJECT_ROOT/TEST" \
     "$PROJECT_ROOT/TUTORIALS" \
@@ -51,7 +51,7 @@ rsync -a \
     "$STAGE/opt/codrug/"
 
 # Normaliza permissões: o diretório de trabalho local pode ter modos
-# incomuns (ex.: MODULES/ ficou 700 na máquina de desenvolvimento); o
+# incomuns (ex.: BIN/ ficou 700 na máquina de desenvolvimento); o
 # pacote precisa ser legível/executável por qualquer usuário do sistema.
 find "$STAGE/opt/codrug" -type d -exec chmod 755 {} +
 find "$STAGE/opt/codrug" -type f -exec chmod 644 {} +

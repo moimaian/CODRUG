@@ -23,7 +23,7 @@ sem o texto, até o processo voltar a responder. Não existe ajuste de estilo, c
 'processEvents()' dentro do MESMO processo bloqueado que resolva isso — a única forma é rodar essa
 janela de aviso em um processo do sistema operacional à parte, com seu próprio event loop, que
 continua respondendo/pintando normalmente independente do que o processo principal esteja fazendo
-(mesmo padrão já usado por MODULES/hw_monitor_window.py para o monitor de CPU/GPU).
+(mesmo padrão já usado por BIN/hw_monitor_window.py para o monitor de CPU/GPU).
 
 Uso: python3 wait_message_window.py "<título>" "<mensagem>"
 """

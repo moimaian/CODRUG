@@ -10,7 +10,7 @@
 #      $HOME/.venv/CODRUG, instalação das dependências científicas,
 #      criação do .desktop em ~/.local/share/applications — para o próprio
 #      CODRUG.py, que já faz isso sozinho na primeira execução (ver
-#      MODULES/module_requirements.py e MODULES/splash_screen.py).
+#      BIN/module_requirements.py e BIN/splash_screen.py).
 set -euo pipefail
 
 SRC_DIR="/opt/codrug"

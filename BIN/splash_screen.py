@@ -52,7 +52,7 @@ def _run(cmd):
 
 def _write_desktop():
     os.makedirs(DESKTOP_DIR, exist_ok=True)
-    icon_path = os.path.join(APP_DIR, "ICONS", "CODRUG.png")
+    icon_path = os.path.join(APP_DIR, "MIDIA", "CODRUG.png")
     content = f"""[Desktop Entry]
 Version=2025.2
 Name=CODRUG
@@ -142,7 +142,7 @@ class SplashScreen(QWidget):
 
         # Logo
         logo = QLabel()
-        logo_path = os.path.join(self.dp_dir, "ICONS", "CODRUG.png")
+        logo_path = os.path.join(self.dp_dir, "MIDIA", "CODRUG.png")
         if os.path.exists(logo_path):
             pix = QPixmap(logo_path).scaled(180, 180, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             logo.setPixmap(pix)
@@ -191,7 +191,7 @@ class SplashScreen(QWidget):
         self._set_target(25)
 
         # 2) Estrutura de pastas
-        for folder in (f"{self.dp_dir}/JOBS", f"{self.dp_dir}/MODULES", f"{self.dp_dir}/TEST", f"{self.dp_dir}/ICONS"):
+        for folder in (f"{self.dp_dir}/JOBS", f"{self.dp_dir}/BIN", f"{self.dp_dir}/TEST", f"{self.dp_dir}/MIDIA"):
             os.makedirs(folder, exist_ok=True)
         self.status["folders_ok"] = True
         self._set_target(50)

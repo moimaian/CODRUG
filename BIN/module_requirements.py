@@ -29,13 +29,13 @@ from pathlib import Path
 from typing import Any, Optional, List, cast
 
 try:
-    import MODULES.i18n as i18n
+    import BIN.i18n as i18n
 except ImportError:
-    # Ocorre quando este arquivo é executado diretamente de dentro de MODULES/ (bloco
+    # Ocorre quando este arquivo é executado diretamente de dentro de BIN/ (bloco
     # "For direct test" no fim do arquivo) em vez de importado a partir da raiz do projeto -
-    # adiciona a raiz do projeto (pai de MODULES/) ao sys.path e tenta de novo.
+    # adiciona a raiz do projeto (pai de BIN/) ao sys.path e tenta de novo.
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    import MODULES.i18n as i18n
+    import BIN.i18n as i18n
 
 TARGET_VENV_PYTHON = "3.10.12"
 PYENV_APT_BUILD_DEPS = [

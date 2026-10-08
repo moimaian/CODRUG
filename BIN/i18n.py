@@ -1285,7 +1285,7 @@ _TEXTOS = {
     "about_version": {"en": "Version 1.0 (beta)   © October 2025", "pt": "Versão 1.0 (beta)   © Outubro de 2025"},
 
     # ---------------------------------------------------------------- RequirementsInstaller window
-    # (MODULES/module_requirements.py) — standalone window opened from Help > Install Requirements
+    # (BIN/module_requirements.py) — standalone window opened from Help > Install Requirements
     # and from the HOME tab's "Install Requirements" button. Translated once at construction time
     # from the idioma passed in by the caller (no live language switcher inside this sub-window).
     "req_window_title": {"en": "Install Requirements (Python venv + pip)", "pt": "Instalar Dependências (venv Python + pip)"},
