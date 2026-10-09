@@ -20,6 +20,6 @@ Description: QSAR analysis and machine learning tool for drug discovery
  This package installs the application files to /opt/codrug and a menu
  launcher. On first run, CODRUG itself creates an isolated Python 3.10
  virtual environment at ~/.venv/CODRUG and installs its own scientific
- dependencies (RDKit, scikit-learn, PyCaret, etc.) into it — this package
+ dependencies (RDKit, scikit-learn, etc.) into it — this package
  does not do that as root during installation, by design (see
  packaging/deb/README.md).

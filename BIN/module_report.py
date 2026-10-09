@@ -2341,6 +2341,7 @@ def _add_step7_section(document: Any, project_dir: str, state: dict[str, Any], i
 # module_compound_names.py, shared with CODRUG.run_consensus_generate (STEP 6) so both places
 # that show the Hits table use the exact same lookup/cache logic.
 from BIN import module_compound_names as _mcn
+from BIN.versao import VERSAO
 
 _find_smiles_lookup = _mcn.find_smiles_lookup
 
@@ -2509,8 +2510,8 @@ def _add_step8_section(document: Any, project_dir: str, state: dict[str, Any], i
 
 
 # --------------------------------------------------------------------------------------
-# Report header ("RELATÓRIO FINAL CODRUG: Método e Resultados" topic, Job Name/Task Type/
-# Started/Finished/Working Time) - like the Introduction, translated based on idioma.
+# Report header ("RELATÓRIO FINAL CODRUG: Método e Resultados" topic, Project Name/Task Type/
+# CODRUG Version/Started/Finished/Working Time) - like the Introduction, translated based on idioma.
 # --------------------------------------------------------------------------------------
 
 _METHOD_RESULTS_TEXTS = {
@@ -2520,6 +2521,7 @@ _METHOD_RESULTS_TEXTS = {
     },
     "project_name": {"pt": "Nome do Projeto", "en": "Project Name"},
     "task_type": {"pt": "Tipo de Tarefa", "en": "Task Type"},
+    "codrug_version": {"pt": "Versão do CODRUG", "en": "CODRUG Version"},
     "started": {"pt": "Iniciado", "en": "Started"},
     "finished": {"pt": "Finalizado", "en": "Finished"},
     "working_time": {"pt": "Tempo de Trabalho", "en": "Working Time"},
@@ -2591,7 +2593,7 @@ def generate_final_report(
 
     idioma: UI language active when the report is generated ("en"/"pt", read from CODRUG's own
     self._idioma) - so far only affects the fixed Introduction section (see _add_intro_section)
-    and the "Método e Resultados" header (title, Job Name/Task Type/Started/Finished/Working
+    and the "Método e Resultados" header (title, Project Name/Task Type/CODRUG Version/Started/Finished/Working
     Time); the STEP 1-6 section bodies are still English-only, to be ported over topic by topic.
     app_dir: CODRUG's own install directory (CODRUG.py's self.dp_dir), used to find the fixed
     BASE/workflow.png asset for the Introduction section. Defaults to this module's own parent
@@ -2624,6 +2626,7 @@ def generate_final_report(
     _bar(document, header_texts["title"][lang], COLOR_TITLE_BAR)
     _field_line(document, header_texts["project_name"][lang], project_name)
     _field_line(document, header_texts["task_type"][lang], _translate_task_type(state.get("task_type", ""), lang))
+    _field_line(document, header_texts["codrug_version"][lang], VERSAO)
     started_dt = _parse_project_started(project_name)
     if started_dt is not None:
         _field_line(document, header_texts["started"][lang], started_dt.strftime("%Y-%m-%d %H:%M"))

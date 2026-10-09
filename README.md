@@ -1,6 +1,6 @@
 
-#                                            CODRUG VERSION 2025.1.0:                                            #
-This is a tool applied to QSAR analysis using machine learning (ML) models. Its design includes everything from the preparation of labeled internal datasets, preprocessing, exploratory and statistical analysis, generation of molecular descriptors and feature engineering, construction and validation of regression models, classification and clustering, cross-validation, hyperparameter optimization, and prediction of classes or bioactivities in external databases. This interface guides users through complex processes, reducing the need for programming knowledge and IDE use. It was developed in Python 3.10.12 using the PyQt5/Qt 5.15.14 framework, with an intuitive and modular graphical interface organized into sequential tabs. The main libraries integrated into this tool were ChEMBL Web Client, Pandas, Numpy, Matplotlib, RDKit, PaDEL-Descriptor, TensorFlow, PyTorch, Pycaret, and Scikitlearn.
+#                                            CODRUG:                                            #
+This is a tool applied to QSAR analysis using machine learning (ML) models. Its design includes everything from the preparation of labeled internal datasets, preprocessing, exploratory and statistical analysis, generation of molecular descriptors and feature engineering, construction and validation of regression models, classification and clustering, cross-validation, hyperparameter optimization, and prediction of classes or bioactivities in external databases. This interface guides users through complex processes, reducing the need for programming knowledge and IDE use. It was developed in Python 3.10.12 using the PyQt5/Qt 5.15.14 framework, with an intuitive and modular graphical interface organized into sequential tabs. The main libraries integrated into this tool were ChEMBL Web Client, Pandas, Numpy, Matplotlib, RDKit, PaDEL-Descriptor, TensorFlow, PyTorch, and Scikitlearn.
 
 
 #                                        **INSTALLATION INSTRUCTIONS**:                                     #
@@ -37,7 +37,6 @@ The prerequisites are:
 - matplotlib: 3.10.5
 - Numpy: 1.26.4
 - Pandas: 2.1.4
-- PyCaret: 3.3.2
 - RDKit: 2024.03.5
 - Joblib: 1.3.2
 - Scikit-learn: 1.4.2

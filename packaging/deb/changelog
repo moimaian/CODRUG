@@ -1,0 +1,21 @@
+codrug (1.0.0-1) unstable; urgency=low
+
+  * Primeira versão estável: o CODRUG deixa de ser beta e passa a seguir
+    versionamento MAJOR.MINOR.PATCH-N (ver packaging/VERSIONING.md), com
+    BIN/versao.py como fonte única do número.
+  * A versão atual aparece no rodapé de todas as abas (centralizada entre
+    BACK e NEXT), em Help > About e no cabeçalho do relatório final
+    ("Versão do CODRUG"/"CODRUG Version") (CODRUG.py, BIN/i18n.py,
+    BIN/module_report.py).
+  * Remove as últimas referências ao PyCaret (já retirado do pipeline): a
+    leitura legada de pycaret_session.json na sugestão de peso do Weighted
+    Consensus (CODRUG.py) e as menções no README.md, packaging/deb/README.md
+    e na descrição do pacote (control.in).
+  * packaging/deb/build.sh passa a usar BIN/versao.py como versão padrão do
+    .deb, recusa empacotar se BIN/versao.py e o topo deste changelog
+    divergirem, e instala este changelog em /usr/share/doc/codrug.
+  * O campo Version do .deb ganha a época "1:" (1:1.0.0-1), para que o apt
+    considere esta versão mais nova que os pacotes anteriores numerados por
+    data (ex.: 2026.10.08).
+
+ -- Moisés Maia Neto <moimaian@gmail.com>  Fri, 09 Oct 2026 02:10:00 -0300

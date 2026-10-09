@@ -222,7 +222,6 @@ _TEXTOS = {
 
     # ---------------------------------------------------------------- STEP 1 (Dataset Preparation)
     "s1_btn_search_local": {"en": "Search Local Data", "pt": "Buscar Dados Locais"},
-    "s1_btn_use_chembl": {"en": "Use ChEMBL Data", "pt": "Usar Dados do ChEMBL"},
     "s1_grp_target_filter": {"en": "Target Filter", "pt": "Filtro de Alvo"},
     "s1_lbl_target_type": {"en": "Target Type:", "pt": "Tipo de Alvo:"},
     "s1_lbl_organism_name": {"en": "Organism Name:", "pt": "Nome do Organismo:"},
@@ -1342,7 +1341,7 @@ _TEXTOS = {
     "about_developed_by": {"en": "Developed by:", "pt": "Desenvolvido por:"},
     "about_brazil": {"en": "Brazil", "pt": "Brasil"},
     "about_contact": {"en": "Contact:", "pt": "Contato:"},
-    "about_version": {"en": "Version 1.0 (beta)   © October 2025", "pt": "Versão 1.0 (beta)   © Outubro de 2025"},
+    "about_version": {"en": "Version {versao}   © 2024–2026 CEB/UFPR", "pt": "Versão {versao}   © 2024–2026 CEB/UFPR"},
 
     # ---------------------------------------------------------------- RequirementsInstaller window
     # (BIN/module_requirements.py) — standalone window opened from Help > Install Requirements

@@ -3,11 +3,15 @@
 ## Build
 
 ```bash
-packaging/deb/build.sh              # versão = data de hoje (AAAA.MM.DD)
-packaging/deb/build.sh 2026.08.06   # versão explícita
+packaging/deb/build.sh              # versão = BIN/versao.py (ex.: 1.0.0-1)
+packaging/deb/build.sh 1.0.0-2      # versão explícita
 ```
 
-Gera `packaging/dist/codrug_<versão>_all.deb`.
+Gera `packaging/dist/codrug_<versão>_all.deb`. Antes de gerar um novo pacote,
+atualize `BIN/versao.py` e o topo de `packaging/deb/changelog` com o mesmo
+número — o script recusa rodar se os dois divergirem. Regras para escolher o
+número (MAJOR/MINOR/PATCH-N) e o motivo da época `1:` no campo `Version` em
+[`packaging/VERSIONING.md`](../VERSIONING.md).
 
 Dependências para *buildar* (não para instalar/usar): `dpkg-deb`, `rsync`
 (já vêm em qualquer Debian/Ubuntu/Mint). `lintian` é opcional.
@@ -34,7 +38,7 @@ Isso cria:
    `BIN/module_requirements.py`, que:
    - cria `$HOME/.venv/CODRUG` com Python 3.10;
    - instala PyQt5 e, em seguida, o restante das dependências científicas
-     (RDKit, scikit-learn, PyCaret, etc.) — pelo botão "Instalação de
+     (RDKit, scikit-learn, etc.) — pelo botão "Instalação de
      Requisitos" na aba HOME ou pela splash screen;
    - se reinicia (`os.execve`) já dentro do venv.
 3. A splash screen (`BIN/splash_screen.py`) recria/atualiza também o
@@ -54,7 +58,7 @@ Nesse momento:
   para localizar `$HOME/CODRUG` de forma confiável, e em máquina
   multiusuário a pergunta "de qual usuário?" nem faz sentido para um
   pacote de sistema;
-- instalar via pip pacotes pesados (RDKit, TensorFlow, PyTorch, PyCaret)
+- instalar via pip pacotes pesados (RDKit, TensorFlow, PyTorch)
   depende de rede, demora minutos, e se falhar no meio deixa o `dpkg` em
   estado `half-configured`, travando qualquer `apt` seguinte até conserto
   manual — contra as boas práticas de empacotamento Debian.

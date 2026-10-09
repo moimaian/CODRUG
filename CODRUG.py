@@ -702,6 +702,8 @@ from BIN.module_requirements import RequirementsInstaller
 print("✅ RequirementsInstaller imported successfully.")
 import BIN.i18n as i18n
 print("✅ i18n imported successfully.")
+from BIN.versao import VERSAO
+print(f"✅ CODRUG version {VERSAO}.")
 from BIN.splash_screen import SplashScreen, migrate_project_layout
 print("✅ SplashScreen imported successfully.")
 try:
@@ -3834,7 +3836,7 @@ class MainWindow(QMainWindow):
             "Universidade Federal do Paraná (UFPR)\n"
             f"{i18n.t('about_brazil', idioma)}\n"
             "\n"
-            f"{i18n.t('about_version', idioma)}"
+            f"{i18n.t('about_version', idioma, versao=VERSAO)}"
         )
 
     def _trL(self, chave, **kwargs):
@@ -3842,6 +3844,15 @@ class MainWindow(QMainWindow):
         de grid/formulário espalhados pelas abas STEP 1-8/EDIT."""
         lbl = QLabel()
         self._tr(chave, lbl.setText, **kwargs)
+        return lbl
+
+    def _mk_version_label(self):
+        """Rótulo discreto com a versão do CODRUG (BIN/versao.py), usado na linha BACK/NEXT de
+        todas as abas, entre os dois botões (que têm a mesma largura fixa, então o rótulo fica
+        centralizado na janela)."""
+        lbl = QLabel(f"v{VERSAO}")
+        lbl.setAlignment(Qt.AlignCenter)
+        lbl.setStyleSheet("font-size:8pt;color:#6E8CA8;")
         return lbl
 
     def _mk_title(self, chave):
@@ -12517,29 +12528,6 @@ class MainWindow(QMainWindow):
                             return float(match.iloc[0])
             except Exception:
                 pass
-
-        pyc_path = os.path.join(usi_dir, "pycaret_session.json")
-        if os.path.isfile(pyc_path):
-            try:
-                session = json.loads(Path(pyc_path).read_text(encoding="utf-8"))
-                task = str(session.get("task", "")).strip().lower()
-                model_label = str(session.get("best_model_label", ""))
-                metric_col = "R2" if task == "regression" else "F1"
-                compare_files = sorted(
-                    glob.glob(os.path.join(usi_dir, "DATA", "df_pycaret_compare_*.csv")),
-                    key=os.path.getmtime, reverse=True,
-                )
-                if model_label and compare_files:
-                    df = pd.read_csv(compare_files[0])
-                    if "Model" in df.columns and metric_col in df.columns:
-                        label_norm = model_label.lower().replace(" ", "")
-                        for _, row in df.iterrows():
-                            name_norm = str(row["Model"]).lower().replace(" ", "")
-                            if name_norm and name_norm in label_norm:
-                                if pd.notna(row[metric_col]):
-                                    return float(row[metric_col])
-            except Exception:
-                pass
         return None
 
     def _consensus_load_dataset(self, slot):
@@ -17992,7 +17980,7 @@ class MainWindow(QMainWindow):
             btn_row.addStretch()
             l0.addLayout(btn_row)
 
-            footer_label = QLabel("v1.0 beta  ·  © 2024–2026 CEB/UFPR  ·  GPL-3.0")
+            footer_label = QLabel(f"v{VERSAO}  ·  © 2024–2026 CEB/UFPR  ·  GPL-3.0")
             footer_label.setAlignment(Qt.AlignCenter)
             footer_label.setStyleSheet("font-size:8pt;color:#6E8CA8;margin-top:6px;")
             l0.addWidget(footer_label)
@@ -18395,6 +18383,7 @@ class MainWindow(QMainWindow):
             next_btn1.clicked.connect(lambda: self.tabs.setCurrentIndex(2))
 
             layout_btn_back_next1.addWidget(back_btn1, alignment=Qt.AlignLeft)
+            layout_btn_back_next1.addWidget(self._mk_version_label(), 1)
             layout_btn_back_next1.addWidget(next_btn1, alignment=Qt.AlignRight)
             l1.addStretch()
             l1.addLayout(layout_btn_back_next1)
@@ -18414,24 +18403,12 @@ class MainWindow(QMainWindow):
             # Adiciona título:
             l2.addWidget(self._mk_title("title_step1"))       
 
-            # Adiciona botões de escolha do dataset:
-            l2_data_btn = QHBoxLayout()
+            # Botão "Search Local Data" (carrega um dataset local; posicionado ao lado de
+            # "Generate Dataset by activity", mais abaixo). Os filtros da aba já iniciam
+            # habilitados, então também se aplicam ao dataset carregado localmente:
             int_data_btn = QPushButton(); self._tr("s1_btn_search_local", int_data_btn.setText)
             int_data_btn.setFixedWidth(200)
             int_data_btn.setProperty("role", "secondary")
-
-            ext_data_btn = QPushButton(); self._tr("s1_btn_use_chembl", ext_data_btn.setText)
-            ext_data_btn.setFixedWidth(200)
-            ext_data_btn.setProperty("role", "primary")
-            l2.addLayout(l2_data_btn)
-            l2_data_btn.addWidget(int_data_btn)
-            l2_data_btn.addWidget(ext_data_btn)
-            chembl_controls = []
-
-            def set_grid_enabled(enabled=False):
-                for control in chembl_controls:
-                    if control is not None:
-                        control.setEnabled(enabled)
 
             def _local_data_mode_value(series):
                 """Valor mais frequente (não vazio) de uma coluna, usado para preencher um único
@@ -18501,11 +18478,7 @@ class MainWindow(QMainWindow):
                         self.ed_target_chembl_id.setText(raw_target_id)
 
             def on_int_data_btn_clicked():
-                # "Search Local Data" não deve desabilitar os elementos da aba para edição do
-                # usuário - ao contrário, habilita-os (mesmo efeito de "Use ChEMBL Data"), já
-                # que o dataset carregado localmente preenche vários desses campos abaixo.
-                set_grid_enabled(True)
-                # O diálogo abre na pasta INTERNAL_DATA do job carregado (sem job, no diretório padrão).
+                # O diálogo abre na pasta INTERNAL_DATA do projeto carregado (sem projeto, no diretório padrão).
                 initial_dir = ""
                 _project_dir = getattr(self, "project_dir", None)
                 if _project_dir and os.path.isdir(_project_dir):
@@ -18572,7 +18545,6 @@ class MainWindow(QMainWindow):
 
 
             int_data_btn.clicked.connect(on_int_data_btn_clicked)
-            ext_data_btn.clicked.connect(lambda: set_grid_enabled(True))
             
             # Grupo "Target Filter":
             g1_target = QGroupBox(); self._tr("s1_grp_target_filter", g1_target.setTitle)
@@ -18602,8 +18574,9 @@ class MainWindow(QMainWindow):
             target_btn.addStretch(1)
             g1_target_layout.addLayout(target_btn)
 
-            # Botão "Generate Dataset by activity" + checkbox "Web Scraping", logo abaixo do
-            # grupo "Target Filter", centralizados na janela (fora de qualquer grupo com título):
+            # Botão "Generate Dataset by activity" + checkbox "Web Scraping" + botão "Search Local
+            # Data", logo abaixo do grupo "Target Filter", centralizados na janela (fora de qualquer
+            # grupo com título):
             btn_by_activity = QPushButton(); self._tr("s1_btn_generate_by_activity", btn_by_activity.setText)
             btn_by_activity.setFixedWidth(200)
             btn_by_activity.setProperty("role", "primary")
@@ -18619,8 +18592,9 @@ class MainWindow(QMainWindow):
             activity_btn_layout.addStretch(1)
             activity_btn_layout.addWidget(btn_by_activity)
             activity_btn_layout.addWidget(self.cb_web_scraping)
+            activity_btn_layout.addSpacing(12)
+            activity_btn_layout.addWidget(int_data_btn)
             activity_btn_layout.addStretch(1)
-            chembl_controls.extend([self.cb_target_type, self.ed_organism_name, self.ed_target_pref_name, self.ed_target_chembl_id, btn_by_target, btn_by_activity, self.cb_web_scraping])
 
             # Grupo "Cell line Filter":
             g1_cell = QGroupBox(); self._tr("s1_grp_cell_filter", g1_cell.setTitle)
@@ -18649,7 +18623,6 @@ class MainWindow(QMainWindow):
             cell_btn.addWidget(btn_by_cell)
             cell_btn.addStretch(1)
             g1_cell_layout.addLayout(cell_btn)
-            chembl_controls.extend([self.ed_cell_chembl_id, self.ed_cell_name, self.ed_cell_source_tissue, self.ed_cell_description, btn_by_cell])
 
             # Grupo "Assay Filter":
             g1_assay = QGroupBox(); self._tr("s1_grp_assay_filter", g1_assay.setTitle)
@@ -18696,17 +18669,6 @@ class MainWindow(QMainWindow):
             assay_btn.addWidget(btn_explore_assay)
             assay_btn.addWidget(btn_description_assay)
             g1_assay_layout.addLayout(assay_btn)
-            chembl_controls.extend([
-                self.list_assay_type,
-                self.list_assay_metric,
-                self.list_assay_units,
-                self.ed_assay_strain,
-                self.list_assay_chembl_id,
-                self.ed_assay_description_included,
-                self.ed_assay_description_excluded,
-                btn_explore_assay,
-                btn_description_assay,
-            ])
 
             # Grupo "Validity Filter":
             g1_validity = QGroupBox(); self._tr("s1_grp_validity_filter", g1_validity.setTitle)
@@ -18749,7 +18711,6 @@ class MainWindow(QMainWindow):
             validity_row.addWidget(self.chk_validity_description)
             validity_row.addWidget(self.list_validity_description, 1)
             g1_validity_layout.addLayout(validity_row)
-            chembl_controls.extend([self.chk_validity_comment, self.list_validity_comment, self.chk_validity_description, self.list_validity_description])
 
             # Botão "Generate Base Dataset" + "Request time (s)", logo após o grupo "Validity
             # Filter", centralizados na janela (fora de qualquer grupo com título):
@@ -18799,19 +18760,6 @@ class MainWindow(QMainWindow):
             gL4.addWidget(self.ed_molecule_chembl_id,1,0); gL4.addWidget(self.ed_molecule_pref_name,1,1); gL4.addWidget(self.ed_canonical_smiles,1,2); gL4.addWidget(self.ed_activity_chembl_id,1,3)
             gL4.setColumnStretch(0, 1); gL4.setColumnStretch(1, 1); gL4.setColumnStretch(2, 2); gL4.setColumnStretch(3, 1); gL4.setColumnStretch(4, 1)
             g1_molecule_layout.addWidget(gL4_widget)
-            chembl_controls.extend([
-                self.ed_molecule_chembl_id,
-                self.ed_molecule_pref_name,
-                self.ed_canonical_smiles,
-                self.ed_activity_chembl_id,
-                btn_by_molecule,
-                btn_generate_end_dataset,
-                request_time_label,
-                self.ed_request_time,
-            ])
-
-            # Iniciam inativos:
-            set_grid_enabled(False)
 
             g2 = QGroupBox(); self._tr("s1_grp_view_frequency", g2.setTitle)
             g2.setStyleSheet("QGroupBox { background-color: #F5F5F5; border: 1px solid #ccc; border-radius: 6px; }")
@@ -18892,6 +18840,7 @@ class MainWindow(QMainWindow):
             next_btn2.clicked.connect(lambda: self.tabs.setCurrentIndex(3))
 
             layout_btn_back_next2.addWidget(back_btn2, alignment=Qt.AlignLeft)
+            layout_btn_back_next2.addWidget(self._mk_version_label(), 1)
             layout_btn_back_next2.addWidget(next_btn2, alignment=Qt.AlignRight)
             l2.addStretch()
             l2.addLayout(layout_btn_back_next2)        
@@ -19420,6 +19369,7 @@ class MainWindow(QMainWindow):
             next_btn3.clicked.connect(lambda: self.tabs.setCurrentIndex(4))
 
             layout_btn_back_next3.addWidget(back_btn3, alignment=Qt.AlignLeft)
+            layout_btn_back_next3.addWidget(self._mk_version_label(), 1)
             layout_btn_back_next3.addWidget(next_btn3, alignment=Qt.AlignRight)
             l3.addStretch()
             l3.addLayout(layout_btn_back_next3)
@@ -20246,6 +20196,7 @@ class MainWindow(QMainWindow):
             next_btn5.clicked.connect(lambda: self.tabs.setCurrentIndex(5))
 
             layout_btn_back_next5.addWidget(back_btn5, alignment=Qt.AlignLeft)
+            layout_btn_back_next5.addWidget(self._mk_version_label(), 1)
             layout_btn_back_next5.addWidget(next_btn5, alignment=Qt.AlignRight)
             l5.addStretch()
             l5.addLayout(layout_btn_back_next5)
@@ -20806,6 +20757,7 @@ class MainWindow(QMainWindow):
             next_btn_skl.clicked.connect(lambda: self.tabs.setCurrentIndex(6))
 
             layout_btn_back_next_skl.addWidget(back_btn_skl, alignment=Qt.AlignLeft)
+            layout_btn_back_next_skl.addWidget(self._mk_version_label(), 1)
             layout_btn_back_next_skl.addWidget(next_btn_skl, alignment=Qt.AlignRight)
             outer_skl.addLayout(layout_btn_back_next_skl)
 
@@ -21380,6 +21332,7 @@ class MainWindow(QMainWindow):
             next_btn6.clicked.connect(lambda: self.tabs.setCurrentIndex(7))
 
             layout_btn_back_next6.addWidget(back_btn6, alignment=Qt.AlignLeft)
+            layout_btn_back_next6.addWidget(self._mk_version_label(), 1)
             layout_btn_back_next6.addWidget(next_btn6, alignment=Qt.AlignRight)
 
             l7.addLayout(layout_btn_back_next6)
@@ -21692,6 +21645,7 @@ class MainWindow(QMainWindow):
             next_btn8.clicked.connect(lambda: self.tabs.setCurrentIndex(8))
 
             layout_btn_back_next8.addWidget(back_btn8, alignment=Qt.AlignLeft)
+            layout_btn_back_next8.addWidget(self._mk_version_label(), 1)
             layout_btn_back_next8.addWidget(next_btn8, alignment=Qt.AlignRight)
             l8.addLayout(layout_btn_back_next8)
         except Exception as e:
@@ -22081,6 +22035,7 @@ class MainWindow(QMainWindow):
             next_btn9.clicked.connect(lambda: self.tabs.setCurrentIndex(9))
 
             layout_btn_back_next9.addWidget(back_btn9, alignment=Qt.AlignLeft)
+            layout_btn_back_next9.addWidget(self._mk_version_label(), 1)
             layout_btn_back_next9.addWidget(next_btn9, alignment=Qt.AlignRight)
             l9.addLayout(layout_btn_back_next9)
         except Exception as e:
@@ -22616,6 +22571,10 @@ class MainWindow(QMainWindow):
             back_btn10.clicked.connect(lambda: self.tabs.setCurrentIndex(8))
 
             layout_btn_back_next10.addWidget(back_btn10, alignment=Qt.AlignLeft)
+            # Sem "Next" nesta aba: espaço da mesma largura do botão à direita, para a versão
+            # ficar centralizada como nas demais abas.
+            layout_btn_back_next10.addWidget(self._mk_version_label(), 1)
+            layout_btn_back_next10.addSpacing(200)
             l10.addStretch()
             l10.addLayout(layout_btn_back_next10)
         except Exception as e:
