@@ -37,6 +37,53 @@ def _bootstrap_codrug_venv():
 
 _bootstrap_codrug_venv()
 
+# Saída do programa (print/erros, inclusive de subprocessos) gravada num log por sessão, exibido
+# ao vivo por Help > Terminal. Aberto pelo menu (sem terminal), stdout/stderr vão só para o log;
+# rodando num terminal, um "tee" mantém a saída no terminal e também copia para o log.
+CODRUG_TERMINAL_LOG_DIR = os.path.join(os.path.expanduser("~"), ".cache", "codrug")
+CODRUG_TERMINAL_LOG = os.path.join(CODRUG_TERMINAL_LOG_DIR, f"terminal_{os.getpid()}.log")
+_codrug_tee_proc = None
+
+def _setup_terminal_log():
+    global _codrug_tee_proc
+    import glob as _glob
+    import subprocess as _subprocess
+    try:
+        os.makedirs(CODRUG_TERMINAL_LOG_DIR, exist_ok=True)
+        # Remove logs de sessões anteriores já encerradas (o PID no nome não está mais vivo):
+        for old in _glob.glob(os.path.join(CODRUG_TERMINAL_LOG_DIR, "terminal_*.log")):
+            try:
+                old_pid = int(os.path.basename(old)[len("terminal_"):-len(".log")])
+                if old_pid != os.getpid():
+                    os.kill(old_pid, 0)
+            except (ValueError, ProcessLookupError):
+                os.remove(old)
+            except Exception:
+                pass
+        log_fd = os.open(CODRUG_TERMINAL_LOG, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    except OSError:
+        return
+    try:
+        sys.stdout.flush(); sys.stderr.flush()
+        if os.isatty(1):
+            os.close(log_fd)
+            # -i: Ctrl+C no terminal não derruba o tee (o que faria os prints do CODRUG falharem).
+            _codrug_tee_proc = _subprocess.Popen(["tee", "-i", "-a", CODRUG_TERMINAL_LOG], stdin=_subprocess.PIPE)
+            out_fd = _codrug_tee_proc.stdin.fileno()
+        else:
+            out_fd = log_fd
+        os.dup2(out_fd, 1)
+        os.dup2(out_fd, 2)
+        # Fora de um terminal o Python bufferiza stdout em blocos: força linha a linha, para o
+        # Help > Terminal acompanhar a saída em tempo real.
+        sys.stdout.reconfigure(line_buffering=True)
+        sys.stderr.reconfigure(line_buffering=True)
+    except Exception:
+        pass
+
+if __name__ == "__main__":  # importado como módulo (ex.: testes), não mexe em stdout/stderr
+    _setup_terminal_log()
+
 # ==========================================================================================================================================
 # ===================================================== IMPORTING LIBRARIES ================================================================
 # ==========================================================================================================================================
@@ -3360,6 +3407,10 @@ class MainWindow(QMainWindow):
         self._tr("menu_install_requirements", req_action.setText)
         req_action.triggered.connect(self.show_requirements_installer)
         help_menu.addAction(req_action)
+        terminal_action = QAction(self)
+        self._tr("menu_terminal", terminal_action.setText)
+        terminal_action.triggered.connect(self.open_terminal_window)
+        help_menu.addAction(terminal_action)
         help_menu.addSeparator()
         tutorial_action = QAction(self)
         self._tr("menu_code_and_tutorials", tutorial_action.setText)
@@ -3612,6 +3663,40 @@ class MainWindow(QMainWindow):
             subprocess.Popen([sys.executable, script_path])
         except Exception as e:
             QMessageBox.critical(self, i18n.t("msg_title_monitor_error", self._idioma), f"Could not open the monitor window:\n{e}")
+
+    def open_terminal_window(self):
+        """Help > Terminal: abre um emulador de terminal do sistema acompanhando ao vivo
+        (tail -F) o log desta sessão (CODRUG_TERMINAL_LOG), já que o CODRUG não abre mais com um
+        terminal ao lado. Fechar essa janela (ou Ctrl+C nela) não afeta o CODRUG."""
+        import shlex
+        tail = ["tail", "-n", "+1", "-F", CODRUG_TERMINAL_LOG]
+        title = "CODRUG - Terminal"
+        candidates = [
+            ("gnome-terminal", [f"--title={title}", "--"] + tail),
+            ("x-terminal-emulator", ["-e", shlex.join(tail)]),
+            ("xfce4-terminal", ["-T", title, "-e", shlex.join(tail)]),
+            ("mate-terminal", ["-t", title, "-e", shlex.join(tail)]),
+            ("konsole", ["-e"] + tail),
+            ("xterm", ["-T", title, "-e"] + tail),
+        ]
+        for exe, args in candidates:
+            path = shutil.which(exe)
+            if not path:
+                continue
+            try:
+                subprocess.Popen(
+                    [path] + args,
+                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                return
+            except Exception:
+                continue
+        QMessageBox.warning(
+            self,
+            i18n.t("msg_title_terminal", self._idioma),
+            i18n.t("msg_terminal_not_found", self._idioma, path=CODRUG_TERMINAL_LOG),
+        )
 
     @staticmethod
     def _home_hw_cpu_info():

@@ -1,3 +1,39 @@
+codrug (1.1.0-1) unstable; urgency=low
+
+  * O CODRUG abre sem terminal: Terminal=false no .desktop do pacote e no
+    atalho criado pela splash screen (atalhos antigos com Terminal=true são
+    reescritos sozinhos). Só a primeira execução, que ainda cria o venv e
+    pode pedir confirmações, é reaberta pelo /usr/bin/codrug dentro de um
+    emulador de terminal (packaging/deb/codrug.desktop,
+    packaging/deb/codrug-launcher, BIN/splash_screen.py).
+  * Novo item Help > Terminal: abre um terminal acompanhando ao vivo a saída
+    do programa (prints, erros e saída de subprocessos), que agora é gravada
+    em ~/.cache/codrug/terminal_<PID>.log; rodando o CODRUG num terminal, a
+    saída continua aparecendo nele e também vai para o log (CODRUG.py,
+    BIN/i18n.py).
+  * Sem terminal, o bootstrap não pergunta mais "Deseja continuar?" quando o
+    venv já existe (só reinicia dentro dele), e instalações via apt pedidas
+    pela interface (Java) usam pkexec, com a senha numa janela gráfica, no
+    lugar do sudo (BIN/module_requirements.py).
+  * Janela do CPU/GPU Monitor mostra só os quadros de CPU e GPU, sem o
+    título e a nota de rodapé internos (BIN/hw_monitor_window.py).
+
+ -- Moisés Maia Neto <moimaian@gmail.com>  Fri, 09 Oct 2026 03:00:00 -0300
+
+codrug (1.0.0-2) unstable; urgency=low
+
+  * Só empacotamento: /usr/share/doc/codrug/copyright passa ao formato
+    DEP-5 (GPL-3+, apontando para /usr/share/common-licenses/GPL-3) em vez
+    de uma cópia do LICENSE.txt (packaging/deb/copyright).
+    BASE/DESCRIPTORS/Descriptors.xml (configuração do PaDEL-Descriptor) fica
+    num bloco próprio, AGPL-3, Yap Chun Wei.
+  * Adiciona /usr/share/lintian/overrides/codrug para os avisos que não se
+    aplicam a um pacote de terceiros: dir-or-file-in-opt e no-manual-page
+    (packaging/deb/lintian-overrides). initial-upload-closes-no-bugs some
+    sozinho, por este já não ser o primeiro registro do changelog.
+
+ -- Moisés Maia Neto <moimaian@gmail.com>  Fri, 09 Oct 2026 02:40:00 -0300
+
 codrug (1.0.0-1) unstable; urgency=low
 
   * Primeira versão estável: o CODRUG deixa de ser beta e passa a seguir

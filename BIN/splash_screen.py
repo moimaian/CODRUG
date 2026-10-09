@@ -59,7 +59,7 @@ Name=CODRUG
 Comment= QSAR analysis and machine learning tool
 Exec=bash -i -c "env PYTHONNOUSERSITE=1 '{VENV_PY}' '{os.path.join(APP_DIR,'CODRUG.py')}'"
 Icon={icon_path}
-Terminal=true
+Terminal=false
 Type=Application
 Categories=Qt;Science;Chemistry;Education;
 StartupNotify=false
@@ -74,8 +74,11 @@ def ensure_desktop():
             _write_desktop()
         else:
             with open(DESKTOP_FILE, "r") as f:
-                if VENV_PY not in f.read():
-                    _write_desktop()
+                content = f.read()
+            # Reescreve também os atalhos antigos que abriam o CODRUG com um terminal ao lado
+            # (Terminal=true) - a saída agora fica em Help > Terminal.
+            if VENV_PY not in content or "Terminal=true" in content:
+                _write_desktop()
     except Exception:
         pass
 

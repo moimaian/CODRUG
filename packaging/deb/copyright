@@ -1,0 +1,46 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: CODRUG
+Upstream-Contact: Moisés Maia Neto <moimaian@gmail.com>
+Source: https://github.com/moimaian/CODRUG
+
+Files: *
+Copyright: 2024-2026 Moisés Maia
+License: GPL-3+
+
+Files: BASE/DESCRIPTORS/Descriptors.xml
+Copyright: Yap Chun Wei (PaDEL-Descriptor, http://padel.nus.edu.sg)
+License: AGPL-3
+Comment: Arquivo de configuração de descritores do PaDEL-Descriptor 2.21,
+ com os descritores marcados/desmarcados pelo CODRUG. A licença é a que
+ acompanha o próprio PaDEL-Descriptor distribuído pelo padelpy
+ (PaDEL-Descriptor/license/LICENSE.txt).
+
+License: GPL-3+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation, either version 3 of the License, or
+ (at your option) any later version.
+ .
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+ .
+ You should have received a copy of the GNU General Public License
+ along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ .
+ On Debian systems, the complete text of the GNU General Public
+ License version 3 can be found in "/usr/share/common-licenses/GPL-3".
+
+License: AGPL-3
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU Affero General Public License as published
+ by the Free Software Foundation, version 3 of the License.
+ .
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU Affero General Public License for more details.
+ .
+ The complete text of the GNU Affero General Public License version 3
+ can be found at <https://www.gnu.org/licenses/agpl-3.0.txt>.

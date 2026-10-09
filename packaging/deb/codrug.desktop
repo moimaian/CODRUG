@@ -6,6 +6,6 @@ Comment=QSAR analysis and machine learning tool
 Comment[pt_BR]=Ferramenta de análise QSAR e aprendizado de máquina
 Exec=/usr/bin/codrug
 Icon=/opt/codrug/MIDIA/CODRUG.png
-Terminal=true
+Terminal=false
 Categories=Science;Qt;
 StartupNotify=false

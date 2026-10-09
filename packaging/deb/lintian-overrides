@@ -1,0 +1,11 @@
+# Instalado em /usr/share/lintian/overrides/codrug pelo build.sh.
+# Avisos do lintian que valem para o repositório oficial do Debian, mas não para
+# o CODRUG, distribuído como pacote de terceiros (ver packaging/deb/README.md).
+
+# Software de terceiros, fora do repositório oficial: /opt é o lugar previsto
+# pela FHS (e o launcher /usr/bin/codrug sincroniza /opt/codrug -> $HOME/CODRUG).
+codrug: dir-or-file-in-opt
+
+# Aplicação gráfica, aberta pelo menu; não há uma interface de linha de comando
+# a documentar em man page.
+codrug: no-manual-page

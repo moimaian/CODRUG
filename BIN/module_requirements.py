@@ -155,8 +155,18 @@ def _run(cmd: list, check=False, env=None) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=check, env=env)
 
 def _run_interactive(cmd: list[str]) -> int:
+    # Aberto pelo menu (sem terminal), o sudo não tem onde pedir a senha: usa o pkexec, que
+    # pede a senha numa janela gráfica do sistema (polkit).
+    if cmd and cmd[0] == "sudo" and not _stdin_is_tty() and _which("pkexec"):
+        cmd = ["pkexec"] + list(cmd[1:])
     proc = subprocess.run(cmd)
     return proc.returncode
+
+def _stdin_is_tty() -> bool:
+    try:
+        return sys.stdin is not None and sys.stdin.isatty()
+    except Exception:
+        return False
 
 def _which(p: str) -> Optional[str]:
     return shutil.which(p)
@@ -355,6 +365,17 @@ def bootstrap_pyqt5(interactive: bool = True, reexec: bool = False, env_name: st
 
     target_paths = venv_paths(env_name)
     target_python = target_paths["python"]
+
+    venv_ready = os.path.isdir(target_paths["venv_dir"]) and os.path.isfile(target_python)
+    if interactive and not _running_in_target_venv(env_name) and not _stdin_is_tty():
+        # Aberto pelo menu, sem terminal para responder à pergunta abaixo: com o venv já criado
+        # basta reiniciar dentro dele; sem venv, a configuração inicial precisa de um terminal
+        # (o launcher /usr/bin/codrug do .deb já abre um sozinho nesse caso).
+        if not venv_ready:
+            print("[CODRUG] A primeira execução precisa de um terminal para configurar o ambiente "
+                  f"({target_paths['venv_dir']}). Rode 'codrug' ou 'python3 CODRUG.py' num terminal.")
+            return False
+        interactive = False
 
     if interactive and not _running_in_target_venv(env_name):
         print("\n" + "═" * 62)

@@ -40,4 +40,20 @@ else
     done
 fi
 
+# O menu abre o CODRUG sem terminal (Terminal=false no .desktop; a saída do programa fica em
+# Help > Terminal). Só a PRIMEIRA execução, que ainda precisa criar o venv e pode pedir
+# confirmações/senha, é reaberta dentro de um emulador de terminal.
+VENV_PY="${HOME}/.venv/CODRUG/bin/python"
+if [ ! -x "$VENV_PY" ] && [ ! -t 0 ] && [ -z "${CODRUG_SETUP_TERMINAL:-}" ]; then
+    export CODRUG_SETUP_TERMINAL=1
+    SELF="$(readlink -f "$0")"
+    if command -v gnome-terminal >/dev/null 2>&1; then
+        exec gnome-terminal --title="CODRUG - Setup" -- "$SELF" "$@"
+    elif command -v x-terminal-emulator >/dev/null 2>&1; then
+        exec x-terminal-emulator -e "$SELF"
+    elif command -v xterm >/dev/null 2>&1; then
+        exec xterm -T "CODRUG - Setup" -e "$SELF" "$@"
+    fi
+fi
+
 exec python3 "$APP_DIR/CODRUG.py" "$@"

@@ -1334,6 +1334,12 @@ _TEXTOS = {
     "menu_install_requirements": {"en": "Install Requirements", "pt": "Instalar Dependências"},
     "menu_code_and_tutorials": {"en": "Code and Tutorials (Github)", "pt": "Código e Tutoriais (Github)"},
     "menu_about": {"en": "About", "pt": "Sobre"},
+    "menu_terminal": {"en": "Terminal", "pt": "Terminal"},
+    "msg_title_terminal": {"en": "Terminal", "pt": "Terminal"},
+    "msg_terminal_not_found": {
+        "en": "No terminal emulator was found on this system.\n\nCODRUG's output for this session is saved in:\n{path}",
+        "pt": "Nenhum emulador de terminal foi encontrado neste sistema.\n\nA saída do CODRUG nesta sessão está gravada em:\n{path}",
+    },
 
     # ---------------------------------------------------------------- About dialog
     "about_title": {"en": "ABOUT", "pt": "SOBRE"},

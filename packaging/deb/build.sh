@@ -51,7 +51,8 @@ mkdir -p \
     "$STAGE/opt/codrug" \
     "$STAGE/usr/bin" \
     "$STAGE/usr/share/applications" \
-    "$STAGE/usr/share/doc/codrug"
+    "$STAGE/usr/share/doc/codrug" \
+    "$STAGE/usr/share/lintian/overrides"
 
 echo "==> Copiando arquivos da aplicação para /opt/codrug"
 rsync -a \
@@ -78,7 +79,10 @@ chmod 755 "$STAGE/opt/codrug/CODRUG.py"
 echo "==> Instalando launcher e menu"
 install -m 755 "$SCRIPT_DIR/codrug-launcher" "$STAGE/usr/bin/codrug"
 install -m 644 "$SCRIPT_DIR/codrug.desktop" "$STAGE/usr/share/applications/codrug.desktop"
-install -m 644 "$PROJECT_ROOT/LICENSE.txt" "$STAGE/usr/share/doc/codrug/copyright"
+# copyright no formato DEP-5, apontando para /usr/share/common-licenses/GPL-3 (o texto
+# completo da GPL continua em /opt/codrug/LICENSE.txt):
+install -m 644 "$SCRIPT_DIR/copyright" "$STAGE/usr/share/doc/codrug/copyright"
+install -m 644 "$SCRIPT_DIR/lintian-overrides" "$STAGE/usr/share/lintian/overrides/codrug"
 install -m 644 "$PROJECT_ROOT/README.md" "$STAGE/usr/share/doc/codrug/README.md"
 gzip -9nc "$SCRIPT_DIR/changelog" > "$STAGE/usr/share/doc/codrug/changelog.Debian.gz"
 chmod 644 "$STAGE/usr/share/doc/codrug/changelog.Debian.gz"

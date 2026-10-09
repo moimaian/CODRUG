@@ -64,15 +64,10 @@ class HwMonitorWindow(QDialog):
         super().__init__(None)
         self.setWindowTitle("CODRUG - CPU/GPU Monitor")
         self.setStyleSheet("background-color:#12202E;")
-        self.resize(420, 160)
 
+        # Só os quadros de CPU/GPU (sem título nem nota de rodapé dentro da janela):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
-
-        title = QLabel("Real-time hardware usage")
-        title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("color:#C9D1D9; font-weight:bold; font-size:11pt;")
-        layout.addWidget(title)
 
         row = QHBoxLayout()
         row.setSpacing(10)
@@ -89,20 +84,13 @@ class HwMonitorWindow(QDialog):
         row.addWidget(self.lbl_gpu, 1)
         layout.addLayout(row)
 
-        note = QLabel(
-            "This window runs in its own process, so it keeps updating even while\n"
-            "CODRUG's main window is busy (e.g. running STEP 6 Screening/Tuning)."
-        )
-        note.setAlignment(Qt.AlignCenter)
-        note.setWordWrap(True)
-        note.setStyleSheet("color:#6E8CA8; font-size:8pt;")
-        layout.addWidget(note)
-
         self._timer = QTimer(self)
         self._timer.setInterval(1500)
         self._timer.timeout.connect(self._update_hw)
         self._timer.start()
         self._update_hw()
+        # Altura ajustada aos quadros já preenchidos (sem sobra de espaço vazio):
+        self.resize(420, self.sizeHint().height())
 
     def _update_hw(self):
         if psutil is None:

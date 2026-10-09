@@ -45,9 +45,15 @@ Isso cria:
    `.desktop` em `~/.local/share/applications/CODRUG.desktop` e a estrutura
    de subpastas dentro de `$HOME/CODRUG`.
 
-Por isso `Terminal=true` no `.desktop`: o passo 2 usa `input()` para
-confirmar a criação do ambiente (mesmo comportamento que já existia rodando
-`python3 CODRUG.py` manualmente pelo terminal).
+O `.desktop` usa `Terminal=false`: o CODRUG abre sem terminal, e a saída do
+programa (prints, erros, saída de subprocessos) é gravada em
+`~/.cache/codrug/terminal_<PID>.log`, que pode ser acompanhada ao vivo por
+**Help > Terminal**. A exceção é a primeira execução: sem o venv ainda
+criado, o passo 2 usa `input()` para confirmar a criação do ambiente, então
+`/usr/bin/codrug` se reabre sozinho dentro de um emulador de terminal
+(gnome-terminal, x-terminal-emulator ou xterm) só nessa vez. Instalações de
+pacotes do sistema pedidas pela interface (ex.: Java via apt) usam `pkexec`
+— senha numa janela gráfica — quando não há terminal.
 
 ## Por que o pacote não cria o venv/instala as dependências no `postinst`
 
