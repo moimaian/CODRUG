@@ -71,8 +71,8 @@ _TEXTOS = {
     "home_grp_pipeline": {"en": "Pipeline — Steps", "pt": "Pipeline — Etapas"},
     "home_step0_name": {"en": "Configuration", "pt": "Configuração"},
     "home_step0_desc": {
-        "en": "Project setup, environment and job folder preparation",
-        "pt": "Configuração do projeto, ambiente e preparação da pasta do job",
+        "en": "Project setup, environment and project folder preparation",
+        "pt": "Configuração do projeto, ambiente e preparação da pasta do projeto",
     },
     "home_step1_name": {"en": "Step 1 — Dataset Preparation", "pt": "Etapa 1 — Preparação do Dataset"},
     "home_step1_desc": {
@@ -155,15 +155,15 @@ _TEXTOS = {
     "cfg_generate_project": {"en": "2. Generate Project:", "pt": "2. Gerar Projeto:"},
     "cfg_btn_new_project": {"en": "New Project", "pt": "Novo Projeto"},
     "cfg_label_date": {"en": "Date:", "pt": "Data:"},
-    "cfg_label_job_name": {"en": "Job Name:", "pt": "Nome do Job:"},
-    "cfg_placeholder_job_name": {
+    "cfg_label_project_name": {"en": "Project Name:", "pt": "Nome do Projeto:"},
+    "cfg_placeholder_project_name": {
         "en": "Put here the new project name",
         "pt": "Coloque aqui o nome do novo projeto",
     },
     "cfg_btn_previous_project": {"en": "Previous Project", "pt": "Projeto Anterior"},
-    "cfg_label_previous_run": {"en": "Select previous run:", "pt": "Selecione uma execução anterior:"},
-    "cfg_placeholder_previous_run": {"en": "Select a previous run", "pt": "Selecione uma execução anterior"},
-    "cfg_btn_set_run_folder": {"en": "Set run folder", "pt": "Definir pasta de execução"},
+    "cfg_label_previous_run": {"en": "Select:", "pt": "Selecione:"},
+    "cfg_placeholder_previous_run": {"en": "Select a previous project", "pt": "Selecione um projeto anterior"},
+    "cfg_btn_set_run_folder": {"en": "Set project folder", "pt": "Definir pasta do projeto"},
     "btn_back": {"en": " << BACK ", "pt": " << VOLTAR "},
     "btn_next": {"en": " NEXT >> ", "pt": " AVANÇAR >> "},
     "msg_cfg_build_error": {
@@ -178,12 +178,26 @@ _TEXTOS = {
     },
     "msg_project_required_title": {"en": "Project Required", "pt": "Projeto Necessário"},
     "msg_project_required_body": {
-        "en": "You need to create a New Project (enter a job name) or select a Previous Project before setting the run folder.",
-        "pt": "Você precisa criar um Novo Projeto (definir um nome de job) ou selecionar um Projeto Anterior antes de definir a pasta de execução.",
+        "en": "You need to create a New Project (enter a project name) or select a Previous Project before setting the project folder.",
+        "pt": "Você precisa criar um Novo Projeto (definir um nome de projeto) ou selecionar um Projeto Anterior antes de definir a pasta do projeto.",
     },
-    "msg_job_load_error": {
-        "en": "Could not load saved job settings from the selected job.\n\nDetails:\n{e}",
-        "pt": "Não foi possível carregar as configurações salvas do job selecionado.\n\nDetalhes:\n{e}",
+    "msg_projects_migration_title": {"en": "Projects folder", "pt": "Pasta de projetos"},
+    "msg_projects_migration_partial": {
+        "en": "The projects folder is now called PROJECTS (formerly JOBS). Some projects could not be moved and remain in the JOBS folder - they are still listed and can be opened normally.",
+        "pt": "A pasta de projetos agora se chama PROJECTS (antes JOBS). Alguns projetos não puderam ser movidos e continuam na pasta JOBS - eles continuam listados e podem ser abertos normalmente.",
+    },
+    "msg_data_folder_migration_partial": {
+        "en": "The data subfolder of each project is now called DATA (formerly DATA_BASES). Some items could not be moved and remain in DATA_BASES (nothing was overwritten): {items}",
+        "pt": "A subpasta de dados de cada projeto agora se chama DATA (antes DATA_BASES). Alguns itens não puderam ser movidos e continuam em DATA_BASES (nada foi sobrescrito): {items}",
+    },
+    "msg_projects_migration_conflicts": {
+        "en": "Already present in PROJECTS (not overwritten): {names}",
+        "pt": "Já existentes em PROJECTS (não sobrescritos): {names}",
+    },
+    "msg_projects_migration_errors": {"en": "Errors: {errors}", "pt": "Erros: {errors}"},
+    "msg_project_load_error": {
+        "en": "Could not load saved project settings from the selected project.\n\nDetails:\n{e}",
+        "pt": "Não foi possível carregar as configurações salvas do projeto selecionado.\n\nDetalhes:\n{e}",
     },
 
     # ---------------------------------------------------------------- Shared / general dialogs
@@ -506,6 +520,52 @@ _TEXTOS = {
               "acima (marcar qualquer um dos dois já basta) - veja o tooltip dele para os "
               "detalhes do comportamento de geometria nativa/ensemble conformacional que isso "
               "aciona.",
+    },
+    "s4_btn_split_external": {"en": "Split External\nDataFrame", "pt": "Separar\nDataFrame Externo"},
+    "s4_lbl_external_size": {"en": "External Size:", "pt": "Tamanho Externo:"},
+    "s4_lbl_split_method": {"en": "Split Method:", "pt": "Método:"},
+    "msg_title_split_external": {"en": "Split External DataFrame", "pt": "Separar DataFrame Externo"},
+    "s4_tooltip_external_size": {
+        "en": "Fraction of the current dataframe (Select DataFrame) set aside as the EXTERNAL validation set.",
+        "pt": "Fração do dataframe atual (Select DataFrame) separada como conjunto de validação EXTERNA.",
+    },
+    "s4_tooltip_ext_split_method": {
+        "en": "Random: random split, reproducible with this step's Random State.\n"
+              "Kennard-Stone / Sphere Exclusion: rational splits on the descriptor columns of 'Feature Columns Range' "
+              "(the external set lies inside the chemical space of the internal one) - same methods as the 'Split:' of STEP 4.",
+        "pt": "Random: divisão aleatória, reprodutível pelo Random State desta etapa.\n"
+              "Kennard-Stone / Sphere Exclusion: divisões racionais sobre as colunas de descritores de 'Feature Columns Range' "
+              "(o conjunto externo fica dentro do espaço químico do interno) - os mesmos métodos do 'Split:' da ETAPA 4.",
+    },
+    "s4_tooltip_split_external": {
+        "en": "Splits the current dataframe into an INTERNAL and an EXTERNAL set (the original file is kept). Do it BEFORE "
+              "scaling, selection and projection, so the external set does not influence any modelling decision (OECD Principle 4). "
+              "Both files are saved in DATA/INTERNAL_DATA: <name>_<pct>_Internal.csv becomes the current dataframe and "
+              "<name>_<pct>_External.csv is the one to choose in 'Select External DataFrame' (STEP 4 and 5).",
+        "pt": "Divide o dataframe atual em um conjunto INTERNO e um EXTERNO (o arquivo original é mantido). Faça isso ANTES do "
+              "escalonamento, da seleção e da projeção, para o conjunto externo não influenciar nenhuma decisão de modelagem "
+              "(Princípio 4 da OECD). Os dois arquivos ficam em DATA/INTERNAL_DATA: <nome>_<pct>_Internal.csv passa a ser o dataframe atual e "
+              "<nome>_<pct>_External.csv é o que deve ser escolhido no 'Select External DataFrame' (ETAPAS 4 e 5).",
+    },
+    "s4_msg_split_no_df": {
+        "en": "Select the dataframe to split first (Select DataFrame, at the top of this step).",
+        "pt": "Selecione antes o dataframe a ser dividido (Select DataFrame, no topo desta etapa).",
+    },
+    "s4_msg_split_too_small": {
+        "en": "The dataframe has only {n} rows - too few to split with this External Size.",
+        "pt": "O dataframe tem apenas {n} linhas - poucas para dividir com este Tamanho Externo.",
+    },
+    "s4_msg_split_no_features": {
+        "en": "Kennard-Stone and Sphere Exclusion need the descriptor columns: set a valid 'Feature Columns Range' (Dimensionality Reduction group) or use the Random method.",
+        "pt": "Kennard-Stone e Sphere Exclusion precisam das colunas de descritores: defina um 'Feature Columns Range' válido (grupo Dimensionality Reduction) ou use o método Random.",
+    },
+    "s4_msg_split_overwrite": {
+        "en": "These files already exist and will be overwritten:\n{files}\n\nContinue?",
+        "pt": "Estes arquivos já existem e serão sobrescritos:\n{files}\n\nContinuar?",
+    },
+    "s4_msg_split_done": {
+        "en": "Split done ({method}): {n_int} internal and {n_ext} external compounds.\n\nInternal (now the current dataframe):\n{int_path}\n\nExternal:\n{ext_path}",
+        "pt": "Divisão concluída ({method}): {n_int} compostos internos e {n_ext} externos.\n\nInterno (agora o dataframe atual):\n{int_path}\n\nExterno:\n{ext_path}",
     },
     "s4_btn_generate_descriptors": {"en": "Generate \nDescriptors", "pt": "Gerar \nDescritores"},
     "s4_grp_dimensionality_reduction": {"en": "Dimensionality Reduction", "pt": "Redução de Dimensionalidade"},
@@ -1243,7 +1303,7 @@ _TEXTOS = {
     "msg_title_units_incompatible_source": {"en": "Units: incompatible source", "pt": "Unidades: origem incompatível"},
     "msg_title_error_during_unit_conversion": {"en": "Error during unit conversion", "pt": "Erro durante a conversão de unidade"},
     "msg_title_finished": {"en": "Finished", "pt": "Concluído"},
-    "msg_title_current_job": {"en": "Current Job", "pt": "Job Atual"},
+    "msg_title_current_project": {"en": "Current Project", "pt": "Projeto Atual"},
     "msg_title_save": {"en": "Save", "pt": "Salvar"},
     "msg_title_preview": {"en": "Preview", "pt": "Pré-visualização"},
     "msg_title_remove_rows_columns": {"en": "Remove Rows/Columns", "pt": "Remover Linhas/Colunas"},

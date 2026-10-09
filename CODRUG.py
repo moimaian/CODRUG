@@ -516,6 +516,21 @@ class _LabelEncodingClassifierWrapper(BaseEstimator, ClassifierMixin):
         return float(accuracy_score(y, self.predict(X)))
 
 
+def _legacy_path_fallback(path):
+    """Caminho gravado antes das pastas serem renomeadas (2026-10): <app>/JOBS -> <app>/PROJECTS e,
+    dentro de cada projeto, DATA_BASES -> DATA. Se o caminho não existe mais, mas o equivalente com os
+    nomes novos existe, devolve o novo; qualquer outro caminho é devolvido sem alteração. Vale para
+    caminhos absolutos e relativos (ex.: coluna native_3d_sdf dos CSVs df3_structures)."""
+    if not path or os.path.exists(path):
+        return path
+    candidate = path
+    jobs = os.sep + "JOBS" + os.sep
+    if jobs in candidate:
+        candidate = candidate.replace(jobs, os.sep + "PROJECTS" + os.sep, 1)
+    candidate = re.sub(r"(^|[\\/])DATA_BASES(?=[\\/])", lambda m: m.group(1) + "DATA", candidate)
+    return candidate if candidate != path and os.path.exists(candidate) else path
+
+
 def _skl_instantiate(cls, kwargs, random_state=None):
     """Instancia um modelo scikit-learn, injetando random_state apenas se a classe aceitar o
     parâmetro. XGBClassifier sai envolvido em _LabelEncodingClassifierWrapper - ver a classe
@@ -610,11 +625,11 @@ def _skl_regression_metrics_label(y_true, y_pred):
     return f"R² = {r2:.4f}\nMAE = {mae_value:.4f}\nRMSE = {rmse_value:.4f}\nMSE = {mse_value:.4f}"
 
 
-def _ensure_sklearn_usi_dirs(job_dir, usi_key):
+def _ensure_sklearn_usi_dirs(project_dir, usi_key):
     """Cria (se necessário) as subpastas de resultados da STEP 5 (screening scikit-learn) dentro de
     RESULTS/USI/<usi_key>."""
     usi_key = _normalize_usi_key(usi_key)
-    base = os.path.join(job_dir, "RESULTS", "USI", usi_key)
+    base = os.path.join(project_dir, "RESULTS", "USI", usi_key)
     paths = {
         "base": base,
         "data": os.path.join(base, "DATA"),
@@ -687,7 +702,7 @@ from BIN.module_requirements import RequirementsInstaller
 print("✅ RequirementsInstaller imported successfully.")
 import BIN.i18n as i18n
 print("✅ i18n imported successfully.")
-from BIN.splash_screen import SplashScreen
+from BIN.splash_screen import SplashScreen, migrate_project_layout
 print("✅ SplashScreen imported successfully.")
 try:
     from BIN.recommended_selection import apply_recommended_selection
@@ -1440,11 +1455,11 @@ def _normalize_usi_key(usi_key: str) -> str:
     cleaned = str(usi_key or "").strip()
     return cleaned or "LOAD"
 
-def _generate_new_usi_code(job_dir: str) -> str:
-    """Gera um código USI de 4 caracteres alfanuméricos ainda não usado em RESULTS/USI/<job_dir>,
+def _generate_new_usi_code(project_dir: str) -> str:
+    """Gera um código USI de 4 caracteres alfanuméricos ainda não usado em RESULTS/USI/<project_dir>,
     garantindo que cada execução (ex.: Run Screening da STEP 6) grave em uma pasta nova, sem
     misturar/sobrescrever resultados de tentativas anteriores."""
-    usi_root = os.path.join(job_dir or "", "RESULTS", "USI")
+    usi_root = os.path.join(project_dir or "", "RESULTS", "USI")
     alphabet = string.ascii_uppercase + string.digits
     for _ in range(100):
         code = "".join(random.choices(alphabet, k=4))
@@ -1512,8 +1527,8 @@ def _parse_index_selector(text, n, field_label="index"):
         raise ValueError(f"'{field_label}' is empty. {usage_hint}")
     return sorted(positions)
 
-def _ensure_models_dir(job_dir, task: str):
-    base = os.path.join(job_dir, "MODELS")
+def _ensure_models_dir(project_dir, task: str):
+    base = os.path.join(project_dir, "MODELS")
     sub = {
         "classification": "CLASSIFICATION",
         "regression": "REGRESSION",
@@ -3275,7 +3290,7 @@ class MainWindow(QMainWindow):
 
         # BASE/EXTERNAL_DATA: pasta compartilhada entre TODOS os jobs (bases de reposicionamento -
         # ex. Zinc World -, produtos naturais/sintéticos etc. não são específicas de um job, então
-        # não fica mais dentro de DATA_BASES de cada job - fica uma única vez na raiz do CODRUG).
+        # não fica mais dentro de DATA de cada job - fica uma única vez na raiz do CODRUG).
         # Criada aqui, uma vez, no início do app, para já existir em qualquer ponto do código que
         # for ler/gravar nela.
         os.makedirs(os.path.join(self.dp_dir, "BASE", "EXTERNAL_DATA"), exist_ok=True)
@@ -4005,7 +4020,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(btn_layout)
 
         def save_dialog():
-            initial_dir = default_save_path or os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
+            initial_dir = default_save_path or os.path.join(self.project_dir, "DATA", "INTERNAL_DATA")
             file_path, _ = QFileDialog.getSaveFileName(
                 dialog,
                 "Save data",
@@ -4062,27 +4077,41 @@ class MainWindow(QMainWindow):
         return df
     
 # HOME AND SETTINGS:
-    def new_job(self):
-        self.current_date.setEnabled(True)
-        self.ed_job_name.setEnabled(True)
-        self.previous_job_name.setEnabled(False)        
+    def _projects_root(self):
+        """Pasta dos projetos (<app>/PROJECTS; antes de 2026-10 chamava-se JOBS)."""
+        return os.path.join(self.dp_dir, "PROJECTS")
 
-    def previous_job(self):
+    def _legacy_jobs_root(self):
+        return os.path.join(self.dp_dir, "JOBS")
+
+    def _resolve_project_dir(self, name):
+        """Pasta de um projeto existente: PROJECTS/<name>, ou JOBS/<name> se ele ficou na pasta
+        antiga (migração incompleta ou bloqueada); PROJECTS/<name> se não existir em nenhuma."""
+        new = os.path.join(self._projects_root(), name)
+        old = os.path.join(self._legacy_jobs_root(), name)
+        return old if (not os.path.isdir(new) and os.path.isdir(old)) else new
+
+    def new_project(self):
+        self.current_date.setEnabled(True)
+        self.ed_project_name.setEnabled(True)
+        self.previous_project_name.setEnabled(False)        
+
+    def previous_project(self):
         self.current_date.setEnabled(False)
-        self.ed_job_name.setEnabled(False)
-        self.previous_job_name.setEnabled(True)
-        # Supondo que self.previous_job_name já foi criado
-        jobs_dir = os.path.join(self.dp_dir, "JOBS")
-        if os.path.exists(jobs_dir):
-            job_folders = sorted(
-                [name for name in os.listdir(jobs_dir) if os.path.isdir(os.path.join(jobs_dir, name))],
-                reverse=True,
-            )
-            self.previous_job_name.clear()
-            self.previous_job_name.addItems(job_folders)
+        self.ed_project_name.setEnabled(False)
+        self.previous_project_name.setEnabled(True)
+        # Projetos de PROJECTS/ e, se a migração de uma pasta JOBS/ antiga não tiver sido completa,
+        # também os que ficaram lá (ver _resolve_project_dir / migrate_legacy_jobs_folder).
+        project_folders = set()
+        for root in (self._projects_root(), self._legacy_jobs_root()):
+            if os.path.isdir(root):
+                project_folders.update(name for name in os.listdir(root) if os.path.isdir(os.path.join(root, name)))
+        if project_folders:
+            self.previous_project_name.clear()
+            self.previous_project_name.addItems(sorted(project_folders, reverse=True))
         else:
-            self.previous_job_name.clear()
-            self.previous_job_name.addItem(i18n.t("cfg_no_folder_found", self._idioma))
+            self.previous_project_name.clear()
+            self.previous_project_name.addItem(i18n.t("cfg_no_folder_found", self._idioma))
 
     def show_requirements_installer(self):
         self.req_win = RequirementsInstaller(None, idioma=self._idioma)
@@ -4152,24 +4181,24 @@ class MainWindow(QMainWindow):
         except Exception:
             return _WaitMessageProcessHandle(None)
 
-    def job_run(self):
-        # Verifica se previous_job_name está habilitado
-        load_previous_job_state = False
-        if self.previous_job_name.isEnabled():
-            job_name = self.previous_job_name.currentText().strip()
+    def project_run(self):
+        # Verifica se previous_project_name está habilitado
+        load_previous_project_state = False
+        if self.previous_project_name.isEnabled():
+            project_name = self.previous_project_name.currentText().strip()
             no_folder_placeholder = i18n.t("cfg_no_folder_found", self._idioma)
-            if not job_name or job_name == no_folder_placeholder:
+            if not project_name or project_name == no_folder_placeholder:
                 QMessageBox.warning(
                     self,
                     i18n.t("msg_project_required_title", self._idioma),
                     i18n.t("msg_project_required_body", self._idioma)
                 )
                 return
-            load_previous_job_state = True
+            load_previous_project_state = True
         else:
-            # Usa current_date e ed_job_name
+            # Usa current_date e ed_project_name
             date_str = self.current_date.text().strip()
-            name_str = self.ed_job_name.text().strip()
+            name_str = self.ed_project_name.text().strip()
             task_type = self.task_type
             if not task_type:
                 QMessageBox.warning(
@@ -4185,36 +4214,48 @@ class MainWindow(QMainWindow):
                     i18n.t("msg_project_required_body", self._idioma)
                 )
                 return
-            job_name = f"{date_str}_{task_type}_{name_str}" if date_str and name_str and task_type else date_str or name_str or task_type
+            project_name = f"{date_str}_{task_type}_{name_str}" if date_str and name_str and task_type else date_str or name_str or task_type
 
-        # Cria pasta do job
-        job_dir = os.path.join(self.dp_dir, "JOBS", job_name)
-        os.makedirs(job_dir, exist_ok=True)
-        self.job_dir = job_dir
-        self.ed_run_folder.setText(self.job_dir)
+        # Cria (ou abre) a pasta do projeto em PROJECTS/ - um projeto anterior que tenha ficado na
+        # pasta antiga JOBS/ é aberto de lá (ver _resolve_project_dir).
+        project_dir = self._resolve_project_dir(project_name) if load_previous_project_state else os.path.join(self._projects_root(), project_name)
+        os.makedirs(project_dir, exist_ok=True)
+        # Projeto anterior com a subpasta antiga DATA_BASES: renomeia para DATA antes de criar as
+        # subpastas (normalmente já feito na inicialização - ver BIN/splash_screen.migrate_project_layout).
+        if load_previous_project_state:
+            try:
+                mig = migrate_project_layout(project_dir)
+                if mig["conflicts"] or mig["errors"]:
+                    QMessageBox.warning(self, i18n.t("msg_projects_migration_title", self._idioma),
+                        i18n.t("msg_data_folder_migration_partial", self._idioma,
+                               items="; ".join(mig["conflicts"] + mig["errors"])))
+            except Exception:
+                import traceback; traceback.print_exc()
+        self.project_dir = project_dir
+        self.ed_run_folder.setText(self.project_dir)
         directories = [
-            f'{self.job_dir}',
-            f'{self.job_dir}/DATA_BASES',
-            f'{self.job_dir}/DATA_BASES/DESCRIPTORS',
-            f'{self.job_dir}/DATA_BASES/DESCRIPTORS/1D2D',
-            f'{self.job_dir}/DATA_BASES/DESCRIPTORS/3D',
-            f'{self.job_dir}/DATA_BASES/DESCRIPTORS/fingerprint',
-            f'{self.job_dir}/DATA_BASES/STRUCTURES',
-            f'{self.job_dir}/DATA_BASES/STRUCTURES/1D',
-            f'{self.job_dir}/DATA_BASES/STRUCTURES/3D',
-            f'{self.job_dir}/DATA_BASES/INTERNAL_DATA',
-            # DATA_BASES/EXTERNAL_DATA não é mais criada por job - agora é compartilhada, em
+            f'{self.project_dir}',
+            f'{self.project_dir}/DATA',
+            f'{self.project_dir}/DATA/DESCRIPTORS',
+            f'{self.project_dir}/DATA/DESCRIPTORS/1D2D',
+            f'{self.project_dir}/DATA/DESCRIPTORS/3D',
+            f'{self.project_dir}/DATA/DESCRIPTORS/fingerprint',
+            f'{self.project_dir}/DATA/STRUCTURES',
+            f'{self.project_dir}/DATA/STRUCTURES/1D',
+            f'{self.project_dir}/DATA/STRUCTURES/3D',
+            f'{self.project_dir}/DATA/INTERNAL_DATA',
+            # DATA/EXTERNAL_DATA não é mais criada por job - agora é compartilhada, em
             # BASE/EXTERNAL_DATA na raiz do CODRUG (já garantida em self.dp_dir, ver __init__).
-            f'{self.job_dir}/RESULTS',
-            f'{self.job_dir}/RESULTS/USI',
-            f'{self.job_dir}/RESULTS/MIDIA',
-            f'{self.job_dir}/RESULTS/STATISTICS',
-            f'{self.job_dir}/RESULTS/AD',
+            f'{self.project_dir}/RESULTS',
+            f'{self.project_dir}/RESULTS/USI',
+            f'{self.project_dir}/RESULTS/MIDIA',
+            f'{self.project_dir}/RESULTS/STATISTICS',
+            f'{self.project_dir}/RESULTS/AD',
         ]
         # MODELS/{CLASSIFICATION,REGRESSION,CLUSTERING}/PROJECTION_MODELS ainda é usado (cache de
         # modelos de projeção UMAP/t-SNE/Isomap, ver _ensure_models_dir), mas não é mais pré-criado
         # aqui: fica a cargo do próprio _ensure_models_dir criá-lo sob demanda, evitando pastas MODELS
-        # vazias em jobs que nunca chegam a cachear uma projeção. DATA_BASES/STRUCTURES/2D nunca é
+        # vazias em jobs que nunca chegam a cachear uma projeção. DATA/STRUCTURES/2D nunca é
         # escrito por nenhum código do app — removida da criação antecipada (STRUCTURES/1D e /3D
         # continuam sendo criadas: 1D alimenta o PaDEL-Descriptor, 3D é usada por "Select Structures").
     
@@ -4225,72 +4266,72 @@ class MainWindow(QMainWindow):
             else:
                 print(f"[INFO] Folder verified: {folder}")
 
-        print(f"[INFO] Pasta do job criada/selecionada: {job_dir}")
-        if load_previous_job_state:
+        print(f"[INFO] Pasta do projeto criada/selecionada: {project_dir}")
+        if load_previous_project_state:
             try:
-                self._load_job_state_into_ui(job_dir)
+                self._load_project_state_into_ui(project_dir)
             except Exception as e:
                 QMessageBox.warning(
                     self, i18n.t("title_step1", self._idioma),
-                    i18n.t("msg_job_load_error", self._idioma, e=e)
+                    i18n.t("msg_project_load_error", self._idioma, e=e)
                 )
         else:
             # New job (not loading a previous one): make sure no field/dataframe left over from
             # a previously loaded job lingers in the UI - everything should start from zero.
             try:
-                self._reset_ui_for_new_job()
+                self._reset_ui_for_new_project()
             except Exception as e:
                 QMessageBox.warning(
                     self, i18n.t("title_step1", self._idioma),
-                    i18n.t("msg_job_load_error", self._idioma, e=e)
+                    i18n.t("msg_project_load_error", self._idioma, e=e)
                 )
 
         if hasattr(self, "_refresh_skl_usi_combo"):
             self._refresh_skl_usi_combo()
 
-    def _ensure_current_job_dir(self):
-        job_dir = getattr(self, "job_dir", "").strip() if hasattr(self, "job_dir") else ""
-        if job_dir:
-            os.makedirs(job_dir, exist_ok=True)
-            os.makedirs(os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA"), exist_ok=True)
-            return job_dir
+    def _ensure_current_project_dir(self):
+        project_dir = getattr(self, "project_dir", "").strip() if hasattr(self, "project_dir") else ""
+        if project_dir:
+            os.makedirs(project_dir, exist_ok=True)
+            os.makedirs(os.path.join(project_dir, "DATA", "INTERNAL_DATA"), exist_ok=True)
+            return project_dir
 
-        self.job_run()
-        job_dir = getattr(self, "job_dir", "").strip() if hasattr(self, "job_dir") else ""
-        if job_dir:
-            os.makedirs(os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA"), exist_ok=True)
-        return job_dir
+        self.project_run()
+        project_dir = getattr(self, "project_dir", "").strip() if hasattr(self, "project_dir") else ""
+        if project_dir:
+            os.makedirs(os.path.join(project_dir, "DATA", "INTERNAL_DATA"), exist_ok=True)
+        return project_dir
 
     def _get_usi_predictions_initial_dir(self):
-        job_dir = self._ensure_current_job_dir()
-        if not job_dir:
+        project_dir = self._ensure_current_project_dir()
+        if not project_dir:
             return ""
 
-        usi_root = os.path.join(job_dir, "RESULTS", "USI")
+        usi_root = os.path.join(project_dir, "RESULTS", "USI")
         os.makedirs(usi_root, exist_ok=True)
 
         usi_value = self.ed_skl_USI.currentText().strip() if hasattr(self, "ed_skl_USI") else ""
         if not usi_value:
             return usi_root
 
-        return _ensure_sklearn_usi_dirs(job_dir, usi_value)["predictions"]
+        return _ensure_sklearn_usi_dirs(project_dir, usi_value)["predictions"]
 
     def _ensure_rank_results_dir(self):
-        job_dir = self._ensure_current_job_dir()
-        if not job_dir:
+        project_dir = self._ensure_current_project_dir()
+        if not project_dir:
             return ""
 
-        rank_dir = os.path.join(job_dir, "RESULTS", "RANK")
+        rank_dir = os.path.join(project_dir, "RESULTS", "RANK")
         os.makedirs(rank_dir, exist_ok=True)
         return rank_dir
 
 # STEP 1: DATASET PREPARATION.
     def update_internal_dataset(self, internal_datasets):
-        job_dir = self._ensure_current_job_dir()
-        if not job_dir:
+        project_dir = self._ensure_current_project_dir()
+        if not project_dir:
             return
         self.cb_internal_dataset_list.clear()
-        internal_datasets = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA")
+        internal_datasets = os.path.join(project_dir, "DATA", "INTERNAL_DATA")
         if not os.path.exists(internal_datasets):
             return
         internal_datasets_list = sorted(
@@ -4300,15 +4341,15 @@ class MainWindow(QMainWindow):
         self.cb_internal_dataset_list.addItems(internal_datasets_list)
 
     def update_columns_list(self):
-        job_dir = self._ensure_current_job_dir()
-        if not job_dir:
+        project_dir = self._ensure_current_project_dir()
+        if not project_dir:
             self.cb_columns_list.clear()
             return
         file_name = self.cb_internal_dataset_list.currentText().strip()
         if not file_name:
             self.cb_columns_list.clear()
             return
-        file_path = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA", file_name)
+        file_path = os.path.join(project_dir, "DATA", "INTERNAL_DATA", file_name)
         if not os.path.exists(file_path):
             self.cb_columns_list.clear()
             return
@@ -4386,29 +4427,29 @@ class MainWindow(QMainWindow):
         if validity_descriptions:
             self.update_validity_description(validity_descriptions)
 
-    def _dataset_preparation_config_path(self, job_dir=None):
+    def _dataset_preparation_config_path(self, project_dir=None):
         """Legacy STEP 1-only settings path, kept as a read fallback for jobs created
-        before the unified per-job JSON existed (see _job_state_path)."""
-        base_dir = job_dir or getattr(self, "job_dir", "")
+        before the unified per-job JSON existed (see _project_state_path)."""
+        base_dir = project_dir or getattr(self, "project_dir", "")
         if not base_dir:
             return None
         return os.path.join(base_dir, "dataset_preparation.json")
 
-    def _job_state_path(self, job_dir=None):
-        base_dir = job_dir or getattr(self, "job_dir", "")
+    def _project_state_path(self, project_dir=None):
+        base_dir = project_dir or getattr(self, "project_dir", "")
         if not base_dir:
             return None
-        job_name = os.path.basename(os.path.normpath(base_dir))
-        return os.path.join(base_dir, f"{job_name}.json")
+        project_name = os.path.basename(os.path.normpath(base_dir))
+        return os.path.join(base_dir, f"{project_name}.json")
 
-    def _load_job_state(self, job_dir=None):
-        """Read the unified per-job state dict (job_dir/<job_name>.json). Falls back to the
+    def _load_project_state(self, project_dir=None):
+        """Read the unified per-job state dict (project_dir/<project_name>.json). Falls back to the
         legacy dataset_preparation.json (STEP 1 only) for jobs created before this existed -
         that file is never deleted or modified, only read."""
-        base_dir = job_dir or getattr(self, "job_dir", "")
+        base_dir = project_dir or getattr(self, "project_dir", "")
         if not base_dir:
             return {}
-        for path in (self._job_state_path(base_dir), self._dataset_preparation_config_path(base_dir)):
+        for path in (self._project_state_path(base_dir), self._dataset_preparation_config_path(base_dir)):
             if not path or not os.path.isfile(path):
                 continue
             try:
@@ -4420,57 +4461,58 @@ class MainWindow(QMainWindow):
                 return payload
         return {}
 
-    def _save_job_state(self, updates=None):
-        """Merge `updates` (top-level keys like {"step2": {...}}) into job_dir/<job_name>.json
+    def _save_project_state(self, updates=None):
+        """Merge `updates` (top-level keys like {"step2": {...}}) into project_dir/<project_name>.json
         and write it. Called with no updates just materializes/migrates the current state
         (e.g. right after loading a job that only had the legacy dataset_preparation.json)."""
-        job_dir = getattr(self, "job_dir", "")
-        path = self._job_state_path(job_dir)
+        project_dir = getattr(self, "project_dir", "")
+        path = self._project_state_path(project_dir)
         if not path:
             return
-        payload = self._load_job_state(job_dir)
-        payload["job_name"] = os.path.basename(os.path.normpath(job_dir))
+        payload = self._load_project_state(project_dir)
+        payload["project_name"] = os.path.basename(os.path.normpath(project_dir))
+        payload.pop("job_name", None)   # chave antiga (antes de 2026-10) - substituída por project_name
         payload["task_type"] = getattr(self, "task_type", "") or payload.get("task_type", "")
         payload["saved_at"] = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         for key, value in (updates or {}).items():
             payload[key] = value
         try:
-            os.makedirs(job_dir, exist_ok=True)
+            os.makedirs(project_dir, exist_ok=True)
             with open(path, "w", encoding="utf-8") as handle:
                 json.dump(payload, handle, ensure_ascii=False, indent=2)
         except OSError:
             pass
 
-    def _to_job_relative_path(self, file_path):
-        """Converts an absolute CSV/XLSX path into one relative to job_dir, when the file
+    def _to_project_relative_path(self, file_path):
+        """Converts an absolute CSV/XLSX path into one relative to project_dir, when the file
         lives under it (the common case - INTERNAL_DATA, RESULTS/...). Kept as an absolute
         path otherwise - e.g. a file the user picked from outside the job folder via the
         file dialog, which now also includes BASE/EXTERNAL_DATA (shared across jobs, not
-        under job_dir anymore) - so it can still be resolved back with
-        _from_job_relative_path even if the job folder itself is later moved/renamed."""
+        under project_dir anymore) - so it can still be resolved back with
+        _from_project_relative_path even if the job folder itself is later moved/renamed."""
         if not file_path:
             return file_path
-        job_dir = getattr(self, "job_dir", "")
-        if not job_dir:
+        project_dir = getattr(self, "project_dir", "")
+        if not project_dir:
             return file_path
         try:
             abs_file = os.path.abspath(file_path)
-            abs_job = os.path.abspath(job_dir)
-            if os.path.commonpath([abs_file, abs_job]) == abs_job:
-                return os.path.relpath(abs_file, abs_job)
+            abs_project = os.path.abspath(project_dir)
+            if os.path.commonpath([abs_file, abs_project]) == abs_project:
+                return os.path.relpath(abs_file, abs_project)
         except (ValueError, OSError):
             pass
         return file_path
 
-    def _from_job_relative_path(self, stored_path, job_dir=None):
-        """Inverse of _to_job_relative_path. `stored_path` may be a path relative to job_dir
+    def _from_project_relative_path(self, stored_path, project_dir=None):
+        """Inverse of _to_project_relative_path. `stored_path` may be a path relative to project_dir
         (the common case) or an absolute path saved for a file outside the job folder."""
         if not stored_path:
             return stored_path
         if os.path.isabs(stored_path):
-            return stored_path
-        job_dir = job_dir or getattr(self, "job_dir", "")
-        return os.path.join(job_dir, stored_path) if job_dir else stored_path
+            return _legacy_path_fallback(stored_path)
+        project_dir = project_dir or getattr(self, "project_dir", "")
+        return _legacy_path_fallback(os.path.join(project_dir, stored_path)) if project_dir else stored_path
 
     def _widget_get_value(self, widget):
         """Generic state getter used by STEP 2-8 field specs, dispatching on widget type."""
@@ -4541,7 +4583,7 @@ class MainWindow(QMainWindow):
         """Blanks every widget in spec to its empty/default state, regardless of any stored
         JSON - unlike _apply_state_from_spec (which only touches keys present in a loaded
         state dict), this always acts. Used when starting a brand New Project so no value
-        from a previously loaded job lingers in the UI (see _reset_ui_for_new_job).
+        from a previously loaded job lingers in the UI (see _reset_ui_for_new_project).
 
         QComboBox items are never wiped - only the current selection is reset to index 0 -
         since some combos hold a fixed, once-populated option list that is never repopulated
@@ -4588,7 +4630,11 @@ class MainWindow(QMainWindow):
             return
         for key, attr in attrs:
             if key in state:
-                setattr(self, attr, state[key])
+                value = state[key]
+                # Caminhos absolutos gravados com a pasta antiga JOBS/ (ver _legacy_path_fallback).
+                if isinstance(value, str) and os.path.isabs(value):
+                    value = _legacy_path_fallback(value)
+                setattr(self, attr, value)
 
     # ------------------------------------------------------------------
     # Tab independence for STEP2/STEP3 "Select DataFrame"
@@ -4683,7 +4729,7 @@ class MainWindow(QMainWindow):
         # setCurrentText/selection request for an item that doesn't exist yet (see
         # _refresh_step2_dataframe_widgets).
         stored_path = state.get("dataframe_path")
-        file_path = self._from_job_relative_path(stored_path)
+        file_path = self._from_project_relative_path(stored_path)
         if file_path and os.path.isfile(file_path):
             try:
                 df = self._read_selected_table_file(file_path)
@@ -4703,7 +4749,7 @@ class MainWindow(QMainWindow):
         return True
 
     def _save_step2_state(self):
-        self._save_job_state({"step2": self._collect_step2_state()})
+        self._save_project_state({"step2": self._collect_step2_state()})
 
     # ------------------------------------------------------------------
     # STATISTICS - Independent statistical tests (own dataframe, self.stats_df)
@@ -4754,7 +4800,7 @@ class MainWindow(QMainWindow):
         # Same reasoning as _apply_step2_state: reread the dataframe and repopulate its
         # dependent widgets before applying the saved selections that target them.
         stored_path = state.get("dataframe_path")
-        file_path = self._from_job_relative_path(stored_path)
+        file_path = self._from_project_relative_path(stored_path)
         if file_path and os.path.isfile(file_path):
             try:
                 df = self._read_selected_table_file(file_path)
@@ -4769,7 +4815,7 @@ class MainWindow(QMainWindow):
         return True
 
     def _save_statistics_state(self):
-        self._save_job_state({"statistics": self._collect_statistics_state()})
+        self._save_project_state({"statistics": self._collect_statistics_state()})
 
     # ------------------------------------------------------------------
     # STEP 4 - Features Engineering
@@ -4796,8 +4842,10 @@ class MainWindow(QMainWindow):
         ("selection_method", "cb_recommended_selection"),
         ("projection_method", "cb_recommended_projection"),
         ("random_state", "ed_rd_session_id"),
+        ("external_size", "dsp_ext_size"),
+        ("external_split_method", "cb_ext_split_method"),
         # "Generating Druggability Descriptors" (movido da STEP 2; jobs antigos têm essas chaves em
-        # "step2" - ver _load_job_state_into_ui):
+        # "step2" - ver _load_project_state_into_ui):
         ("druggability_mw", "chk_MW"),
         ("druggability_mw_min", "ed_min_MW"),
         ("druggability_mw_max", "ed_max_MW"),
@@ -4828,6 +4876,7 @@ class MainWindow(QMainWindow):
         ("last_selection_file", "_step4_last_selection_file"),
         ("last_projection_method", "_step4_last_projection_method"),
         ("last_projection_file", "_step4_last_projection_file"),
+        ("last_external_split", "_step4_last_external_split"),
     ]
 
     def _proj_table_row_label(self, row):
@@ -4876,7 +4925,7 @@ class MainWindow(QMainWindow):
         # dependent combos (cb_class_column/"Label Column", cb_select_structure, etc.) before
         # applying the saved selections that target them.
         stored_path = state.get("dataframe_path")
-        file_path = self._from_job_relative_path(stored_path)
+        file_path = self._from_project_relative_path(stored_path)
         if file_path and os.path.isfile(file_path):
             try:
                 df = self._read_selected_table_file(file_path)
@@ -4899,7 +4948,7 @@ class MainWindow(QMainWindow):
         return True
 
     def _save_step4_state(self):
-        self._save_job_state({"step4": self._collect_step4_state()})
+        self._save_project_state({"step4": self._collect_step4_state()})
 
     # ------------------------------------------------------------------
     # STEP 5 - Machine Learning Models (Scikit-learn)
@@ -4911,9 +4960,9 @@ class MainWindow(QMainWindow):
         if not usi:
             return {}
         sessions = []
-        job_dir = getattr(self, "job_dir", None)
-        if job_dir:
-            usi_root = os.path.join(job_dir, "RESULTS", "USI")
+        project_dir = getattr(self, "project_dir", None)
+        if project_dir:
+            usi_root = os.path.join(project_dir, "RESULTS", "USI")
             try:
                 sessions = sorted(
                     d for d in os.listdir(usi_root)
@@ -4943,7 +4992,7 @@ class MainWindow(QMainWindow):
     def _save_step6_sklearn_state(self):
         state = self._collect_step6_sklearn_state()
         if state:
-            self._save_job_state({"step6_sklearn": state})
+            self._save_project_state({"step6_sklearn": state})
 
     # ------------------------------------------------------------------
     # STEP 7 - Applicability Domain and Similarity Analysis
@@ -4998,7 +5047,7 @@ class MainWindow(QMainWindow):
             state["verdict_counts"] = {str(k): int(v) for k, v in counts.items()}
         result_path = getattr(self, "_ad_result_path", None)
         if result_path:
-            state["result_csv"] = self._to_job_relative_path(result_path)
+            state["result_csv"] = self._to_project_relative_path(result_path)
         return state
 
     def _apply_step7_state(self, state):
@@ -5007,10 +5056,10 @@ class MainWindow(QMainWindow):
         # Reread the Internal/External DataFrames from disk (also used by the ML Screening tab -
         # see _load_internal_dataframe/_load_external_dataframe) before applying the rest of the
         # spec, with no preview dialog/warning popup during an automatic Previous Project load.
-        internal_path = self._from_job_relative_path(state.get("internal_dataframe_path"))
+        internal_path = self._from_project_relative_path(state.get("internal_dataframe_path"))
         if internal_path and os.path.isfile(internal_path):
             self._load_internal_dataframe(internal_path, show_preview=False)
-        external_path = self._from_job_relative_path(state.get("external_dataframe_path"))
+        external_path = self._from_project_relative_path(state.get("external_dataframe_path"))
         if external_path and os.path.isfile(external_path):
             self._load_external_dataframe(external_path, show_preview=False)
         self._apply_state_from_spec(self.STEP7_FIELD_SPEC, state)
@@ -5019,7 +5068,7 @@ class MainWindow(QMainWindow):
         return True
 
     def _save_step7_state(self):
-        self._save_job_state({"step7_ad": self._collect_step7_state()})
+        self._save_project_state({"step7_ad": self._collect_step7_state()})
 
     def _ad_try_load_previous_result(self, state=None):
         """(rápido) Ao reabrir um projeto ou re-selecionar os DataFrames: se existe um Compute AD
@@ -5031,8 +5080,8 @@ class MainWindow(QMainWindow):
         try:
             # Só prossegue se ambos os DataFrames Interno/Externo apontam para arquivos existentes
             # (evita reaproveitar df_int/df_ext de um projeto aberto antes).
-            ip = self._from_job_relative_path(state.get("internal_dataframe_path") or getattr(self, "_df_int_path", None))
-            ep = self._from_job_relative_path(state.get("external_dataframe_path") or getattr(self, "_df_ext_path", None))
+            ip = self._from_project_relative_path(state.get("internal_dataframe_path") or getattr(self, "_df_int_path", None))
+            ep = self._from_project_relative_path(state.get("external_dataframe_path") or getattr(self, "_df_ext_path", None))
             if not (ip and os.path.isfile(ip) and ep and os.path.isfile(ep)):
                 return
             df_new = getattr(self, "df_ext", None)
@@ -5043,12 +5092,12 @@ class MainWindow(QMainWindow):
             # Localiza o CSV do Compute AD anterior (state -> caminho salvo; senão o mais recente
             # em RESULTS/AD que corresponda ao nome do DataFrame Externo).
             rp = state.get("result_csv")
-            cand = self._from_job_relative_path(rp) if rp else None
+            cand = self._from_project_relative_path(rp) if rp else None
             if not (cand and os.path.isfile(cand)) and rp:
-                cand = os.path.join(self.job_dir, "RESULTS", "AD", os.path.basename(rp))
+                cand = os.path.join(self.project_dir, "RESULTS", "AD", os.path.basename(rp))
             if not (cand and os.path.isfile(cand)):
                 ext_base = os.path.splitext(f_ext)[0]
-                found = glob.glob(os.path.join(self.job_dir, "RESULTS", "AD", f"AD_{ext_base}_*.csv"))
+                found = glob.glob(os.path.join(self.project_dir, "RESULTS", "AD", f"AD_{ext_base}_*.csv"))
                 cand = max(found, key=os.path.getmtime) if found else None
             if not (cand and os.path.isfile(cand)):
                 return
@@ -5198,7 +5247,7 @@ class MainWindow(QMainWindow):
         return True
 
     def _save_step8_state(self):
-        self._save_job_state({"step8_consensus": self._collect_step8_state()})
+        self._save_project_state({"step8_consensus": self._collect_step8_state()})
 
     def _list_widget_all_items(self, widget):
         if widget is None:
@@ -5295,7 +5344,7 @@ class MainWindow(QMainWindow):
         }
 
     def _save_dataset_preparation_state(self):
-        self._save_job_state({"step1": self._collect_dataset_preparation_state()})
+        self._save_project_state({"step1": self._collect_dataset_preparation_state()})
 
     def _apply_dataset_preparation_state(self, state):
         if not isinstance(state, dict) or not state:
@@ -5378,7 +5427,7 @@ class MainWindow(QMainWindow):
     def _clear_dataset_preparation_fields(self):
         """Blanks every STEP1 (Dataset Preparation) field. This tab's state isn't tracked via
         a generic FIELD_SPEC (see _collect_dataset_preparation_state) - it needs its own
-        dedicated reset when starting a brand New Project (see _reset_ui_for_new_job)."""
+        dedicated reset when starting a brand New Project (see _reset_ui_for_new_project)."""
         for attr in ("cb_target_type",):
             combo = getattr(self, attr, None)
             if combo is not None and combo.count() > 0:
@@ -5406,11 +5455,11 @@ class MainWindow(QMainWindow):
         if hasattr(self, "chk_validity_description"):
             self.chk_validity_description.setChecked(False)
 
-    def _reset_ui_for_new_job(self):
+    def _reset_ui_for_new_project(self):
         """Clears every pipeline tab's fields when starting a brand New Project, so nothing
         from a previously loaded job lingers in the UI (only the "load a previous job" path -
-        _load_job_state_into_ui - should ever populate fields with saved data). Called from the
-        "new job" branch of job_run(); loading a previous job is unaffected."""
+        _load_project_state_into_ui - should ever populate fields with saved data). Called from the
+        "new job" branch of project_run(); loading a previous job is unaffected."""
         self._clear_dataset_preparation_fields()
 
         # Shared dataframes: null them out first and let the existing refresh helpers (which
@@ -5444,7 +5493,7 @@ class MainWindow(QMainWindow):
         self._reset_interp_defaults()
 
         # STEP5 (scikit-learn): only a USI pointer is tracked (see _collect_step6_sklearn_state) -
-        # job_run() repopulates this combo from the new job_dir right after calling this method,
+        # project_run() repopulates this combo from the new project_dir right after calling this method,
         # so it only needs to be emptied here.
         if hasattr(self, "ed_skl_USI"):
             self.ed_skl_USI.blockSignals(True)
@@ -5460,8 +5509,8 @@ class MainWindow(QMainWindow):
         if hasattr(self, "clear_edit_tab_all_groups"):
             self.clear_edit_tab_all_groups()
 
-    def _load_dataset_preparation_state(self, job_dir=None):
-        payload = self._load_job_state(job_dir)
+    def _load_dataset_preparation_state(self, project_dir=None):
+        payload = self._load_project_state(project_dir)
         state = payload.get("step1", {}) if isinstance(payload, dict) else {}
         return self._apply_dataset_preparation_state(state)
 
@@ -5477,11 +5526,11 @@ class MainWindow(QMainWindow):
                     step4[key] = value
         return step4
 
-    def _load_job_state_into_ui(self, job_dir):
+    def _load_project_state_into_ui(self, project_dir):
         """Load the unified per-job JSON once and repopulate every tab's widgets from it.
         Migrates jobs that only have the legacy dataset_preparation.json by writing the new
         job-named file (the legacy file is left untouched)."""
-        payload = self._load_job_state(job_dir)
+        payload = self._load_project_state(project_dir)
         loaded_any = self._apply_dataset_preparation_state(payload.get("step1", {}))
         loaded_any = self._apply_step2_state(payload.get("step2", {})) or loaded_any
         step4_state = self._migrate_druggability_state(payload)
@@ -5491,8 +5540,8 @@ class MainWindow(QMainWindow):
         # não tivesse sido salva. Só acrescenta essas chaves ao "step4" do arquivo, sem recoletar o resto.
         saved_step4 = payload.get("step4", {}) if isinstance(payload.get("step4"), dict) else {}
         migrated = {k: v for k, v in step4_state.items() if k.startswith("druggability_") and k not in saved_step4}
-        if migrated and getattr(self, "job_dir", ""):
-            self._save_job_state({"step4": {**saved_step4, **migrated}})
+        if migrated and getattr(self, "project_dir", ""):
+            self._save_project_state({"step4": {**saved_step4, **migrated}})
         # step7_ad must be applied before step6_sklearn: it reloads the Internal/External
         # DataFrames and (re)populates cb_skl_y from their columns, and step6_sklearn's USI
         # restore then selects a specific saved value inside that now-populated combo - the
@@ -5501,9 +5550,9 @@ class MainWindow(QMainWindow):
         loaded_any = self._apply_step6_sklearn_state(payload.get("step6_sklearn", {})) or loaded_any
         loaded_any = self._apply_step8_state(payload.get("step8_consensus", {})) or loaded_any
         loaded_any = self._apply_statistics_state(payload.get("statistics", {})) or loaded_any
-        new_path = self._job_state_path(job_dir)
+        new_path = self._project_state_path(project_dir)
         if loaded_any and new_path and not os.path.isfile(new_path):
-            self._save_job_state({})
+            self._save_project_state({})
         return loaded_any
 
     def run_by_target(self):
@@ -5599,7 +5648,7 @@ class MainWindow(QMainWindow):
         target_organism = self.ed_organism_name.text().strip()
         target_pref_name = self.ed_target_pref_name.text().strip()
         cb_target_type = self.cb_target_type.currentText().strip() if hasattr(self, "cb_target_type") else ""
-        job_dir = self.job_dir
+        project_dir = self.project_dir
         empty_page_backoff = self._get_chembl_empty_page_backoff()
 
         if not target_organism and not target_chembl_id:
@@ -5665,7 +5714,7 @@ class MainWindow(QMainWindow):
                     ds_activity = pd.DataFrame(all_records)
 
                     file_path = os.path.join(
-                        job_dir, "DATA_BASES", "INTERNAL_DATA",
+                        project_dir, "DATA", "INTERNAL_DATA",
                         f'df1_by_activity_{target_chembl_id}_{target_organism}.csv'
                     )
                     ds_activity.to_csv(file_path, index=False)
@@ -5708,7 +5757,7 @@ class MainWindow(QMainWindow):
                 return
 
             file_path = os.path.join(
-                job_dir, "DATA_BASES", "INTERNAL_DATA",
+                project_dir, "DATA", "INTERNAL_DATA",
                 f'df1_by_activity_{target_chembl_id}_{target_organism}.csv'
             )
 
@@ -5875,7 +5924,7 @@ class MainWindow(QMainWindow):
         target_chembl_id = self.ed_target_chembl_id.text().strip()
         target_organism = self.ed_organism_name.text().strip()
         assay_strain = self.ed_assay_strain.text().strip()
-        job_dir = self.job_dir
+        project_dir = self.project_dir
         empty_page_backoff = self._get_chembl_empty_page_backoff()
 
         if not target_organism and not target_chembl_id:
@@ -5950,7 +5999,7 @@ class MainWindow(QMainWindow):
                         ds_assay = ds_assay[~ds_assay['description'].str.contains(
                             assay_description_excluded, case=False, na=False)]
 
-                    file_path = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA",
+                    file_path = os.path.join(project_dir, "DATA", "INTERNAL_DATA",
                                             f'df_assay_explore_{target_chembl_id}_{target_organism}.csv')
                     ds_assay.to_csv(file_path, index=False)
 
@@ -5989,7 +6038,7 @@ class MainWindow(QMainWindow):
         def on_result(df, stopped_by_user=False):
             self._reset_chembl_wait_state()
             if stopped_by_user:
-                file_path = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA",
+                file_path = os.path.join(project_dir, "DATA", "INTERNAL_DATA",
                                         f'df_assay_explore_{target_chembl_id}_{target_organism}.csv')
                 QMessageBox.information(self, i18n.t("msg_title_download_stopped", self._idioma),
                     f"Download stopped by user. Partial dataset with {len(df)} records "
@@ -6010,7 +6059,7 @@ class MainWindow(QMainWindow):
     def run_assay_description(self):
         target_organism = self.ed_organism_name.text().strip()
         target_chembl_id = self.ed_target_chembl_id.text().strip()
-        job_dir = self.job_dir
+        project_dir = self.project_dir
         read_table_file = self._read_selected_table_file
 
         class AssayWorker(QThread):
@@ -6026,7 +6075,7 @@ class MainWindow(QMainWindow):
             def run(self):
                 try:
                     # Gerando a contagem de descrições e exibindo o resultado:
-                    _internal_dir = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA")
+                    _internal_dir = os.path.join(project_dir, "DATA", "INTERNAL_DATA")
                     _candidates = glob.glob(os.path.join(_internal_dir, "df1_by_activity*.csv"))
                     if not _candidates:
                         raise FileNotFoundError("No file starting with 'df1_by_activity' found in INTERNAL_DATA.")
@@ -6064,7 +6113,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, i18n.t("msg_title_attention_bang", self._idioma), "Select the file and column to view the chart.")
             return
 
-        file_path = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA", file_name)
+        file_path = os.path.join(self.project_dir, "DATA", "INTERNAL_DATA", file_name)
         if not os.path.exists(file_path):
             QMessageBox.critical(self, i18n.t("msg_title_error", self._idioma), f"File not found: {file_path}")
             return
@@ -6144,7 +6193,7 @@ class MainWindow(QMainWindow):
             layout.addLayout(btn_layout)
 
             def save_figure():
-                default_dir = os.path.join(self.job_dir, "RESULTS", "MIDIA")
+                default_dir = os.path.join(self.project_dir, "RESULTS", "MIDIA")
                 os.makedirs(default_dir, exist_ok=True)
                 file_path_out, _ = QFileDialog.getSaveFileName(
                     dialog,
@@ -6262,7 +6311,7 @@ class MainWindow(QMainWindow):
                         # interrompido, salvamos os dados parciais na INTERNAL_DATA agora.
                         molecule_label = self.molecule_chembl_id or "by_smiles"
                         file_path = os.path.join(
-                            self.parent().job_dir, "DATA_BASES", "INTERNAL_DATA",
+                            self.parent().project_dir, "DATA", "INTERNAL_DATA",
                             f'df_by_molecule_{molecule_label}_{self.target_chembl_id}.csv'
                         )
                         ds_activity.to_csv(file_path, index=False)
@@ -6327,7 +6376,7 @@ class MainWindow(QMainWindow):
                 if stopped_by_user:
                     molecule_label = molecule_chembl_id or "by_smiles"
                     file_path = os.path.join(
-                        self.job_dir, "DATA_BASES", "INTERNAL_DATA",
+                        self.project_dir, "DATA", "INTERNAL_DATA",
                         f'df_by_molecule_{molecule_label}_{target_chembl_id}.csv'
                     )
                     QMessageBox.information(self, i18n.t("msg_title_download_stopped", self._idioma),
@@ -6414,9 +6463,9 @@ class MainWindow(QMainWindow):
             )
             assay_description_included = self.ed_assay_description_included.text().strip()
             assay_description_excluded = self.ed_assay_description_excluded.text().strip()
-            job_dir = self.job_dir
+            project_dir = self.project_dir
             
-            _internal_dir = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA")
+            _internal_dir = os.path.join(project_dir, "DATA", "INTERNAL_DATA")
             _candidates = glob.glob(os.path.join(_internal_dir, "df1_by_activity*.csv"))
             if not _candidates:
                 raise FileNotFoundError("No file starting with 'df1_by_activity' found in INTERNAL_DATA.")
@@ -6500,7 +6549,7 @@ class MainWindow(QMainWindow):
                     df_selecionado = df_selecionado[~col_series.isin(terms_lower)]
 
             # Salvando o dataframe na pasta de trabalho atual:
-            file_path = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA", f'df1_base_{target_chembl_id}_{target_organism}_{assay_type_letters}_{assay_metric}.csv')
+            file_path = os.path.join(project_dir, "DATA", "INTERNAL_DATA", f'df1_base_{target_chembl_id}_{target_organism}_{assay_type_letters}_{assay_metric}.csv')
             df_selecionado.to_csv(file_path, index=False)
             self._save_dataset_preparation_state()
             self.show_dataframe(df_selecionado)
@@ -6562,7 +6611,7 @@ class MainWindow(QMainWindow):
     def run_count_trans(self):
         target_chembl_id = self.ed_target_chembl_id.text().strip()
         target_organism = self.ed_organism_name.text().strip()
-        job_dir = self.job_dir
+        project_dir = self.project_dir
         if getattr(self, "df_selecionado", None) is None:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "No DataFrame loaded.")
             return
@@ -6624,19 +6673,19 @@ class MainWindow(QMainWindow):
                 df['yeo'] = np.nan
 
         # Salva o dataframe e exibe:
-        file_path = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA", f'df2_Transformation_{target_chembl_id}_{target_organism}.csv')
+        file_path = os.path.join(project_dir, "DATA", "INTERNAL_DATA", f'df2_Transformation_{target_chembl_id}_{target_organism}.csv')
         df.to_csv(file_path, index=False)
         self.df_selecionado = df
         self.show_dataframe(df)
         self.df_name_view.setText(os.path.basename(file_path))
-        self._step2_df_path = self._to_job_relative_path(file_path)
+        self._step2_df_path = self._to_project_relative_path(file_path)
         self._refresh_step2_dataframe_widgets()
         self._save_step2_state()
 
     def run_descritive_stat(self):
         target_chembl_id = self.ed_target_chembl_id.text().strip()
         target_organism = self.ed_organism_name.text().strip()
-        job_dir = self.job_dir
+        project_dir = self.project_dir
         if getattr(self, "stats_df", None) is None:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "No DataFrame loaded.")
             return
@@ -6655,7 +6704,7 @@ class MainWindow(QMainWindow):
 
         # Salva o dataframe e exibe:
         df_estat = pd.DataFrame([estat_rounded, estat_scientific], index=["Rounded", "Scientific Notation"])
-        file_path = os.path.join(job_dir, "RESULTS", "STATISTICS", f'df_stats_{col}_{target_chembl_id}_{target_organism}.csv')
+        file_path = os.path.join(project_dir, "RESULTS", "STATISTICS", f'df_stats_{col}_{target_chembl_id}_{target_organism}.csv')
         df_estat.to_csv(file_path, index=False)
         self.show_dataframe(df_estat)
 
@@ -6959,7 +7008,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(layout_btn)
 
         def save_figure():
-            default_dir = os.path.join(self.job_dir, "RESULTS", "STATISTICS")
+            default_dir = os.path.join(self.project_dir, "RESULTS", "STATISTICS")
             os.makedirs(default_dir, exist_ok=True)
             file_path, _ = QFileDialog.getSaveFileName(
                 dialog,
@@ -7002,7 +7051,7 @@ class MainWindow(QMainWindow):
 
         # === Ação do botão Save ===
         def _do_save():
-            default_dir = os.path.join(self.job_dir, "RESULTS", "STATISTICS")
+            default_dir = os.path.join(self.project_dir, "RESULTS", "STATISTICS")
             os.makedirs(default_dir, exist_ok=True)
             default_name = f"{name_output.replace(' ', '_')}.txt"
             path, _ = QFileDialog.getSaveFileName(
@@ -7074,12 +7123,12 @@ class MainWindow(QMainWindow):
         try:
             target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
             target_organism = self.ed_organism_name.text().strip() if hasattr(self, "ed_organism_name") else ""
-            out_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
+            out_dir = os.path.join(self.project_dir, "DATA", "INTERNAL_DATA")
             os.makedirs(out_dir, exist_ok=True)
             out_path = os.path.join(out_dir, f"df2_Transformation_{target_chembl_id}_{target_organism}.csv")
             self.df_selecionado.to_csv(out_path, index=False)
             self.df_name_view.setText(os.path.basename(out_path))
-            self._step2_df_path = self._to_job_relative_path(out_path)
+            self._step2_df_path = self._to_project_relative_path(out_path)
         except Exception as e:
             print(f"[run_inf_value] Warning when saving the cleaned dataframe: {e}")
 
@@ -7293,7 +7342,7 @@ class MainWindow(QMainWindow):
 
         report_name = f"{col}_Distribution_Interpretation"
         try:
-            stats_dir = os.path.join(self.job_dir, "RESULTS", "STATISTICS")
+            stats_dir = os.path.join(self.project_dir, "RESULTS", "STATISTICS")
             os.makedirs(stats_dir, exist_ok=True)
             with open(os.path.join(stats_dir, f"{report_name}.txt"), "w", encoding="utf-8") as handle:
                 handle.write("\n".join(output))
@@ -7320,10 +7369,10 @@ class MainWindow(QMainWindow):
         df = self.df_selecionado.copy()
         data = pd.to_numeric(df[col], errors='coerce')
 
-        job_dir = self.job_dir
+        project_dir = self.project_dir
         target_chembl_id = self.ed_target_chembl_id.text().strip()
         target_organism = self.ed_organism_name.text().strip()
-        output_dir = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA")
+        output_dir = os.path.join(project_dir, "DATA", "INTERNAL_DATA")
         output = []
 
         outlier_method = self.cb_outlier_method.currentText()
@@ -7387,11 +7436,11 @@ class MainWindow(QMainWindow):
         self.df_selecionado = df_out
         self.show_dataframe(df_out)
         self.df_name_view.setText(os.path.basename(file_path))
-        self._step2_df_path = self._to_job_relative_path(file_path)
+        self._step2_df_path = self._to_project_relative_path(file_path)
         self._refresh_step2_dataframe_widgets()
         report_name = f"{outlier_method}_Outliers_Removal_Report"
         try:
-            stats_dir = os.path.join(self.job_dir, "RESULTS", "STATISTICS")
+            stats_dir = os.path.join(self.project_dir, "RESULTS", "STATISTICS")
             os.makedirs(stats_dir, exist_ok=True)
             with open(os.path.join(stats_dir, f"{report_name}.txt"), "w", encoding="utf-8") as handle:
                 handle.write("\n".join(output))
@@ -7401,7 +7450,7 @@ class MainWindow(QMainWindow):
         self.show_output(output, report_name)
 
     def select_dataframe(self):
-        initial_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
+        initial_dir = os.path.join(self.project_dir, "DATA", "INTERNAL_DATA")
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Select a data file",
@@ -7417,7 +7466,7 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 QMessageBox.critical(self, i18n.t("msg_title_error_opening_file", self._idioma), str(e))
             self.df_name_view.setText(os.path.basename(file_path))
-            self._step2_df_path = self._to_job_relative_path(file_path)
+            self._step2_df_path = self._to_project_relative_path(file_path)
         self._refresh_step2_dataframe_widgets()
 
     def _refresh_step2_dataframe_widgets(self):
@@ -7462,7 +7511,17 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, i18n.t("msg_title_error_list_units_csv", self._idioma), str(e))
         try:
             self.list_types.clear()
-            type_name_unique = [t for t in self.df_selecionado['type'].dropna().astype(str).map(str.strip).unique() if t]
+            # 'type' quando presente; na ausência dela, cai para standard_type (mesmo fallback de
+            # 'units' acima). Sem nenhuma das duas, a lista fica vazia - não é erro: o dataframe pode
+            # simplesmente não ter essas colunas do ChEMBL (ex.: um dataframe só de descritores).
+            type_col = "type" if "type" in self.df_selecionado.columns else next(
+                (c for c in self.df_selecionado.columns if str(c).strip().lower() == "standard_type"),
+                None
+            )
+            type_name_unique = (
+                [t for t in self.df_selecionado[type_col].dropna().astype(str).map(str.strip).unique() if t]
+                if type_col is not None else []
+            )
             self.list_types.addItems(type_name_unique)
         except Exception as e:
             self.list_types.clear()
@@ -7483,16 +7542,22 @@ class MainWindow(QMainWindow):
             # verifica se já existe self.type_name, senão usa 'value'
             type_name = getattr(self, "type_name", None)
             cols = self.df_selecionado.columns
-            if type_name in cols:
+            # Sem nenhuma das colunas de referência (dataframe sem as colunas do ChEMBL), o combo só
+            # fica sem pré-seleção - antes search_value ficava indefinido e a atualização quebrava.
+            search_value = None
+            if type_name and type_name in cols:
                 search_value = type_name
             elif 'value' in cols:
                 search_value = "value"
+            elif 'standard_value' in cols:
+                search_value = "standard_value"
             elif "type" in cols and not self.df_selecionado['type'].dropna().empty:
                 search_value = str(self.df_selecionado['type'].dropna().iloc[0])
 
-            idx = self.list_columns_rep_check.findText(search_value)
-            if idx >= 0:
-                self.list_columns_rep_check.setCurrentIndex(idx)
+            if search_value:
+                idx = self.list_columns_rep_check.findText(search_value)
+                if idx >= 0:
+                    self.list_columns_rep_check.setCurrentIndex(idx)
         except Exception as e:
             self.list_columns_rep_check.clear()
             QMessageBox.critical(self, i18n.t("msg_title_error_list_columns_csv", self._idioma), str(e))
@@ -7659,7 +7724,7 @@ class MainWindow(QMainWindow):
 
         target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
         target_organism = self.ed_organism_name.text().strip() if hasattr(self, "ed_organism_name") else ""
-        out_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
+        out_dir = os.path.join(self.project_dir, "DATA", "INTERNAL_DATA")
         os.makedirs(out_dir, exist_ok=True)
         file_path = os.path.join(out_dir, f"df2_ColumnFiltered_{target_chembl_id}_{target_organism}.csv")
         self.df_selecionado.to_csv(file_path, index=False)
@@ -7667,7 +7732,7 @@ class MainWindow(QMainWindow):
         self._next_dataframe_save_path = file_path
         self.show_dataframe(self.df_selecionado)
         self.df_name_view.setText(os.path.basename(file_path))
-        self._step2_df_path = self._to_job_relative_path(file_path)
+        self._step2_df_path = self._to_project_relative_path(file_path)
         self._refresh_step2_dataframe_widgets()
         self._save_step2_state()
 
@@ -7695,7 +7760,7 @@ class MainWindow(QMainWindow):
     def run_method_rep(self):
         target_chembl_id = self.ed_target_chembl_id.text().strip()
         target_organism = self.ed_organism_name.text().strip()
-        job_dir = self.job_dir  
+        project_dir = self.project_dir  
         if getattr(self, "df_selecionado", None) is None:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "No filtered DataFrame available.")
             return
@@ -7772,12 +7837,12 @@ class MainWindow(QMainWindow):
         df_result = df_result[cols]
         
         # Salva o dataframe e exibe:
-        file_path = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA", f'df2_TratRepetitions_{target_chembl_id}_{target_organism}.csv')
+        file_path = os.path.join(project_dir, "DATA", "INTERNAL_DATA", f'df2_TratRepetitions_{target_chembl_id}_{target_organism}.csv')
         df_result.to_csv(file_path, index=False)
         self.df_selecionado = df_result
         self.show_dataframe(df_result)
         self.df_name_view.setText(os.path.basename(file_path))
-        self._step2_df_path = self._to_job_relative_path(file_path)
+        self._step2_df_path = self._to_project_relative_path(file_path)
         self._refresh_step2_dataframe_widgets()
         self._save_step2_state()
 
@@ -7942,8 +8007,8 @@ class MainWindow(QMainWindow):
 
         # --- Salva o dataframe limpo --------------------------------------------
         try:
-            base_dir = getattr(self, "job_dir", os.getcwd())
-            out_dir = os.path.join(base_dir, "DATA_BASES", "INTERNAL_DATA")
+            base_dir = getattr(self, "project_dir", os.getcwd())
+            out_dir = os.path.join(base_dir, "DATA", "INTERNAL_DATA")
             os.makedirs(out_dir, exist_ok=True)
             target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
             target_organism = self.ed_organism_name.text().strip() if hasattr(self, "ed_organism_name") else ""
@@ -7960,7 +8025,7 @@ class MainWindow(QMainWindow):
         self.show_dataframe(self.df_selecionado)
         if out_path:
             self.df_name_view.setText(os.path.basename(out_path))
-            self._step2_df_path = self._to_job_relative_path(out_path)
+            self._step2_df_path = self._to_project_relative_path(out_path)
         self._refresh_step2_dataframe_widgets()
 
         # Mensagem opcional (silenciosa se preferir)
@@ -8003,7 +8068,7 @@ class MainWindow(QMainWindow):
 
         target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
         target_organism = self.ed_organism_name.text().strip() if hasattr(self, "ed_organism_name") else ""
-        out_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
+        out_dir = os.path.join(self.project_dir, "DATA", "INTERNAL_DATA")
         os.makedirs(out_dir, exist_ok=True)
         file_path = os.path.join(out_dir, f"df2_Type_{target_chembl_id}_{target_organism}.csv")
 
@@ -8078,7 +8143,7 @@ class MainWindow(QMainWindow):
             self.show_dataframe(df)
             self.df_selecionado = df
             self.df_name_view.setText(os.path.basename(file_path))
-            self._step2_df_path = self._to_job_relative_path(file_path)
+            self._step2_df_path = self._to_project_relative_path(file_path)
             self._refresh_step2_dataframe_widgets()
             self._save_step2_state()
             return
@@ -8100,7 +8165,7 @@ class MainWindow(QMainWindow):
         self.show_dataframe(df)
         self.df_selecionado = df
         self.df_name_view.setText(os.path.basename(file_path))
-        self._step2_df_path = self._to_job_relative_path(file_path)
+        self._step2_df_path = self._to_project_relative_path(file_path)
         self._refresh_step2_dataframe_widgets()
         self._save_step2_state()
 
@@ -8130,7 +8195,7 @@ class MainWindow(QMainWindow):
         criam empates artificiais de bioatividade entre compostos estruturalmente diferentes."""
         target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
         target_organism = self.ed_organism_name.text().strip() if hasattr(self, "ed_organism_name") else ""
-        job_dir = self.job_dir
+        project_dir = self.project_dir
         if getattr(self, "df_selecionado", None) is None:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "No filtered DataFrame available.")
             return
@@ -8151,12 +8216,12 @@ class MainWindow(QMainWindow):
         df_result = df.loc[~remove_mask].reset_index(drop=True)
         removed_count = int(remove_mask.sum())
 
-        file_path = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA", f'df2_ValueRepetitions_{target_chembl_id}_{target_organism}.csv')
+        file_path = os.path.join(project_dir, "DATA", "INTERNAL_DATA", f'df2_ValueRepetitions_{target_chembl_id}_{target_organism}.csv')
         df_result.to_csv(file_path, index=False)
         self.df_selecionado = df_result
         self.show_dataframe(df_result)
         self.df_name_view.setText(os.path.basename(file_path))
-        self._step2_df_path = self._to_job_relative_path(file_path)
+        self._step2_df_path = self._to_project_relative_path(file_path)
         self._refresh_step2_dataframe_widgets()
         self._save_step2_state()
         QMessageBox.information(self, i18n.t("msg_title_info", self._idioma),
@@ -8573,9 +8638,9 @@ class MainWindow(QMainWindow):
         # ---------------- 5) Persistência + UI ----------------
         target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
         target_organism  = self.ed_organism_name.text().strip() if hasattr(self, "ed_organism_name") else ""
-        job_dir = getattr(self, "job_dir", os.getcwd())
+        project_dir = getattr(self, "project_dir", os.getcwd())
 
-        out_dir = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA")
+        out_dir = os.path.join(project_dir, "DATA", "INTERNAL_DATA")
         os.makedirs(out_dir, exist_ok=True)
         file_path = os.path.join(out_dir, f"df2_unit_{target_chembl_id}_{target_organism}.csv")
 
@@ -8583,7 +8648,7 @@ class MainWindow(QMainWindow):
         self._next_dataframe_save_path = file_path
         self.show_dataframe(self.df_selecionado)
         self.df_name_view.setText(os.path.basename(file_path))
-        self._step2_df_path = self._to_job_relative_path(file_path)
+        self._step2_df_path = self._to_project_relative_path(file_path)
         self._refresh_step2_dataframe_widgets()
         self._save_step2_state()
 
@@ -8592,11 +8657,11 @@ class MainWindow(QMainWindow):
         shared self.df_selecionado (own attribute: self.stats_df), so statistical tests can
         run on any file at any time without depending on where the main pipeline is."""
         try:
-            job_dir = getattr(self, "job_dir", None)
-            if job_dir:
-                initial_dir = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA")
+            project_dir = getattr(self, "project_dir", None)
+            if project_dir:
+                initial_dir = os.path.join(project_dir, "DATA", "INTERNAL_DATA")
             else:
-                initial_dir = os.path.join(self.dp_dir, "JOBS")
+                initial_dir = self._projects_root()
             os.makedirs(initial_dir, exist_ok=True)
 
             file_path, _ = QFileDialog.getOpenFileName(
@@ -8615,7 +8680,7 @@ class MainWindow(QMainWindow):
 
             self.stats_df = df.copy()
             self.df_name_view_stats.setText(os.path.basename(file_path))
-            self._stats_df_path = self._to_job_relative_path(file_path)
+            self._stats_df_path = self._to_project_relative_path(file_path)
             self.show_dataframe(df)
         except Exception as e:
             QMessageBox.critical(self, i18n.t("msg_title_error", self._idioma), f"An error occurred while loading the DataFrame:\n{e}")
@@ -8997,7 +9062,7 @@ class MainWindow(QMainWindow):
         try:
             target_chembl_id = self.ed_target_chembl_id.text().strip()
             target_organism = self.ed_organism_name.text().strip()
-            output_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
+            output_dir = os.path.join(self.project_dir, "DATA", "INTERNAL_DATA")
             os.makedirs(output_dir, exist_ok=True)
             out_path = os.path.join(output_dir, f"df2_Classes_{target_chembl_id}_{target_organism}.csv")
             df.to_csv(out_path, index=False)
@@ -9007,7 +9072,7 @@ class MainWindow(QMainWindow):
         self.df_selecionado = df
         self.show_dataframe(df)
         self.df_name_view.setText(os.path.basename(out_path))
-        self._step2_df_path = self._to_job_relative_path(out_path)
+        self._step2_df_path = self._to_project_relative_path(out_path)
         self._refresh_step2_dataframe_widgets()
         self._save_step2_state()
 
@@ -9173,7 +9238,7 @@ class MainWindow(QMainWindow):
         # Ações
         def _save_chart():
             default_name = f"freq_{col_class}.png"
-            start_dir = os.path.join(getattr(self, "job_dir", os.getcwd()), "RESULTS")
+            start_dir = os.path.join(getattr(self, "project_dir", os.getcwd()), "RESULTS")
             os.makedirs(start_dir, exist_ok=True)
             path, _ = QFileDialog.getSaveFileName(
                 dialog,
@@ -9207,7 +9272,7 @@ class MainWindow(QMainWindow):
         target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
         target_organism  = self.ed_organism_name.text().strip()     if hasattr(self, "ed_organism_name")   else ""
 
-        output_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
+        output_dir = os.path.join(self.project_dir, "DATA", "INTERNAL_DATA")
         # Grupo "Generating Druggability Descriptors" fica na STEP 3 (antes STEP 2): arquivos df3_*.
         out_path = os.path.join(output_dir, f"df3_Druggability_{target_chembl_id}_{target_organism}.csv")
 
@@ -9337,7 +9402,7 @@ class MainWindow(QMainWindow):
             self.df_selecionado = df_out
             self.show_dataframe(df_out)
             self.df_name_view5.setText(os.path.basename(out_path))
-            self._step4_df_path = self._to_job_relative_path(out_path)
+            self._step4_df_path = self._to_project_relative_path(out_path)
             self._refresh_step4_dataframe_widgets()
             self._save_step4_state()
 
@@ -9429,11 +9494,11 @@ class MainWindow(QMainWindow):
         # Compose output file name
         target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
         target_organism  = self.ed_organism_name.text().strip() if hasattr(self, "ed_organism_name") else ""
-        output_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
+        output_dir = os.path.join(self.project_dir, "DATA", "INTERNAL_DATA")
         out_path = os.path.join(output_dir, f"df3_Druggability_filter_{target_chembl_id}_{target_organism}.csv")
         df_filtered.to_csv(out_path, index=False)
         self.df_name_view5.setText(os.path.basename(out_path))
-        self._step4_df_path = self._to_job_relative_path(out_path)
+        self._step4_df_path = self._to_project_relative_path(out_path)
         self._refresh_step4_dataframe_widgets()
         self._save_step4_state()
 
@@ -9719,7 +9784,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(layout_btn)
 
         def save_figure():
-            default_dir = os.path.join(self.job_dir, "RESULTS", "STATISTICS")
+            default_dir = os.path.join(self.project_dir, "RESULTS", "STATISTICS")
             os.makedirs(default_dir, exist_ok=True)
             file_path, _ = QFileDialog.getSaveFileName(
                 dialog,
@@ -10509,7 +10574,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(hl)
 
         def save_figure():
-            default_dir = os.path.join(self.job_dir, "RESULTS", "STATISTICS")
+            default_dir = os.path.join(self.project_dir, "RESULTS", "STATISTICS")
             os.makedirs(default_dir, exist_ok=True)
             base = f"{file_prefix}_{x_col}_vs_{y_col}" + (f"_vs_{z_col}" if is_3d else "")
             file_path, _ = QFileDialog.getSaveFileName(
@@ -10542,7 +10607,7 @@ class MainWindow(QMainWindow):
         self._run_correlation_test("kendall", "Kendall", "kendall")
 
     def select_dataframe5(self):
-        initial_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
+        initial_dir = os.path.join(self.project_dir, "DATA", "INTERNAL_DATA")
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Select a data file",
@@ -10559,7 +10624,7 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 QMessageBox.critical(self, i18n.t("msg_title_error_opening_file", self._idioma), str(e))
             self.df_name_view5.setText(os.path.basename(file_path))
-            self._step4_df_path = self._to_job_relative_path(file_path)
+            self._step4_df_path = self._to_project_relative_path(file_path)
             # self.update_internal_dataset_dual()
         self._refresh_step4_dataframe_widgets()
 
@@ -11049,7 +11114,7 @@ class MainWindow(QMainWindow):
         """
         try:
             # ---------- Seleção de pasta ----------
-            initial_dir = os.path.join(self.job_dir, "DATA_BASES") if getattr(self, "job_dir", None) else ""
+            initial_dir = os.path.join(self.project_dir, "DATA") if getattr(self, "project_dir", None) else ""
             directory = QFileDialog.getExistingDirectory(
                 self, "Selecione a pasta com estruturas (.smi, .sdf, .mol, .mol2, .pdb, .pdbqt, .xyz)",
                 initial_dir
@@ -11058,14 +11123,14 @@ class MainWindow(QMainWindow):
                 return
 
             # ---------- Pastas de saída ----------
-            job_dir = getattr(self, "job_dir", None)
-            if not job_dir:
-                QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Set up the job folder first.")
+            project_dir = getattr(self, "project_dir", None)
+            if not project_dir:
+                QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Set up the project folder first.")
                 return
 
-            out_1d_dir = os.path.join(job_dir, "DATA_BASES", "STRUCTURES", "1D")
-            out_3d_dir = os.path.join(job_dir, "DATA_BASES", "STRUCTURES", "3D")
-            out_internal = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA")
+            out_1d_dir = os.path.join(project_dir, "DATA", "STRUCTURES", "1D")
+            out_3d_dir = os.path.join(project_dir, "DATA", "STRUCTURES", "3D")
+            out_internal = os.path.join(project_dir, "DATA", "INTERNAL_DATA")
             for d in (out_1d_dir, out_3d_dir, out_internal):
                 os.makedirs(d, exist_ok=True)
 
@@ -11168,7 +11233,7 @@ class MainWindow(QMainWindow):
                     return
                 names.append(nm)
                 smiles_list.append(can)
-                native_3d_rel.append(self._to_job_relative_path(native_sdf_path) if native_sdf_path else "")
+                native_3d_rel.append(self._to_project_relative_path(native_sdf_path) if native_sdf_path else "")
 
             def _save_native_3d(mol, nm):
                 """Copia a geometria 3D ORIGINAL (não gerada por embedding) para a pasta 3D, um
@@ -11326,7 +11391,7 @@ class MainWindow(QMainWindow):
             self.df_selecionado = df
             self.show_dataframe(df)
             self.df_name_view5.setText(os.path.basename(out_csv))
-            self._step4_df_path = self._to_job_relative_path(out_csv)
+            self._step4_df_path = self._to_project_relative_path(out_csv)
             self._refresh_step4_dataframe_widgets()
 
             QMessageBox.information(self, "Pronto", f"Estruturas processadas.\nArquivo salvo em:\n{out_csv}")
@@ -11372,6 +11437,117 @@ class MainWindow(QMainWindow):
             df_agg.to_csv(csv_path, index=False)
         except Exception:
             import traceback; traceback.print_exc()
+
+    def run_split_external_dataframe(self):
+        """Botão "Split External DataFrame" (Etapa 3, Descriptors Builder): divide o dataframe atual da
+        Etapa 3 (Select DataFrame) em um conjunto INTERNO e um EXTERNO, com o tamanho de "External
+        Size" e o método de "Split Method" (Random, reprodutível pelo Random State desta etapa;
+        Kennard-Stone; Sphere Exclusion - BIN/rational_split.py, sobre as colunas de "Feature Columns
+        Range"). O arquivo original não é alterado; são gerados <nome>_<pct>_Internal.csv (em
+        DATA/INTERNAL_DATA, ao lado do original) e <nome>_<pct>_External.csv (também em
+        DATA/INTERNAL_DATA). O interno passa a ser o
+        dataframe atual da Etapa 3. Deve ser feito ANTES de escalonamento/seleção/projeção, para o
+        conjunto externo não influenciar nenhuma decisão do desenvolvimento do modelo."""
+        idioma = self._idioma
+        title = i18n.t("msg_title_split_external", idioma)
+        try:
+            df = getattr(self, "df_selecionado", None)
+            src_rel = getattr(self, "_step4_df_path", None)
+            src_path = self._from_project_relative_path(src_rel) if src_rel else None
+            if df is None or df.empty or not src_path:
+                QMessageBox.warning(self, title, i18n.t("s4_msg_split_no_df", idioma)); return
+            if not getattr(self, "project_dir", ""):
+                QMessageBox.warning(self, title, "Set the project folder first (CONFIG tab)."); return
+            size = float(self.dsp_ext_size.value())
+            method = self.cb_ext_split_method.currentText()
+            n_ext = int(np.ceil(size * len(df)))
+            if n_ext < 1 or len(df) - n_ext < 2:
+                QMessageBox.warning(self, title, i18n.t("s4_msg_split_too_small", idioma, n=len(df))); return
+
+            # X: colunas de descritores (Feature Columns Range ou detecção automática); Y quando existir.
+            x = None
+            if method != "Random":
+                rng = None
+                try:
+                    first = int(self.ed_feature_first_column.text().strip())
+                    last = int(self.ed_feature_last_column.text().strip())
+                    if 0 <= first <= last < len(df.columns):
+                        rng = (first, last)
+                except (ValueError, AttributeError):
+                    rng = None
+                rng = rng or self._detect_feature_column_range(df)
+                if rng is None:
+                    QMessageBox.warning(self, title, i18n.t("s4_msg_split_no_features", idioma)); return
+                x = df.iloc[:, rng[0]:rng[1] + 1].apply(pd.to_numeric, errors="coerce")
+                x = x.loc[:, x.notna().any()].fillna(x.mean())
+                if x.shape[1] == 0:
+                    QMessageBox.warning(self, title, i18n.t("s4_msg_split_no_features", idioma)); return
+            else:
+                x = df[[]].assign(_row=np.arange(len(df)))   # o split aleatório só precisa dos índices
+
+            _reg, task = self._get_skl_registry()
+            y, ycol = None, ""
+            if task == "classification" and hasattr(self, "cb_class_column"):
+                ycol = self.cb_class_column.currentText().strip()
+            elif hasattr(self, "cb_select_bioactivity"):
+                ycol = self.cb_select_bioactivity.currentText().strip()
+            if ycol and ycol in df.columns:
+                y = df[ycol] if task == "classification" else pd.to_numeric(df[ycol], errors="coerce")
+                if task != "classification" and y.isna().all():
+                    y = None
+            try:
+                seed = int(self.ed_rd_session_id.text().strip())
+            except (ValueError, AttributeError):
+                seed = 123
+
+            if rational_split is not None:
+                x_int, x_ext, _yi, _ye = rational_split.split(
+                    x, y, size, method, task if task in ("regression", "classification") else "regression",
+                    random_state=seed)
+            else:
+                from sklearn.model_selection import train_test_split
+                x_int, x_ext = train_test_split(x, test_size=size, random_state=seed)
+            df_int = df.loc[sorted(x_int.index)]
+            df_ext = df.loc[sorted(x_ext.index)]
+
+            base = os.path.splitext(os.path.basename(src_path))[0]
+            ext_pct = int(round(size * 100))
+            int_name = f"{base}_{100 - ext_pct}_Internal.csv"
+            ext_name = f"{base}_{ext_pct}_External.csv"
+            # Interno e externo ficam em DATA/INTERNAL_DATA, ao lado do original - o "Select External
+            # DataFrame" das Etapas 4 e 5 aceita arquivos de qualquer pasta (o Compute AD usa o caminho
+            # do arquivo selecionado).
+            int_path = os.path.join(os.path.dirname(src_path), int_name)
+            ext_path = os.path.join(os.path.dirname(src_path), ext_name)
+            existing = [p for p in (int_path, ext_path) if os.path.exists(p)]
+            if existing:
+                answer = QMessageBox.question(self, title, i18n.t("s4_msg_split_overwrite", idioma,
+                                              files="\n".join(os.path.basename(p) for p in existing)),
+                                              QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                if answer != QMessageBox.Yes:
+                    return
+            df_int.to_csv(int_path, index=False)
+            df_ext.to_csv(ext_path, index=False)
+
+            # O dataframe interno passa a ser o atual da Etapa 3 (mesmo padrão de scaling/selection).
+            self.df_selecionado = df_int.reset_index(drop=True)
+            self.df_name_view5.setText(os.path.basename(int_path))
+            self._step4_df_path = self._to_project_relative_path(int_path)
+            self._refresh_step4_dataframe_widgets()
+            self._step4_last_external_split = {
+                "source": os.path.basename(src_path), "method": method, "external_size": size,
+                "random_state": seed if method == "Random" else None,
+                "n_total": int(len(df)), "n_internal": int(len(df_int)), "n_external": int(len(df_ext)),
+                "internal_file": int_name, "external_file": ext_name,
+                "y_column": ycol if y is not None else None,
+            }
+            self._save_step4_state()
+            QMessageBox.information(self, title, i18n.t(
+                "s4_msg_split_done", idioma, n_int=len(df_int), n_ext=len(df_ext), method=method,
+                int_path=int_path, ext_path=ext_path))
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            QMessageBox.critical(self, title, str(e))
 
     def run_generate_descriptors(self):
         try:
@@ -11477,7 +11653,7 @@ class MainWindow(QMainWindow):
                     rel = rel.strip()
                     if not nm or not rel:
                         continue
-                    abs_path = self._from_job_relative_path(rel)
+                    abs_path = self._from_project_relative_path(rel)
                     if abs_path and os.path.isfile(abs_path):
                         native_3d_map[nm] = abs_path
 
@@ -11585,7 +11761,7 @@ class MainWindow(QMainWindow):
             duplicate_name_removed = int(len(source_pairs) - len(source_pairs.drop_duplicates(subset=["Name"], keep="first")))
             source_pairs = source_pairs.drop_duplicates(subset=["Name"], keep="first")[["Name", "SMILES"]]
 
-            smi_dir = os.path.join(self.job_dir, "DATA_BASES", "STRUCTURES", "1D")
+            smi_dir = os.path.join(self.project_dir, "DATA", "STRUCTURES", "1D")
             os.makedirs(smi_dir, exist_ok=True)
             smi_path = os.path.join(
                 smi_dir, f"multiligand_{self.ed_target_chembl_id.text().strip()}.sdf"
@@ -11701,7 +11877,7 @@ class MainWindow(QMainWindow):
             def _get_or_build_3d_mol_dir():
                 if "path" in three_d_stats:
                     return three_d_stats["path"], three_d_stats["weights"]
-                out_dir_3d = os.path.join(self.job_dir, "DATA_BASES", "STRUCTURES", "3D")
+                out_dir_3d = os.path.join(self.project_dir, "DATA", "STRUCTURES", "3D")
                 os.makedirs(out_dir_3d, exist_ok=True)
                 combined_path = os.path.join(
                     out_dir_3d, f"multiligand_3d_{self.ed_target_chembl_id.text().strip()}.sdf"
@@ -11860,7 +12036,7 @@ class MainWindow(QMainWindow):
                             fp_chirality=fp_chiral,
                         )
 
-                        out_xml_dir = os.path.join(self.job_dir, "DATA_BASES", "DESCRIPTORS", "fingerprint")
+                        out_xml_dir = os.path.join(self.project_dir, "DATA", "DESCRIPTORS", "fingerprint")
                         os.makedirs(out_xml_dir, exist_ok=True)
                         csv_out = os.path.join(out_xml_dir, f"df_desc_{dname}.csv")
                         df_fp.to_csv(csv_out, index=False)
@@ -11883,7 +12059,7 @@ class MainWindow(QMainWindow):
                 if group == "fingerprint" and not use_fp:
                     continue
 
-                out_xml_dir = os.path.join(self.job_dir, "DATA_BASES", "DESCRIPTORS", group)
+                out_xml_dir = os.path.join(self.project_dir, "DATA", "DESCRIPTORS", group)
                 os.makedirs(out_xml_dir, exist_ok=True)
                 out_xml = os.path.join(out_xml_dir, f"{dname}.xml")
                 _write_single_descriptor_xml(base_xml_path, dname, out_xml)
@@ -12152,7 +12328,7 @@ class MainWindow(QMainWindow):
                 if three_d_stats.get("failed"):
                     report_lines.append(f"- Failed to obtain a 3D conformer: {three_d_stats['failed']}")
 
-            internal_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
+            internal_dir = os.path.join(self.project_dir, "DATA", "INTERNAL_DATA")
             # BASE/EXTERNAL_DATA: compartilhada entre jobs (ver __init__) - descritores gerados
             # para uma base externa (reposicionamento, produtos naturais/sintéticos etc.) ficam
             # disponíveis para qualquer job reutilizar, sem recalcular.
@@ -12200,7 +12376,7 @@ class MainWindow(QMainWindow):
             self.df_selecionado = df_final.copy()
             self.show_dataframe(self.df_selecionado)
             self.df_name_view5.setText(os.path.basename(out_path))
-            self._step4_df_path = self._to_job_relative_path(out_path)
+            self._step4_df_path = self._to_project_relative_path(out_path)
             self._refresh_step4_dataframe_widgets()
             self.show_output(report_lines, "Descriptor Generation Audit")
             QMessageBox.information(self, i18n.t("msg_title_success", self._idioma), f"Descriptors calculated and saved to:\n{out_path}")
@@ -12211,7 +12387,7 @@ class MainWindow(QMainWindow):
     def search_dataset1(self):
         try:
             # Caminho padrão inicial
-            base_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
+            base_dir = os.path.join(self.project_dir, "DATA", "INTERNAL_DATA")
             os.makedirs(base_dir, exist_ok=True)  # Garante que a pasta exista
 
             # Abre o diálogo já na pasta desejada
@@ -12256,7 +12432,7 @@ class MainWindow(QMainWindow):
 
         try:
             # Caminho padrão inicial
-            base_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
+            base_dir = os.path.join(self.project_dir, "DATA", "INTERNAL_DATA")
             os.makedirs(base_dir, exist_ok=True)  # Garante que a pasta exista
 
             # Abre o diálogo já na pasta desejada
@@ -12297,9 +12473,9 @@ class MainWindow(QMainWindow):
     def _extract_usi_from_any_path(self, path):
         """Returns the USI code for any path under RESULTS/USI/<usi>/..., regardless of which
         step (PREDICTIONS, DATA, MIDIA, MODELS) wrote it."""
-        if not path or not getattr(self, "job_dir", ""):
+        if not path or not getattr(self, "project_dir", ""):
             return None
-        usi_root = os.path.join(self.job_dir, "RESULTS", "USI")
+        usi_root = os.path.join(self.project_dir, "RESULTS", "USI")
         try:
             rel_path = os.path.relpath(os.path.abspath(path), os.path.abspath(usi_root))
         except Exception:
@@ -12318,7 +12494,7 @@ class MainWindow(QMainWindow):
         usi = self._extract_usi_from_any_path(file_path)
         if not usi:
             return None
-        usi_dir = os.path.join(self.job_dir, "RESULTS", "USI", usi)
+        usi_dir = os.path.join(self.project_dir, "RESULTS", "USI", usi)
 
         skl_path = os.path.join(usi_dir, "skl_session.json")
         if os.path.isfile(skl_path):
@@ -12818,7 +12994,7 @@ class MainWindow(QMainWindow):
             if module_compound_names is not None and not hits_df.empty:
                 try:
                     hit_names = module_compound_names.resolve_compound_names(
-                        list(hits_df[id_col_name].astype(str)), self.job_dir,
+                        list(hits_df[id_col_name].astype(str)), self.project_dir,
                         id_to_smiles=(smiles_lookup or None),
                     )
                 except Exception:
@@ -12924,20 +13100,20 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, i18n.t("msg_title_error", self._idioma), f"An error occurred during consensus analysis:\n{e}")
 
     def generate_final_report(self) -> None:
-        """STEP 6 'Generate Final Report' button: builds <job_name>_REPORT_<timestamp>.docx under the
-        job's RESULTS folder from the unified per-job JSON (job_dir/<job_name>.json) plus the
+        """STEP 6 'Generate Final Report' button: builds <project_name>_REPORT_<timestamp>.docx under the
+        job's RESULTS folder from the unified per-job JSON (project_dir/<project_name>.json) plus the
         result files each STEP has written to disk so far. Mirrors CODOC's STEP 5 handler of
         the same name (CODOC.py, generate_final_report)."""
-        job_dir = getattr(self, "job_dir", "")
-        if not job_dir:
-            QMessageBox.warning(self, i18n.t("msg_title_generate_final_report", self._idioma), "Set a run folder first (CONFIG tab).")
+        project_dir = getattr(self, "project_dir", "")
+        if not project_dir:
+            QMessageBox.warning(self, i18n.t("msg_title_generate_final_report", self._idioma), "Set the project folder first (CONFIG tab).")
             return
 
-        job_name = os.path.basename(os.path.normpath(job_dir))
-        state = self._load_job_state(job_dir)
+        project_name = os.path.basename(os.path.normpath(project_dir))
+        state = self._load_project_state(project_dir)
         if not state:
             QMessageBox.warning(self, i18n.t("msg_title_generate_final_report", self._idioma),
-                "No recorded state was found for this job yet. Run at least one STEP "
+                "No recorded state was found for this project yet. Run at least one STEP "
                 "(Generate Base Dataset, Outlier Elimination, Compute AD, Consensus Generate, "
                 "etc.) before generating the final report."
             )
@@ -12946,7 +13122,7 @@ class MainWindow(QMainWindow):
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             output_path = _generate_final_report_docx(
-                job_dir=job_dir, job_name=job_name, state=state,
+                project_dir=project_dir, project_name=project_name, state=state,
                 idioma=self._idioma, app_dir=self.dp_dir,
             )
         except Exception as e:
@@ -12962,8 +13138,8 @@ class MainWindow(QMainWindow):
         the filtered 'Hits' table - per 'Select Consensus Data' - reading whichever CSV
         run_consensus_generate last saved (self._step8_last_result_file / _step8_last_hits_file).
         For CODOC to consume the same way STEP 3 consumes
-        DATA_BASES/STRUCTURES/1D/multiligand_<target>.sdf. Saved under RESULTS/STRUCTURES (not
-        DATA_BASES/STRUCTURES, which holds the target-wide structures, and not inside a per-USI
+        DATA/STRUCTURES/1D/multiligand_<target>.sdf. Saved under RESULTS/STRUCTURES (not
+        DATA/STRUCTURES, which holds the target-wide structures, and not inside a per-USI
         RESULTS/USI/<usi> folder, since the consensus typically combines several USIs)."""
         want_sdf = hasattr(self, "chk_structures_sdf2d") and self.chk_structures_sdf2d.isChecked()
         want_smi = hasattr(self, "chk_structures_smiles") and self.chk_structures_smiles.isChecked()
@@ -12973,9 +13149,9 @@ class MainWindow(QMainWindow):
             )
             return
 
-        job_dir = getattr(self, "job_dir", None)
-        if not job_dir:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Set a run folder first (CONFIG tab).")
+        project_dir = getattr(self, "project_dir", None)
+        if not project_dir:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Set the project folder first (CONFIG tab).")
             return
 
         scope = self.cb_structures_scope.currentText().strip() if hasattr(self, "cb_structures_scope") else "Hits"
@@ -13008,7 +13184,7 @@ class MainWindow(QMainWindow):
             # Hits mais antigos (gerados antes da coluna SMILES ser adicionada ao consenso) ou cujos
             # dataframes de origem não traziam SMILES/canonical_smiles - mesmo fallback usado para o
             # nome comum dos hits: varre os CSVs de PREDICTIONS atrás de Name/SMILES.
-            smiles_map = module_compound_names.find_smiles_lookup(job_dir, set(ids)) if module_compound_names is not None else {}
+            smiles_map = module_compound_names.find_smiles_lookup(project_dir, set(ids)) if module_compound_names is not None else {}
 
         pairs = [(name, smiles_map.get(name, "")) for name in ids]
         pairs = [(name, smi) for name, smi in pairs if name and smi]
@@ -13024,7 +13200,7 @@ class MainWindow(QMainWindow):
             )
             return
 
-        out_dir = os.path.join(job_dir, "RESULTS", "STRUCTURES")
+        out_dir = os.path.join(project_dir, "RESULTS", "STRUCTURES")
         os.makedirs(out_dir, exist_ok=True)
 
         target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
@@ -13754,7 +13930,7 @@ class MainWindow(QMainWindow):
     #         # -------- salvar (incluindo X, y e w) --------
     #         target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
     #         target_organism  = self.ed_organism_name.text().strip()     if hasattr(self, "ed_organism_name")   else ""
-    #         out_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
+    #         out_dir = os.path.join(self.project_dir, "DATA", "INTERNAL_DATA")
     #         os.makedirs(out_dir, exist_ok=True)
 
     #         try:
@@ -14005,7 +14181,7 @@ class MainWindow(QMainWindow):
             default_name = (f"compare_{os.path.splitext(os.path.basename(p1))[0]}_vs_"
                             f"{os.path.splitext(os.path.basename(p2))[0]}.txt")
             save_path, _ = QFileDialog.getSaveFileName(
-                dlg, "Save Log", os.path.join(self.job_dir, "RESULTS", default_name),
+                dlg, "Save Log", os.path.join(self.project_dir, "RESULTS", default_name),
                 "Text Files (*.txt);;All Files (*)"
             )
             if save_path:
@@ -14019,7 +14195,7 @@ class MainWindow(QMainWindow):
 
     def run_merge_df_reduced(self):
         # --- Safety checks ---
-        internal_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
+        internal_dir = os.path.join(self.project_dir, "DATA", "INTERNAL_DATA")
         if not os.path.isdir(internal_dir):
             QMessageBox.warning(self, i18n.t("msg_title_warning", self._idioma), f"Folder not found:\n{internal_dir}")
             return
@@ -14179,7 +14355,7 @@ class MainWindow(QMainWindow):
             - Caso contrário, resolve via nome (ed_internal_dataset_list1/2) em INTERNAL_DATA.
             Retorna (df, used_path)
             """
-            internal_base = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
+            internal_base = os.path.join(self.project_dir, "DATA", "INTERNAL_DATA")
             os.makedirs(internal_base, exist_ok=True)
 
             # 1) prioriza caminho salvo (search_datasetX)
@@ -14617,7 +14793,7 @@ class MainWindow(QMainWindow):
             safe_method_name = self._sanitize_filename(method_name)
             target_chembl_id = self.ed_target_chembl_id.text().strip()
             target_organism  = self.ed_organism_name.text().strip()
-            out_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
+            out_dir = os.path.join(self.project_dir, "DATA", "INTERNAL_DATA")
             os.makedirs(out_dir, exist_ok=True)
             out_path = os.path.join(out_dir, f"df3_scaling_{safe_method_name}_{target_chembl_id}_{target_organism}_{self.date_time}.csv")
             df_out.to_csv(out_path, index=False)
@@ -14625,7 +14801,7 @@ class MainWindow(QMainWindow):
             self.df_selecionado = df_out
             self.show_dataframe(df_out)
             self.df_name_view5.setText(os.path.basename(out_path))
-            self._step4_df_path = self._to_job_relative_path(out_path)
+            self._step4_df_path = self._to_project_relative_path(out_path)
             self._refresh_step4_dataframe_widgets()
             self._step4_last_scaling_method = method_name
             self._step4_last_scaling_file = out_path
@@ -14888,7 +15064,7 @@ class MainWindow(QMainWindow):
                 target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
                 target_organism = self.ed_organism_name.text().strip() if hasattr(self, "ed_organism_name") else ""
                 out_name = f'df3_selection_{safe_method}_{target_chembl_id}_{target_organism}_{self.date_time}.csv'
-                out_path = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA", out_name)
+                out_path = os.path.join(self.project_dir, "DATA", "INTERNAL_DATA", out_name)
                 os.makedirs(os.path.dirname(out_path), exist_ok=True)
                 df_sel.to_csv(out_path, index=False)
 
@@ -14896,7 +15072,7 @@ class MainWindow(QMainWindow):
                 self.df_selecionado = df_sel
                 self.show_dataframe(df_sel)
                 self.df_name_view5.setText(os.path.basename(out_path))
-                self._step4_df_path = self._to_job_relative_path(out_path)
+                self._step4_df_path = self._to_project_relative_path(out_path)
                 self._refresh_step4_dataframe_widgets()
 
                 QMessageBox.information(self, i18n.t("msg_title_finished", self._idioma),
@@ -15090,7 +15266,7 @@ class MainWindow(QMainWindow):
         target_chembl_id = self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else ""
         target_organism = self.ed_organism_name.text().strip() if hasattr(self, "ed_organism_name") else ""
         artifact_dir = os.path.join(
-            _ensure_models_dir(self.job_dir, str(task_type).lower()),
+            _ensure_models_dir(self.project_dir, str(task_type).lower()),
             "PROJECTION_MODELS"
         )
         artifact_path = os.path.join(
@@ -15160,14 +15336,14 @@ class MainWindow(QMainWindow):
 
                 self.date_time = datetime.now().strftime("%Y-%m-%d_%H-%M")
                 out_name = f'df3_projection_{safe_method}_{target_chembl_id}_{target_organism}_{self.date_time}.csv'
-                out_path = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA", out_name)
+                out_path = os.path.join(self.project_dir, "DATA", "INTERNAL_DATA", out_name)
                 os.makedirs(os.path.dirname(out_path), exist_ok=True)
                 df_proj.to_csv(out_path, index=False)
 
                 self.df_selecionado = df_proj
                 self.show_dataframe(df_proj)
                 self.df_name_view5.setText(os.path.basename(out_path))
-                self._step4_df_path = self._to_job_relative_path(out_path)
+                self._step4_df_path = self._to_project_relative_path(out_path)
                 self._refresh_step4_dataframe_widgets()
                 self._step4_last_projection_method = method
                 self._step4_last_projection_file = out_path
@@ -15231,8 +15407,19 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, i18n.t("msg_title_ad", self._idioma), "Selecione os arquivos de INTERNAL_DATA e EXTERNAL_DATA.")
                 return
 
-            p_int = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA", f_int)
-            p_ext = os.path.join(self.dp_dir, "BASE", "EXTERNAL_DATA", f_ext)  # compartilhada entre jobs
+            # Usa o caminho REAL dos arquivos escolhidos em "Select Internal/External DataFrame"
+            # (_df_int_path/_df_ext_path, de qualquer pasta); só na falta dele (estado antigo) volta à
+            # busca pelo nome em DATA/INTERNAL_DATA e BASE/EXTERNAL_DATA.
+            def _selected_path(stored, label, fallback_dir):
+                path = self._from_project_relative_path(stored) if stored else None
+                if path and os.path.isfile(path) and os.path.basename(path) == label:
+                    return path
+                return os.path.join(fallback_dir, label)
+
+            p_int = _selected_path(getattr(self, "_df_int_path", None), f_int,
+                                   os.path.join(self.project_dir, "DATA", "INTERNAL_DATA"))
+            p_ext = _selected_path(getattr(self, "_df_ext_path", None), f_ext,
+                                   os.path.join(self.dp_dir, "BASE", "EXTERNAL_DATA"))
             if not (os.path.isfile(p_int) and os.path.isfile(p_ext)):
                 QMessageBox.warning(self, i18n.t("msg_title_ad", self._idioma), "Files not found.")
                 return
@@ -15413,7 +15600,7 @@ class MainWindow(QMainWindow):
             self.pb_ad.setValue(100); self.pb_ad.setFormat("AD: %p%")
 
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-            save_dir = os.path.join(self.job_dir, "RESULTS", "AD")
+            save_dir = os.path.join(self.project_dir, "RESULTS", "AD")
             os.makedirs(save_dir, exist_ok=True)
             out_path = os.path.join(save_dir, f"AD_{self._ad_ext_basename}_{timestamp}.csv")
             out.to_csv(out_path, index=False)
@@ -15475,7 +15662,7 @@ class MainWindow(QMainWindow):
         """Abre diálogo de salvamento com nome e diretório pré-preenchidos para plots do AD."""
         ext_base  = getattr(self, "_ad_ext_basename", "external")
         timestamp = getattr(self, "_ad_timestamp",    datetime.now().strftime("%Y-%m-%d_%H-%M"))
-        midia_dir = os.path.join(self.job_dir, "RESULTS", "MIDIA")
+        midia_dir = os.path.join(self.project_dir, "RESULTS", "MIDIA")
         os.makedirs(midia_dir, exist_ok=True)
         default_name = f"{plot_prefix}_{ext_base}_{timestamp}.png"
         file_path, selected_filter = QFileDialog.getSaveFileName(
@@ -15505,7 +15692,7 @@ class MainWindow(QMainWindow):
 
         ext_base = getattr(self, "_ad_ext_basename", "external")
         timestamp = getattr(self, "_ad_timestamp", datetime.now().strftime("%Y-%m-%d_%H-%M"))
-        midia_dir = os.path.join(self.job_dir, "RESULTS", "MIDIA")
+        midia_dir = os.path.join(self.project_dir, "RESULTS", "MIDIA")
         os.makedirs(midia_dir, exist_ok=True)
         saved = {}
 
@@ -15879,7 +16066,7 @@ class MainWindow(QMainWindow):
             self.pb_interp.setValue(100)
             model_name, usi, label, sign = ctx["model_name"], ctx["usi"], ctx["label"], ctx["sign"]
             top_n, modalities = ctx["top_n"], ctx["modalities"]
-            out_dir = getattr(self, "skl_out_data", None) or self.job_dir
+            out_dir = getattr(self, "skl_out_data", None) or self.project_dir
             plot_dir = getattr(self, "skl_plot_path", None) or out_dir
             source = ctx.get("source", "test")
             # Resultados no External DataFrame ganham o sufixo "_external" (não sobrescrevem os do teste).
@@ -16279,9 +16466,9 @@ class MainWindow(QMainWindow):
     def select_ad_expl_predictions(self):
         """Carrega um CSV/Excel de previsões (Name + coluna(s) previstas) para o modo Insubria
         (eixo 'Predicted value') do grupo AD Exploration."""
-        base = os.path.join(self.job_dir, "RESULTS", "USI")
+        base = os.path.join(self.project_dir, "RESULTS", "USI")
         if not os.path.isdir(base):
-            base = os.path.join(self.job_dir, "DATA_BASES")
+            base = os.path.join(self.project_dir, "DATA")
         fp, _ = QFileDialog.getOpenFileName(
             self, "Select Predictions CSV", base,
             "Data Files (*.csv *.xlsx);;CSV Files (*.csv);;Excel Files (*.xlsx)")
@@ -16782,9 +16969,9 @@ class MainWindow(QMainWindow):
         df_int/df_ext, carrega um CSV/Excel (por padrão o resultado salvo por "Compute AD" em
         RESULTS/AD) e popula "Select Column:" com suas colunas, pré-selecionando "ad_verdict"
         quando presente."""
-        initial_dir = os.path.join(self.job_dir, "RESULTS", "AD")
+        initial_dir = os.path.join(self.project_dir, "RESULTS", "AD")
         if not os.path.isdir(initial_dir):
-            initial_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
+            initial_dir = os.path.join(self.project_dir, "DATA", "INTERNAL_DATA")
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Select AD DataFrame",
@@ -16902,7 +17089,7 @@ class MainWindow(QMainWindow):
         self.df_name_view_int_AD.setText(os.path.basename(file_path))
         if hasattr(self, "df_name_view_int_skl"):
             self.df_name_view_int_skl.setText(os.path.basename(file_path))
-        self._df_int_path = self._to_job_relative_path(file_path)
+        self._df_int_path = self._to_project_relative_path(file_path)
 
         # Ao carregar manualmente (botão "Select Internal DataFrame", não a restauração de Previous
         # Project), já gera a USI que será usada pela primeira execução de Run Screening — assim
@@ -16910,7 +17097,7 @@ class MainWindow(QMainWindow):
         # em vez de cair numa USI "LOAD" vazia/genérica. A própria Run Screening consome essa USI
         # pendente uma única vez; da segunda execução em diante volta a gerar uma nova a cada clique.
         if show_preview and hasattr(self, "ed_skl_USI"):
-            self._set_current_sklearn_usi_context(_generate_new_usi_code(self.job_dir))
+            self._set_current_sklearn_usi_context(_generate_new_usi_code(self.project_dir))
             self._skl_usi_pending_from_load = True
 
         try:
@@ -16936,7 +17123,7 @@ class MainWindow(QMainWindow):
         return True
 
     def select_dataframe_int(self):
-        initial_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
+        initial_dir = os.path.join(self.project_dir, "DATA", "INTERNAL_DATA")
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Select a CSV file",
@@ -16966,7 +17153,7 @@ class MainWindow(QMainWindow):
         self.df_name_view_ext_AD.setText(os.path.basename(file_path))
         if hasattr(self, "df_name_view_ext_skl"):
             self.df_name_view_ext_skl.setText(os.path.basename(file_path))
-        self._df_ext_path = self._to_job_relative_path(file_path)
+        self._df_ext_path = self._to_project_relative_path(file_path)
 
         self._update_predict_descriptor_range_inputs(getattr(self, "df_ext", None) if getattr(self, "chk_pd_external", None) and self.chk_pd_external.isChecked() else None)
         # STEP 6 "Remove Model and Predict" group's "Descriptors Columns Range" — mesma heurística de
@@ -17184,9 +17371,9 @@ class MainWindow(QMainWindow):
                 initial_dir = self._get_usi_predictions_initial_dir()
                 dialog_title = "Select Predictions DataFrame"
             else:
-                initial_dir = os.path.join(self.job_dir, "RESULTS", "AD")
+                initial_dir = os.path.join(self.project_dir, "RESULTS", "AD")
                 if not os.path.isdir(initial_dir):
-                    initial_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
+                    initial_dir = os.path.join(self.project_dir, "DATA", "INTERNAL_DATA")
                 dialog_title = "Select AD DataFrame"
 
             file_path, _ = QFileDialog.getOpenFileName(
@@ -17259,7 +17446,7 @@ class MainWindow(QMainWindow):
 
     def select_edit_transform_dataframe(self):
         try:
-            initial_dir = os.path.join(self.job_dir, "DATA_BASES", "INTERNAL_DATA")
+            initial_dir = os.path.join(self.project_dir, "DATA", "INTERNAL_DATA")
             os.makedirs(initial_dir, exist_ok=True)
 
             file_path, _ = QFileDialog.getOpenFileName(
@@ -17624,7 +17811,7 @@ class MainWindow(QMainWindow):
         if raw_usi:
             predictions_dir = self._set_current_sklearn_usi_context(raw_usi)["predictions"]
         else:
-            predictions_dir = os.path.join(self.job_dir, "RESULTS", "USI")
+            predictions_dir = os.path.join(self.project_dir, "RESULTS", "USI")
             os.makedirs(predictions_dir, exist_ok=True)
 
         file_path1 = str(getattr(self, "step5_filter_file_path1", "") or "").strip()
@@ -18093,12 +18280,12 @@ class MainWindow(QMainWindow):
             l1_task.setStretch(1, 1)  # ocupa 1 parte
 
             # lABEL DE GERAR O NOME DO JOB:
-            label_generate_job_name = QLabel()
-            self._tr("cfg_generate_project", label_generate_job_name.setText)
-            label_generate_job_name.setAlignment(Qt.AlignCenter)
-            label_generate_job_name.setStyleSheet("font-size: 12pt; font-weight: bold;")
+            label_generate_project_name = QLabel()
+            self._tr("cfg_generate_project", label_generate_project_name.setText)
+            label_generate_project_name.setAlignment(Qt.AlignCenter)
+            label_generate_project_name.setStyleSheet("font-size: 12pt; font-weight: bold;")
             l1.addStretch(20)
-            l1.addWidget(label_generate_job_name)
+            l1.addWidget(label_generate_project_name)
             l1.addStretch(10)
 
             g0 = QGroupBox()
@@ -18112,18 +18299,18 @@ class MainWindow(QMainWindow):
             gLa = QGridLayout(gLa_widget)
             
             # Botão para uma nova corrida:      
-            job_btn = QPushButton(); self._tr("cfg_btn_new_project", job_btn.setText); job_btn.setFixedSize(150,30);
-            job_btn.setProperty("role", "secondary")
-            job_btn.clicked.connect(self.new_job)
+            project_btn = QPushButton(); self._tr("cfg_btn_new_project", project_btn.setText); project_btn.setFixedSize(150,30);
+            project_btn.setProperty("role", "secondary")
+            project_btn.clicked.connect(self.new_project)
             # Label de data:
             date_label = QLabel(); self._tr("cfg_label_date", date_label.setText); date_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             # Caixa de texto com data:
             self.current_date = QLineEdit(); self.current_date.setFixedWidth(150); self.current_date.setFixedHeight(30); self.current_date.setEnabled(False); self.current_date.setText(self.data_str)
             # label para nome do job:
-            job_label = QLabel(); self._tr("cfg_label_job_name", job_label.setText); job_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            project_label = QLabel(); self._tr("cfg_label_project_name", project_label.setText); project_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             # Caixa de texto para nome do job:
-            self.ed_job_name = QLineEdit(); self.ed_job_name.setFixedWidth(250); self.ed_job_name.setFixedHeight(30); self._tr("cfg_placeholder_job_name", self.ed_job_name.setPlaceholderText); self.ed_job_name.setEnabled(False)
-            gLa.addWidget(job_btn, 0, 0); gLa.addWidget(date_label, 0, 1); gLa.addWidget(self.current_date, 0, 2); gLa.addWidget(job_label, 0, 3); gLa.addWidget(self.ed_job_name, 0, 4)
+            self.ed_project_name = QLineEdit(); self.ed_project_name.setFixedWidth(250); self.ed_project_name.setFixedHeight(30); self._tr("cfg_placeholder_project_name", self.ed_project_name.setPlaceholderText); self.ed_project_name.setEnabled(False)
+            gLa.addWidget(project_btn, 0, 0); gLa.addWidget(date_label, 0, 1); gLa.addWidget(self.current_date, 0, 2); gLa.addWidget(project_label, 0, 3); gLa.addWidget(self.ed_project_name, 0, 4)
             gLa.setColumnStretch(0, 4); gLa.setColumnStretch(1, 1); gLa.setColumnStretch(2, 3); gLa.setColumnStretch(3, 1); gLa.setColumnStretch(4, 8)
 
             # Layout grid para os botões e campos:
@@ -18131,12 +18318,12 @@ class MainWindow(QMainWindow):
             gLb = QGridLayout(gLb_widget)
 
             # Caixas de seleção de uma corrida anterior:
-            job_return_btn = QPushButton(); self._tr("cfg_btn_previous_project", job_return_btn.setText); job_return_btn.setFixedSize(120,30);
-            job_return_btn.setProperty("role", "secondary")
-            job_return_btn.clicked.connect(self.previous_job)
-            previous_job_label = QLabel(); self._tr("cfg_label_previous_run", previous_job_label.setText); previous_job_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            self.previous_job_name = QComboBox();self.previous_job_name.setFixedHeight(30); self.previous_job_name.setEnabled(False);self.previous_job_name.setEditable(True); self._tr("cfg_placeholder_previous_run", self.previous_job_name.setPlaceholderText)
-            gLb.addWidget(job_return_btn, 1, 0); gLb.addWidget(previous_job_label, 1, 1); gLb.addWidget(self.previous_job_name, 1, 2)
+            project_return_btn = QPushButton(); self._tr("cfg_btn_previous_project", project_return_btn.setText); project_return_btn.setFixedSize(120,30);
+            project_return_btn.setProperty("role", "secondary")
+            project_return_btn.clicked.connect(self.previous_project)
+            previous_project_label = QLabel(); self._tr("cfg_label_previous_run", previous_project_label.setText); previous_project_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            self.previous_project_name = QComboBox();self.previous_project_name.setFixedHeight(30); self.previous_project_name.setEnabled(False);self.previous_project_name.setEditable(True); self._tr("cfg_placeholder_previous_run", self.previous_project_name.setPlaceholderText)
+            gLb.addWidget(project_return_btn, 1, 0); gLb.addWidget(previous_project_label, 1, 1); gLb.addWidget(self.previous_project_name, 1, 2)
             gLb.setColumnStretch(0, 4); gLb.setColumnStretch(1, 3); gLb.setColumnStretch(2, 11)
 
             g0_main_layout.addWidget(gLa_widget)
@@ -18145,12 +18332,12 @@ class MainWindow(QMainWindow):
 
             # Botão para iniciar a corrida:
             l1.addStretch(20)
-            run_job_btn = QPushButton()
-            self._tr("cfg_btn_set_run_folder", run_job_btn.setText)
-            run_job_btn.setFixedSize(200,25)
-            run_job_btn.setProperty("role", "primary")
-            run_job_btn.clicked.connect(self.job_run)
-            l1.addWidget(run_job_btn, alignment=Qt.AlignCenter)
+            run_project_btn = QPushButton()
+            self._tr("cfg_btn_set_run_folder", run_project_btn.setText)
+            run_project_btn.setFixedSize(200,25)
+            run_project_btn.setProperty("role", "primary")
+            run_project_btn.clicked.connect(self.project_run)
+            l1.addWidget(run_project_btn, alignment=Qt.AlignCenter)
 
             ed_run_folder = QLabel()
             ed_run_folder.setAlignment(Qt.AlignCenter)
@@ -18320,9 +18507,9 @@ class MainWindow(QMainWindow):
                 set_grid_enabled(True)
                 # O diálogo abre na pasta INTERNAL_DATA do job carregado (sem job, no diretório padrão).
                 initial_dir = ""
-                _job_dir = getattr(self, "job_dir", None)
-                if _job_dir and os.path.isdir(_job_dir):
-                    initial_dir = os.path.join(_job_dir, "DATA_BASES", "INTERNAL_DATA")
+                _project_dir = getattr(self, "project_dir", None)
+                if _project_dir and os.path.isdir(_project_dir):
+                    initial_dir = os.path.join(_project_dir, "DATA", "INTERNAL_DATA")
                     os.makedirs(initial_dir, exist_ok=True)
                 file_paths, _ = QFileDialog.getOpenFileNames(
                     self,
@@ -18331,9 +18518,9 @@ class MainWindow(QMainWindow):
                     "CSV/Excel Files (*.csv *.xlsx *.xls)"
                 )
                 if file_paths:
-                    job_dir = self._ensure_current_job_dir()
-                    if not job_dir:
-                        QMessageBox.warning(self, i18n.t("msg_title_current_job", self._idioma), "Set or create the current project folder before importing local data.")
+                    project_dir = self._ensure_current_project_dir()
+                    if not project_dir:
+                        QMessageBox.warning(self, i18n.t("msg_title_current_project", self._idioma), "Set or create the current project folder before importing local data.")
                         return
 
                     try:
@@ -18370,7 +18557,7 @@ class MainWindow(QMainWindow):
                         target_chembl_id = self.ed_target_chembl_id.text().strip()
                         target_organism = self.ed_organism_name.text().strip()
                         save_path = os.path.join(
-                            job_dir, "DATA_BASES", "INTERNAL_DATA",
+                            project_dir, "DATA", "INTERNAL_DATA",
                             f'df1_by_activity_{target_chembl_id}_{target_organism}.csv'
                         )
                         final_df.to_csv(save_path, index=False)
@@ -19455,10 +19642,39 @@ class MainWindow(QMainWindow):
             btn_generate_descriptors.setFixedWidth(150)
             btn_generate_descriptors.clicked.connect(self.run_generate_descriptors)
 
-            # Adiciona os elementos no grid: checkboxes na linha 0 (ocupando as 2 colunas),
-            # botão "Generate Descriptors" na linha 1, como elemento único centralizado.
+            # Separação do conjunto EXTERNO (antes de escalonamento/seleção/projeção, para ele não
+            # influenciar nenhuma etapa de desenvolvimento - Princípio 4 da OECD): tamanho e método,
+            # de forma semelhante ao "Select Test Size"/"Split:" da Etapa 4 (ver run_split_external_dataframe).
+            ext_split_layout = QHBoxLayout()
+            ext_split_layout.addStretch()
+            ext_split_layout.addWidget(self._trL("s4_lbl_external_size"))
+            self.dsp_ext_size = QDoubleSpinBox()
+            self.dsp_ext_size.setRange(0.05, 0.95); self.dsp_ext_size.setSingleStep(0.05); self.dsp_ext_size.setValue(0.20)
+            self.dsp_ext_size.setFixedWidth(80)
+            self._tr("s4_tooltip_external_size", self.dsp_ext_size.setToolTip)
+            ext_split_layout.addWidget(self.dsp_ext_size)
+            ext_split_layout.addSpacing(12)
+            ext_split_layout.addWidget(self._trL("s4_lbl_split_method"))
+            self.cb_ext_split_method = QComboBox()
+            self.cb_ext_split_method.addItems(["Random", "Kennard-Stone", "Sphere Exclusion"] if rational_split is not None else ["Random"])
+            self.cb_ext_split_method.setFixedWidth(170)
+            self._tr("s4_tooltip_ext_split_method", self.cb_ext_split_method.setToolTip)
+            ext_split_layout.addWidget(self.cb_ext_split_method)
+            ext_split_layout.addStretch()
+
+            btn_split_external = QPushButton()
+            self._tr("s4_btn_split_external", btn_split_external.setText)
+            btn_split_external.setProperty("role", "secondary")
+            btn_split_external.setFixedWidth(150)
+            self._tr("s4_tooltip_split_external", btn_split_external.setToolTip)
+            btn_split_external.clicked.connect(self.run_split_external_dataframe)
+
+            # Grid: checkboxes na linha 0 (2 colunas); External Size/Split Method na linha 1;
+            # "Generate Descriptors" e, à direita, "Split External DataFrame" na linha 2.
             gL23.addLayout(option_descriptor_layout, 0, 0, 1, 2)
-            gL23.addWidget(btn_generate_descriptors, 1, 0, 1, 2, Qt.AlignCenter)
+            gL23.addLayout(ext_split_layout, 1, 0, 1, 2)
+            gL23.addWidget(btn_generate_descriptors, 2, 0, Qt.AlignCenter)
+            gL23.addWidget(btn_split_external, 2, 1, Qt.AlignCenter)
             # Ajusta a largura das colunas do grid:
             gL23.setColumnStretch(0, 1)
             gL23.setColumnStretch(1, 1)
@@ -22592,7 +22808,7 @@ class MainWindow(QMainWindow):
 
     def _set_current_sklearn_usi_context(self, usi_key=None):
         current_usi = _normalize_usi_key(usi_key or self._get_current_sklearn_usi())
-        paths = _ensure_sklearn_usi_dirs(self.job_dir, current_usi)
+        paths = _ensure_sklearn_usi_dirs(self.project_dir, current_usi)
         self.skl_usi_key = current_usi
         self.skl_base_path = paths["base"]
         self.skl_plot_path = paths["midia"]
@@ -22615,10 +22831,10 @@ class MainWindow(QMainWindow):
         preservando o texto atualmente exibido/digitado."""
         if not hasattr(self, "ed_skl_USI") or self.ed_skl_USI is None:
             return
-        job_dir = getattr(self, "job_dir", None)
-        if not job_dir:
+        project_dir = getattr(self, "project_dir", None)
+        if not project_dir:
             return
-        usi_root = os.path.join(job_dir, "RESULTS", "USI")
+        usi_root = os.path.join(project_dir, "RESULTS", "USI")
         try:
             codes = sorted(
                 d for d in os.listdir(usi_root)
@@ -22804,10 +23020,10 @@ class MainWindow(QMainWindow):
         # compartilhados com a aba Applicability Domain) - sem isso, esses rótulos continuavam
         # mostrando o que estivesse carregado de uma sessão/USI anterior, não o DataFrame real
         # desta USI (ver aviso em run_skl_predict, que existia justamente por causa dessa lacuna).
-        internal_path = self._from_job_relative_path(config.get("internal_dataframe_path"))
+        internal_path = self._from_project_relative_path(config.get("internal_dataframe_path"))
         if internal_path and os.path.isfile(internal_path):
             self._load_internal_dataframe(internal_path, show_preview=False)
-        external_path = self._from_job_relative_path(config.get("external_dataframe_path"))
+        external_path = self._from_project_relative_path(config.get("external_dataframe_path"))
         if external_path and os.path.isfile(external_path):
             self._load_external_dataframe(external_path, show_preview=False)
         if internal_path or external_path:
@@ -23178,7 +23394,7 @@ class MainWindow(QMainWindow):
                 self._set_current_sklearn_usi_context()
                 self._skl_usi_pending_from_load = False
             else:
-                self._set_current_sklearn_usi_context(_generate_new_usi_code(self.job_dir))
+                self._set_current_sklearn_usi_context(_generate_new_usi_code(self.project_dir))
             random_state = self._get_skl_random_state()
 
             model_specs = []
@@ -25093,6 +25309,29 @@ if __name__ == "__main__":
 
         window = MainWindow()
         window.show()
+
+        # Migração da pasta de projetos antiga (JOBS -> PROJECTS), feita pela splash screen: só avisa
+        # quando algo ficou para trás (projeto com nome já existente em PROJECTS, ou erro ao renomear) -
+        # nesses casos os projetos continuam acessíveis a partir de JOBS.
+        mig = status.get("projects_migration") or {}
+        if mig.get("moved"):
+            print(f"[INFO] {len(mig['moved'])} project(s) moved from JOBS/ to PROJECTS/ "
+                  f"({mig.get('json_updated', 0)} state file(s) updated).")
+        dmig = status.get("data_folder_migration") or {}
+        if dmig.get("renamed"):
+            print(f"[INFO] DATA_BASES renamed to DATA in {dmig['renamed']} project(s) "
+                  f"({dmig.get('json_updated', 0)} state file(s) updated).")
+        if dmig.get("conflicts") or dmig.get("errors"):
+            QMessageBox.warning(window, i18n.t("msg_projects_migration_title", window._idioma),
+                i18n.t("msg_data_folder_migration_partial", window._idioma,
+                       items="; ".join(dmig.get("conflicts", []) + dmig.get("errors", []))))
+        if mig.get("conflicts") or mig.get("errors"):
+            lines = [i18n.t("msg_projects_migration_partial", window._idioma)]
+            if mig.get("conflicts"):
+                lines.append(i18n.t("msg_projects_migration_conflicts", window._idioma, names=", ".join(mig["conflicts"])))
+            if mig.get("errors"):
+                lines.append(i18n.t("msg_projects_migration_errors", window._idioma, errors="; ".join(mig["errors"])))
+            QMessageBox.warning(window, i18n.t("msg_projects_migration_title", window._idioma), "\n\n".join(lines))
 
     splash.check_complete.connect(start_mainwindow)
     sys.exit(app.exec_())

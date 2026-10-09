@@ -13,7 +13,7 @@ Design notes (see the STEP5/STEP6 conversation this was requested in):
   InChIKey isn't registered - many database SMILES lack full stereo assignment. The lowest CID
   from that fallback is used as a heuristic (usually the most commonly registered form).
 - Results (including "no match found") are cached to a small JSON file under the job's
-  DATA_BASES/INTERNAL_DATA, keyed by InChIKey, so re-generating a report or re-running the
+  DATA/INTERNAL_DATA, keyed by InChIKey, so re-generating a report or re-running the
   consensus analysis never re-queries the same structure twice.
 - Every network/RDKit failure is swallowed - a missing name must never block STEP 6 or the final
   report, it just means the compound is shown by its ID alone, as before.
@@ -46,12 +46,12 @@ _last_call_ts = 0.0
 CACHE_FILENAME = "compound_name_cache.json"
 
 
-def _cache_path(job_dir: str) -> str:
-    return os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA", CACHE_FILENAME)
+def _cache_path(project_dir: str) -> str:
+    return os.path.join(project_dir, "DATA", "INTERNAL_DATA", CACHE_FILENAME)
 
 
-def load_cache(job_dir: str) -> dict[str, Any]:
-    path = _cache_path(job_dir)
+def load_cache(project_dir: str) -> dict[str, Any]:
+    path = _cache_path(project_dir)
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -60,8 +60,8 @@ def load_cache(job_dir: str) -> dict[str, Any]:
         return {}
 
 
-def save_cache(job_dir: str, cache: dict[str, Any]) -> None:
-    path = _cache_path(job_dir)
+def save_cache(project_dir: str, cache: dict[str, Any]) -> None:
+    path = _cache_path(project_dir)
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
@@ -145,7 +145,7 @@ def format_hit_label(compound_id: Any, name: Optional[str]) -> str:
     return f"{compound_id} ({name})" if name else compound_id
 
 
-def find_smiles_lookup(job_dir: str, ids: set[str]) -> dict[str, str]:
+def find_smiles_lookup(project_dir: str, ids: set[str]) -> dict[str, str]:
     """Best-effort ID -> SMILES lookup, scanning prediction CSVs under RESULTS/USI/**/PREDICTIONS
     (which carry Name/SMILES columns) for the small set of IDs the consensus hits table needs.
     Shared by STEP 6 (run_consensus_generate) and the final report (STEP 6 section)."""
@@ -155,7 +155,7 @@ def find_smiles_lookup(job_dir: str, ids: set[str]) -> dict[str, str]:
     lookup: dict[str, str] = {}
     if not ids:
         return lookup
-    pattern = os.path.join(job_dir, "RESULTS", "USI", "*", "PREDICTIONS", "*.csv")
+    pattern = os.path.join(project_dir, "RESULTS", "USI", "*", "PREDICTIONS", "*.csv")
     for path in glob.glob(pattern):
         if len(lookup) >= len(ids):
             break
@@ -176,7 +176,7 @@ def find_smiles_lookup(job_dir: str, ids: set[str]) -> dict[str, str]:
 
 def resolve_compound_names(
     ids: list[str],
-    job_dir: str,
+    project_dir: str,
     id_to_smiles: Optional[dict[str, str]] = None,
     max_lookups: int = 150,
 ) -> dict[str, Optional[str]]:
@@ -187,8 +187,8 @@ def resolve_compound_names(
     call (cached hits don't count against the cap) so a very long, unfiltered hits list can never
     turn into a multi-minute network loop."""
     ids = [str(i) for i in ids]
-    smiles_map = id_to_smiles if id_to_smiles is not None else find_smiles_lookup(job_dir, set(ids))
-    cache = load_cache(job_dir)
+    smiles_map = id_to_smiles if id_to_smiles is not None else find_smiles_lookup(project_dir, set(ids))
+    cache = load_cache(project_dir)
     names: dict[str, Optional[str]] = {}
     fresh_lookups = 0
     dirty = False
@@ -213,5 +213,5 @@ def resolve_compound_names(
             dirty = True
         names[cid] = name
     if dirty:
-        save_cache(job_dir, cache)
+        save_cache(project_dir, cache)
     return names

@@ -138,10 +138,18 @@ def sphere_exclusion(z: np.ndarray, test_fraction: float, first: int, iterations
     return best_train
 
 
-def split(x: pd.DataFrame, y: pd.Series, test_size: float, method: str, task: str,
+def split(x: pd.DataFrame, y, test_size: float, method: str, task: str,
           random_state=None):
     """Mesmo contrato de sklearn.train_test_split: devolve (x_train, x_test, y_train, y_test),
-    preservando os índices originais. method: RANDOM, KENNARD_STONE ou SPHERE_EXCLUSION."""
+    preservando os índices originais. method: RANDOM, KENNARD_STONE ou SPHERE_EXCLUSION.
+    y pode ser None (divisão só por X; y_train/y_test devolvidos como None)."""
+    if y is None:
+        # Sem variável resposta (ex.: separação do conjunto externo na Etapa 3 sem coluna Y definida):
+        # divide só por X; no Sphere Exclusion o primeiro centro passa a ser o mais próximo do centróide.
+        y_dummy = pd.Series(np.zeros(len(x)), index=x.index)
+        x_tr, x_te, _yt, _ye = split(x, y_dummy, test_size, method, "none", random_state=random_state)
+        return x_tr, x_te, None, None
+
     if method == RANDOM or method not in METHODS:
         from sklearn.model_selection import train_test_split
         return train_test_split(x, y, test_size=test_size, random_state=random_state)
@@ -164,8 +172,9 @@ def split(x: pd.DataFrame, y: pd.Series, test_size: float, method: str, task: st
         elif method == KENNARD_STONE:
             sel = kennard_stone(z, len(pos) - n_test)
         else:
-            if task == "regression":
-                first = int(np.nanargmax(pd.to_numeric(y_series.iloc[pos], errors="coerce").to_numpy()))
+            y_num = pd.to_numeric(y_series.iloc[pos], errors="coerce").to_numpy()
+            if task == "regression" and np.isfinite(y_num).any():
+                first = int(np.nanargmax(y_num))
             else:
                 first = int(np.argmin(((z - z.mean(axis=0)) ** 2).sum(axis=1)))
             sel = sphere_exclusion(z, test_size, first)

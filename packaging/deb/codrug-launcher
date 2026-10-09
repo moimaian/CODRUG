@@ -4,7 +4,7 @@
 # Roda como o usuário comum que clicou no menu (não como root). Só faz duas
 # coisas:
 #   1) sincroniza o código instalado pelo pacote em /opt/codrug para
-#      $HOME/CODRUG, sem nunca tocar em $HOME/CODRUG/JOBS (resultados do
+#      $HOME/CODRUG, sem nunca tocar em $HOME/CODRUG/PROJECTS (resultados do
 #      usuário) nem em caches de bytecode;
 #   2) delega tudo o mais — criação/atualização do venv em
 #      $HOME/.venv/CODRUG, instalação das dependências científicas,
@@ -25,15 +25,17 @@ mkdir -p "$APP_DIR"
 
 if command -v rsync >/dev/null 2>&1; then
     rsync -a \
+        --exclude='PROJECTS/' \
         --exclude='JOBS/' \
         --exclude='__pycache__/' \
         --exclude='*.pyc' \
         "$SRC_DIR"/ "$APP_DIR"/
 else
-    # Fallback sem rsync: copia tudo exceto a pasta JOBS do usuário.
+    # Fallback sem rsync: copia tudo exceto as pastas de projetos do usuário
+    # (PROJECTS e a antiga JOBS, migrada para PROJECTS pelo próprio CODRUG).
     for item in "$SRC_DIR"/*; do
         name="$(basename "$item")"
-        [ "$name" = "JOBS" ] && continue
+        { [ "$name" = "PROJECTS" ] || [ "$name" = "JOBS" ]; } && continue
         cp -rf "$item" "$APP_DIR"/
     done
 fi

@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 
 # Resultados de execução — não são código-fonte, e a pasta é muito grande (dezenas de GB)
+PROJECTS/
 JOBS/
 
 # Backups manuais antigos — substituídos pelo histórico do git

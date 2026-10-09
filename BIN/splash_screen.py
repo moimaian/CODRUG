@@ -117,6 +117,176 @@ def install_minimal_essentials(callback=None):
         if callback: callback(False, str(e))
 
 # -------- UI (Splash) --------
+PROJECTS_DIRNAME = "PROJECTS"
+LEGACY_JOBS_DIRNAME = "JOBS"   # nome antigo da pasta de projetos (até 2026-10)
+
+
+def _rewrite_json_prefix(project_dir, old_root, new_root):
+    """Troca o prefixo absoluto '<app>/JOBS/' por '<app>/PROJECTS/' nos .json de um projeto movido
+    (estado salvo do projeto, skl_session.json das USIs...), para caminhos absolutos gravados antes
+    da mudança continuarem válidos. Escrita atômica (arquivo temporário + os.replace)."""
+    old_prefix, new_prefix = old_root + os.sep, new_root + os.sep
+    changed = 0
+    for dirpath, _dirs, files in os.walk(project_dir):
+        for fname in files:
+            if not fname.endswith(".json"):
+                continue
+            path = os.path.join(dirpath, fname)
+            try:
+                with open(path, "r", encoding="utf-8") as fh:
+                    text = fh.read()
+                if old_prefix not in text:
+                    continue
+                tmp = path + ".tmp_migration"
+                with open(tmp, "w", encoding="utf-8") as fh:
+                    fh.write(text.replace(old_prefix, new_prefix))
+                os.replace(tmp, path)
+                changed += 1
+            except (OSError, UnicodeDecodeError):
+                continue
+    return changed
+
+
+def migrate_legacy_jobs_folder(app_dir):
+    """Migra a pasta de projetos antiga (<app>/JOBS) para <app>/PROJECTS, com segurança:
+    - só RENOMEIA (os.rename, instantâneo no mesmo sistema de arquivos) - nunca copia: a pasta pode
+      ter dezenas de GB e uma cópia poderia encher o disco;
+    - se PROJECTS não existe, renomeia JOBS inteira; se as duas existem, move projeto a projeto e
+      NUNCA sobrescreve um projeto de mesmo nome em PROJECTS (ele fica em JOBS e é relatado);
+    - se algo falhar, nada é apagado e o CODRUG continua lendo os projetos que ficaram em JOBS;
+    - ajusta, nos .json dos projetos movidos, caminhos absolutos gravados com o prefixo antigo.
+    Idempotente. Devolve um dicionário com moved/conflicts/errors/json_updated."""
+    old_root = os.path.join(app_dir, LEGACY_JOBS_DIRNAME)
+    new_root = os.path.join(app_dir, PROJECTS_DIRNAME)
+    result = {"moved": [], "conflicts": [], "errors": [], "json_updated": 0, "renamed_root": False}
+    if not os.path.isdir(old_root):
+        return result
+    try:
+        if not os.path.exists(new_root):
+            names = sorted(os.listdir(old_root))
+            os.rename(old_root, new_root)
+            result["renamed_root"] = True
+            result["moved"] = names
+        else:
+            for name in sorted(os.listdir(old_root)):
+                src, dst = os.path.join(old_root, name), os.path.join(new_root, name)
+                if os.path.exists(dst):
+                    result["conflicts"].append(name)
+                    continue
+                try:
+                    os.rename(src, dst)
+                    result["moved"].append(name)
+                except OSError as e:
+                    result["errors"].append(f"{name}: {e}")
+            try:
+                if not os.listdir(old_root):
+                    os.rmdir(old_root)   # só remove JOBS se tiver ficado vazia
+            except OSError:
+                pass
+    except OSError as e:
+        result["errors"].append(str(e))
+        return result
+    for name in result["moved"]:
+        project_dir = os.path.join(new_root, name)
+        if os.path.isdir(project_dir):
+            result["json_updated"] += _rewrite_json_prefix(project_dir, old_root, new_root)
+    return result
+
+
+LEGACY_DATA_DIRNAME = "DATA_BASES"   # nome antigo da subpasta de dados de cada projeto (até 2026-10)
+DATA_DIRNAME = "DATA"
+
+
+def _rewrite_json_data_dir(project_dir):
+    """Troca o segmento de caminho 'DATA_BASES' por 'DATA' (relativo ou absoluto) nos .json de um
+    projeto cuja subpasta já foi renomeada. Escrita atômica."""
+    import re
+    seg = re.compile(r"(?<![A-Za-z0-9_])" + LEGACY_DATA_DIRNAME + r"(?=[/\\\\])")
+    changed = 0
+    for dirpath, _dirs, files in os.walk(project_dir):
+        for fname in files:
+            if not fname.endswith(".json"):
+                continue
+            path = os.path.join(dirpath, fname)
+            try:
+                with open(path, "r", encoding="utf-8") as fh:
+                    text = fh.read()
+                new_text, n = seg.subn(DATA_DIRNAME, text)
+                if not n:
+                    continue
+                tmp = path + ".tmp_migration"
+                with open(tmp, "w", encoding="utf-8") as fh:
+                    fh.write(new_text)
+                os.replace(tmp, path)
+                changed += 1
+            except (OSError, UnicodeDecodeError):
+                continue
+    return changed
+
+
+def migrate_project_layout(project_dir):
+    """Renomeia a subpasta DATA_BASES de um projeto para DATA, com o mesmo cuidado da migração
+    JOBS -> PROJECTS: só os.rename (nunca copia); se DATA já existir, move as subpastas/arquivos que
+    não existam lá (um nível abaixo também), sem sobrescrever nada - o que sobrar fica em DATA_BASES
+    e é relatado. Os .json do projeto só são atualizados quando DATA_BASES deixa de existir (para
+    nunca apontarem para um arquivo que ficou na pasta antiga). Idempotente."""
+    result = {"renamed": False, "moved": [], "conflicts": [], "errors": [], "json_updated": 0}
+    old = os.path.join(project_dir, LEGACY_DATA_DIRNAME)
+    new = os.path.join(project_dir, DATA_DIRNAME)
+    if os.path.isdir(old):
+        try:
+            if not os.path.exists(new):
+                os.rename(old, new)
+                result["renamed"] = True
+            else:
+                for name in sorted(os.listdir(old)):
+                    src, dst = os.path.join(old, name), os.path.join(new, name)
+                    if not os.path.exists(dst):
+                        os.rename(src, dst); result["moved"].append(name)
+                    elif os.path.isdir(src) and os.path.isdir(dst):
+                        for sub in sorted(os.listdir(src)):
+                            s2, d2 = os.path.join(src, sub), os.path.join(dst, sub)
+                            if os.path.exists(d2):
+                                result["conflicts"].append(os.path.join(name, sub))
+                            else:
+                                os.rename(s2, d2); result["moved"].append(os.path.join(name, sub))
+                        try:
+                            if not os.listdir(src):
+                                os.rmdir(src)
+                        except OSError:
+                            pass
+                    else:
+                        result["conflicts"].append(name)
+                try:
+                    if not os.listdir(old):
+                        os.rmdir(old)
+                except OSError:
+                    pass
+        except OSError as e:
+            result["errors"].append(f"{os.path.basename(project_dir)}: {e}")
+    if not os.path.exists(old):
+        result["json_updated"] = _rewrite_json_data_dir(project_dir)
+    return result
+
+
+def migrate_all_project_layouts(app_dir):
+    """migrate_project_layout para cada projeto em <app>/PROJECTS. Devolve conflitos/erros agregados."""
+    root = os.path.join(app_dir, PROJECTS_DIRNAME)
+    summary = {"renamed": 0, "conflicts": [], "errors": [], "json_updated": 0}
+    if not os.path.isdir(root):
+        return summary
+    for name in sorted(os.listdir(root)):
+        pdir = os.path.join(root, name)
+        if not os.path.isdir(pdir):
+            continue
+        r = migrate_project_layout(pdir)
+        summary["renamed"] += int(r["renamed"] or bool(r["moved"]))
+        summary["conflicts"] += [f"{name}/{c}" for c in r["conflicts"]]
+        summary["errors"] += r["errors"]
+        summary["json_updated"] += r["json_updated"]
+    return summary
+
+
 class SplashScreen(QWidget):
     check_complete = pyqtSignal(dict)   # emite dicionário de status ao final
     essentials_done = pyqtSignal(bool, str)  # retorno da instalação mínima (thread-safe)
@@ -190,8 +360,18 @@ class SplashScreen(QWidget):
         self.status["desktop_ok"] = True
         self._set_target(25)
 
-        # 2) Estrutura de pastas
-        for folder in (f"{self.dp_dir}/JOBS", f"{self.dp_dir}/BIN", f"{self.dp_dir}/TEST", f"{self.dp_dir}/MIDIA"):
+        # 2) Estrutura de pastas (antes, migra a pasta de projetos antiga JOBS -> PROJECTS)
+        try:
+            self.status["projects_migration"] = migrate_legacy_jobs_folder(self.dp_dir)
+        except Exception as e:  # nunca impede a inicialização
+            self.status["projects_migration"] = {"moved": [], "conflicts": [], "errors": [str(e)], "json_updated": 0}
+        # ... e, dentro de cada projeto, a subpasta antiga DATA_BASES -> DATA
+        try:
+            layout = migrate_all_project_layouts(self.dp_dir)
+        except Exception as e:
+            layout = {"renamed": 0, "conflicts": [], "errors": [str(e)], "json_updated": 0}
+        self.status["data_folder_migration"] = layout
+        for folder in (f"{self.dp_dir}/{PROJECTS_DIRNAME}", f"{self.dp_dir}/BIN", f"{self.dp_dir}/TEST", f"{self.dp_dir}/MIDIA"):
             os.makedirs(folder, exist_ok=True)
         self.status["folders_ok"] = True
         self._set_target(50)

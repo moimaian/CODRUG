@@ -26,7 +26,7 @@ Isso cria:
 ## O que acontece no primeiro clique em "CODRUG" no menu
 
 1. `/usr/bin/codrug` sincroniza `/opt/codrug` → `$HOME/CODRUG` (sem tocar em
-   `$HOME/CODRUG/JOBS`, que guarda os resultados do usuário) e chama
+   `$HOME/CODRUG/PROJECTS`, que guarda os resultados do usuário) e chama
    `python3 $HOME/CODRUG/CODRUG.py`.
 2. `CODRUG.py` (código já existente, inalterado por este empacotamento)
    detecta que ainda não está rodando no venv-alvo e chama
@@ -67,7 +67,7 @@ próprio `CODRUG.py`, que já existia antes deste empacotamento.
 
 `apt upgrade` atualiza `/opt/codrug`. Na próxima vez que o usuário abrir o
 CODRUG pelo menu, o launcher sincroniza a versão nova para `$HOME/CODRUG`
-(de novo, preservando `JOBS/`). O venv em `~/.venv/CODRUG` não é recriado
+(de novo, preservando `PROJECTS/`). O venv em `~/.venv/CODRUG` não é recriado
 automaticamente por uma atualização do pacote — `ensure_venv()` só recria o
 venv se a versão do Python dentro dele mudar; para forçar reinstalação de
 dependências científicas, use o botão "Instalação de Requisitos" na aba
@@ -80,6 +80,6 @@ sudo apt remove codrug     # mantém ~/CODRUG e ~/.venv/CODRUG
 sudo apt purge codrug      # idem — avisa no terminal, mas não apaga nada em $HOME
 ```
 
-Dados por-usuário (`~/CODRUG`, incluindo `~/CODRUG/JOBS`, e
+Dados por-usuário (`~/CODRUG`, incluindo `~/CODRUG/PROJECTS`, e
 `~/.venv/CODRUG`) nunca são apagados automaticamente pelo pacote — remova
 manualmente se quiser liberar espaço.

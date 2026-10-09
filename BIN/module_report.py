@@ -17,7 +17,7 @@
 """Final report generator for CODRUG (STEP 6 "Generate Final Report", .docx).
 
 Mirrors the structure of CODOC's MODULES/module_report.py: pulls its data from the unified
-per-job JSON (job_dir/<job_name>.json, written incrementally as STEP 1-6 buttons run) plus the
+per-job JSON (project_dir/<project_name>.json, written incrementally as STEP 1-6 buttons run) plus the
 result files each step already writes to disk (CSVs, USI session JSONs, plots). Kept free of
 PyQt so it can be unit-tested and reused without a running GUI.
 
@@ -162,14 +162,14 @@ def require_rdkit() -> None:
 # Job state loading
 # --------------------------------------------------------------------------------------
 
-def load_job_settings(job_dir: str) -> dict[str, Any]:
-    """Read the unified per-job JSON (job_dir/<job_name>.json), falling back to the legacy
+def load_project_settings(project_dir: str) -> dict[str, Any]:
+    """Read the unified per-job JSON (project_dir/<project_name>.json), falling back to the legacy
     STEP-1-only dataset_preparation.json for jobs created before it existed."""
-    job_dir = str(job_dir)
-    job_name = os.path.basename(os.path.normpath(job_dir))
+    project_dir = str(project_dir)
+    project_name = os.path.basename(os.path.normpath(project_dir))
     for path in (
-        os.path.join(job_dir, f"{job_name}.json"),
-        os.path.join(job_dir, "dataset_preparation.json"),
+        os.path.join(project_dir, f"{project_name}.json"),
+        os.path.join(project_dir, "dataset_preparation.json"),
     ):
         if not os.path.isfile(path):
             continue
@@ -188,6 +188,19 @@ def _latest_glob(pattern: str) -> Optional[str]:
     if not matches:
         return None
     return max(matches, key=os.path.getmtime)
+
+
+def _legacy_jobs_path(path: Optional[str]) -> Optional[str]:
+    """Path saved before the folders were renamed (2026-10): <app>/JOBS -> <app>/PROJECTS and, inside
+    each project, DATA_BASES -> DATA. If it no longer exists but the renamed equivalent does, return it."""
+    if not path or os.path.exists(path):
+        return path
+    candidate = path
+    jobs = os.sep + "JOBS" + os.sep
+    if jobs in candidate:
+        candidate = candidate.replace(jobs, os.sep + "PROJECTS" + os.sep, 1)
+    candidate = re.sub(r"(^|[\\/])DATA_BASES(?=[\\/])", lambda m: m.group(1) + "DATA", candidate)
+    return candidate if candidate != path and os.path.exists(candidate) else path
 
 
 def _read_csv(path: Optional[str], **kwargs):
@@ -586,7 +599,7 @@ _TABLE_1_ROWS = [
 ]
 
 
-def _add_step1_section(document: Any, job_dir: str, state: dict[str, Any], idioma: str = "pt") -> bool:
+def _add_step1_section(document: Any, project_dir: str, state: dict[str, Any], idioma: str = "pt") -> bool:
     step1 = state.get("step1")
     if not isinstance(step1, dict) or not step1:
         return False
@@ -608,7 +621,7 @@ def _add_step1_section(document: Any, job_dir: str, state: dict[str, Any], idiom
     validity_comment_sel = step1.get("validity_comment_selected", []) if step1.get("validity_comment_checked") else []
     validity_description_sel = step1.get("validity_description_selected", []) if step1.get("validity_description_checked") else []
 
-    internal_dir = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA")
+    internal_dir = os.path.join(project_dir, "DATA", "INTERNAL_DATA")
     initial_path = _latest_glob(os.path.join(internal_dir, f"df1_by_activity_{target_chembl_id}_{organism}*.csv"))
     base_path = _latest_glob(os.path.join(internal_dir, f"df1_base_{target_chembl_id}_{organism}*.csv"))
     initial_count = _row_count(initial_path)
@@ -848,7 +861,7 @@ def _describe_col_stats(df) -> Optional[dict[str, str]]:
     return out or None
 
 
-def _add_step2_3_section(document: Any, job_dir: str, state: dict[str, Any], idioma: str = "pt") -> bool:
+def _add_step2_3_section(document: Any, project_dir: str, state: dict[str, Any], idioma: str = "pt") -> bool:
     step2 = state.get("step2") if isinstance(state.get("step2"), dict) else {}
     if not step2:
         return False
@@ -857,8 +870,8 @@ def _add_step2_3_section(document: Any, job_dir: str, state: dict[str, Any], idi
     texts = _STEP2_TEXTS
     statistics_state = state.get("statistics") if isinstance(state.get("statistics"), dict) else {}
 
-    stats_dir = os.path.join(job_dir, "RESULTS", "STATISTICS")
-    internal_dir = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA")
+    stats_dir = os.path.join(project_dir, "RESULTS", "STATISTICS")
+    internal_dir = os.path.join(project_dir, "DATA", "INTERNAL_DATA")
 
     _bar(document, "STEP 2 - Preprocessing and Exploratory Analysis", COLOR_SECTION_BAR)
     p = _para(document)
@@ -1123,7 +1136,7 @@ def _add_step2_3_section(document: Any, job_dir: str, state: dict[str, Any], idi
         add3_bi("Figura 3", "Figure 3", True)
         add3(").", False)
 
-        class_freq_path = _latest_glob(os.path.join(job_dir, "RESULTS", f"freq_{class_value_col}*.png"))
+        class_freq_path = _latest_glob(os.path.join(project_dir, "RESULTS", f"freq_{class_value_col}*.png"))
         if class_freq_path:
             document.add_paragraph()
             _add_caption(document, texts["figure3_caption_pt"] if lang == "pt" else texts["figure3_caption_en"])
@@ -1214,7 +1227,7 @@ def _param_label(key: str) -> str:
     return key.replace("_", " ").title()
 
 
-def _add_druggability_paragraph(document: Any, job_dir: str, state: dict[str, Any], lang: str) -> None:
+def _add_druggability_paragraph(document: Any, project_dir: str, state: dict[str, Any], lang: str) -> None:
     """STEP 3 'Generating Druggability Descriptors' (moved there from STEP 2). Checkbox/range
     values come from state["step4"], falling back to state["step2"] for jobs saved before the
     move; whether descriptors were computed/filtered comes from the files on disk (df3_*, or the
@@ -1225,7 +1238,7 @@ def _add_druggability_paragraph(document: Any, job_dir: str, state: dict[str, An
     def _val(key):
         return step4[key] if key in step4 else step2.get(key)
 
-    internal_dir = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA")
+    internal_dir = os.path.join(project_dir, "DATA", "INTERNAL_DATA")
     computed = any(
         not os.path.basename(f).startswith(f"{prefix}_Druggability_filter_")
         for prefix in ("df3", "df2")
@@ -1274,7 +1287,7 @@ def _add_druggability_paragraph(document: Any, job_dir: str, state: dict[str, An
         add_bi(", sem filtragem dos compostos por drogabilidade.", ", without filtering the compounds by druggability.", False)
 
 
-def _add_step4_section(document: Any, job_dir: str, state: dict[str, Any], idioma: str = "pt",
+def _add_step4_section(document: Any, project_dir: str, state: dict[str, Any], idioma: str = "pt",
                         app_dir: Optional[str] = None) -> bool:
     step4 = state.get("step4") if isinstance(state.get("step4"), dict) else {}
 
@@ -1284,17 +1297,18 @@ def _add_step4_section(document: Any, job_dir: str, state: dict[str, Any], idiom
     descriptors = step4.get("descriptors_selected")
     has_descriptors = isinstance(descriptors, dict) and bool(descriptors.get("selected"))
     # Druggability descriptors (grupo movido da STEP 2) também bastam para a seção existir.
-    internal_dir_check = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA")
+    internal_dir_check = os.path.join(project_dir, "DATA", "INTERNAL_DATA")
     has_druggability = bool(
         glob.glob(os.path.join(internal_dir_check, "df3_Druggability_*.csv"))
         or glob.glob(os.path.join(internal_dir_check, "df2_Druggability_*.csv"))
     )
-    if not (has_descriptors or scaling_method or selection_method or projection_method or has_druggability):
+    ext_split = step4.get("last_external_split") if isinstance(step4.get("last_external_split"), dict) else None
+    if not (has_descriptors or scaling_method or selection_method or projection_method or has_druggability or ext_split):
         return False
 
     lang = "en" if idioma == "en" else "pt"
     texts = _STEP3_TEXTS
-    internal_dir = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA")
+    internal_dir = os.path.join(project_dir, "DATA", "INTERNAL_DATA")
     param_table = step4.get("projection_parameters_table") if isinstance(step4.get("projection_parameters_table"), dict) else {}
 
     _bar(document, "STEP 3 - Features Engineering", COLOR_SECTION_BAR)
@@ -1425,10 +1439,10 @@ def _add_step4_section(document: Any, job_dir: str, state: dict[str, Any], idiom
                 add(". ", False)
 
     # External dataset column-count note. BASE/EXTERNAL_DATA is shared across jobs (not under
-    # job_dir anymore - see CODRUG.py __init__), so it needs app_dir (CODRUG's own install dir),
-    # falling back to job_dir's grandparent for older callers that don't pass it.
+    # project_dir anymore - see CODRUG.py __init__), so it needs app_dir (CODRUG's own install dir),
+    # falling back to project_dir's grandparent for older callers that don't pass it.
     ext_dir = os.path.join(app_dir, "BASE", "EXTERNAL_DATA") if app_dir else \
-        os.path.join(os.path.dirname(os.path.dirname(job_dir)), "BASE", "EXTERNAL_DATA")
+        os.path.join(os.path.dirname(os.path.dirname(project_dir)), "BASE", "EXTERNAL_DATA")
     reference_path = selection_path or descriptors_path
     if reference_path:
         reference_df = _read_csv(reference_path, nrows=1)
@@ -1449,7 +1463,30 @@ def _add_step4_section(document: Any, job_dir: str, state: dict[str, Any], idiom
                 False,
             )
 
-    _add_druggability_paragraph(document, job_dir, state, lang)
+    _add_druggability_paragraph(document, project_dir, state, lang)
+
+    # External set split off in STEP 3 ("Split External DataFrame"), before scaling/selection/projection.
+    if ext_split:
+        method = ext_split.get("method", "Random")
+        rs = ext_split.get("random_state")
+        how_pt = {"Kennard-Stone": "pelo algoritmo de Kennard-Stone", "Sphere Exclusion": "por sphere exclusion"}.get(
+            method, "de forma aleatória" + (f" (random state = {rs})" if rs is not None else ""))
+        how_en = {"Kennard-Stone": "with the Kennard-Stone algorithm", "Sphere Exclusion": "by sphere exclusion"}.get(
+            method, "randomly" + (f" (random state = {rs})" if rs is not None else ""))
+        pct = int(round(100 * float(ext_split.get("external_size", 0))))
+        pe = _para(document)
+        _add(pe, (
+            f"Antes do escalonamento, da seleção e da projeção dos descritores, {pct}% dos compostos "
+            f"({ext_split.get('n_external', '?')} de {ext_split.get('n_total', '?')}) foram separados {how_pt} como conjunto "
+            f"externo ({ext_split.get('external_file', '')}), que não participou de nenhuma etapa do desenvolvimento dos "
+            f"modelos; os {ext_split.get('n_internal', '?')} compostos restantes formaram o conjunto interno "
+            f"({ext_split.get('internal_file', '')})."
+        ) if lang == "pt" else (
+            f"Before descriptor scaling, selection and projection, {pct}% of the compounds "
+            f"({ext_split.get('n_external', '?')} of {ext_split.get('n_total', '?')}) were set aside {how_en} as the external "
+            f"set ({ext_split.get('external_file', '')}), which took no part in any step of model development; the remaining "
+            f"{ext_split.get('n_internal', '?')} compounds formed the internal set ({ext_split.get('internal_file', '')})."
+        ), False)
 
     document.add_paragraph()
     return True
@@ -1678,14 +1715,14 @@ def _add_skl_results_table(
     document.add_paragraph()
 
 
-def _add_step5_section(document: Any, job_dir: str, state: dict[str, Any], idioma: str = "pt") -> bool:
+def _add_step5_section(document: Any, project_dir: str, state: dict[str, Any], idioma: str = "pt") -> bool:
     step6 = state.get("step6_sklearn") if isinstance(state.get("step6_sklearn"), dict) else {}
     if not step6:
         return False
 
     lang = "en" if idioma == "en" else "pt"
     texts = _STEP4_ML_TEXTS
-    usi_root = os.path.join(job_dir, "RESULTS", "USI")
+    usi_root = os.path.join(project_dir, "RESULTS", "USI")
     if not os.path.isdir(usi_root):
         return False
 
@@ -1702,7 +1739,7 @@ def _add_step5_section(document: Any, job_dir: str, state: dict[str, Any], idiom
 
     # Same descriptors dataframe referenced by STEP 3's own text (df3_descriptors_*.csv) - used
     # by the Figure 4/Table 3 captions below ("... for the <dataframe> dataframe").
-    internal_dir = os.path.join(job_dir, "DATA_BASES", "INTERNAL_DATA")
+    internal_dir = os.path.join(project_dir, "DATA", "INTERNAL_DATA")
     descriptors_path = _latest_glob(os.path.join(internal_dir, "df3_descriptors_*.csv")) or \
         _latest_glob(os.path.join(internal_dir, "df4_descriptors_*.csv"))
     descriptors_name = os.path.basename(descriptors_path) if descriptors_path else ""
@@ -2040,8 +2077,8 @@ _INTERP_FIGURES = [
 ]
 
 
-def _add_step5_interpretability_section(document: Any, job_dir: str, idioma: str = "pt") -> bool:
-    usi_root = os.path.join(job_dir, "RESULTS", "USI")
+def _add_step5_interpretability_section(document: Any, project_dir: str, idioma: str = "pt") -> bool:
+    usi_root = os.path.join(project_dir, "RESULTS", "USI")
     if not os.path.isdir(usi_root):
         return False
     entries = []
@@ -2181,14 +2218,14 @@ _STEP5_TEXTS = {
 _VERDICT_TYPE_ORDER = ["Within AD", "Borderline", "Outside AD"]
 
 
-def _add_step7_section(document: Any, job_dir: str, state: dict[str, Any], idioma: str = "pt") -> bool:
+def _add_step7_section(document: Any, project_dir: str, state: dict[str, Any], idioma: str = "pt") -> bool:
     step7 = state.get("step7_ad")
     if not isinstance(step7, dict) or not step7:
         return False
 
     lang = "en" if idioma == "en" else "pt"
     texts = _STEP5_TEXTS
-    midia_dir = os.path.join(job_dir, "RESULTS", "MIDIA")
+    midia_dir = os.path.join(project_dir, "RESULTS", "MIDIA")
 
     _bar(document, "STEP 5 - Applicability Domain and Similarity Analysis", COLOR_SECTION_BAR)
 
@@ -2210,7 +2247,7 @@ def _add_step7_section(document: Any, job_dir: str, state: dict[str, Any], idiom
     def add_bi(text_pt: str, text_en: str, bold: bool = False) -> None:
         add(text_pt if lang == "pt" else text_en, bold)
 
-    result_path = step7.get("result_csv")
+    result_path = _legacy_jobs_path(step7.get("result_csv"))
     result_df = _read_csv(result_path)
     cutoffs = []
     if result_df is not None and not result_df.empty:
@@ -2333,7 +2370,7 @@ _STEP6_TEXTS = {
 }
 
 
-def _add_step8_section(document: Any, job_dir: str, state: dict[str, Any], idioma: str = "pt") -> bool:
+def _add_step8_section(document: Any, project_dir: str, state: dict[str, Any], idioma: str = "pt") -> bool:
     """Reads the "hits" CSV that STEP 6 itself already computed (df_consensus_hits_*.csv,
     referenced by step8_consensus.last_hits_file) rather than re-deriving the CV%/Hit% filter
     here - CODRUG.run_consensus_generate is the single source of truth for that logic, so the
@@ -2342,14 +2379,14 @@ def _add_step8_section(document: Any, job_dir: str, state: dict[str, Any], idiom
     if not isinstance(step8, dict) or not step8:
         return False
 
-    hits_path = step8.get("last_hits_file")
+    hits_path = _legacy_jobs_path(step8.get("last_hits_file"))
     if hits_path and os.path.isfile(hits_path):
         hits = _read_csv(hits_path)
     else:
         # Fall back to the full result only for older jobs saved before the hits CSV existed -
         # an existing hits file with 0 rows is a legitimate "no compound passed the filter"
         # outcome and must NOT fall back to the unfiltered table.
-        hits = _read_csv(step8.get("last_result_file"))
+        hits = _read_csv(_legacy_jobs_path(step8.get("last_result_file")))
     if hits is None or hits.empty:
         return False
 
@@ -2410,7 +2447,7 @@ def _add_step8_section(document: Any, job_dir: str, state: dict[str, Any], idiom
     document.add_paragraph()
 
     id_col = hits.columns[0]
-    smiles_lookup = _find_smiles_lookup(job_dir, set(hits[id_col].astype(str)))
+    smiles_lookup = _find_smiles_lookup(project_dir, set(hits[id_col].astype(str)))
 
     # Common name per compound (e.g. "ZINC000003875259" -> "Valsartan"), matched by structure via
     # PubChem - see module_compound_names.py. If STEP 6 already resolved+saved a "compound_name"
@@ -2425,7 +2462,7 @@ def _add_step8_section(document: Any, job_dir: str, state: dict[str, Any], idiom
         }
     else:
         name_lookup = _mcn.resolve_compound_names(
-            list(hits[id_col].astype(str)), job_dir, id_to_smiles=smiles_lookup
+            list(hits[id_col].astype(str)), project_dir, id_to_smiles=smiles_lookup
         )
 
     _add_caption(document, texts["table4_caption_pt"] if lang == "pt" else texts["table4_caption_en"])
@@ -2481,7 +2518,7 @@ _METHOD_RESULTS_TEXTS = {
         "pt": "RELATÓRIO FINAL CODRUG: Método e Resultados",
         "en": "CODRUG FINAL REPORT: Method and Results",
     },
-    "job_name": {"pt": "Nome do Projeto", "en": "Job Name"},
+    "project_name": {"pt": "Nome do Projeto", "en": "Project Name"},
     "task_type": {"pt": "Tipo de Tarefa", "en": "Task Type"},
     "started": {"pt": "Iniciado", "en": "Started"},
     "finished": {"pt": "Finalizado", "en": "Finished"},
@@ -2505,12 +2542,12 @@ def _translate_task_type(task_type: str, lang: str) -> str:
     return _TASK_TYPE_TEXTS.get(task_type, {}).get(lang, task_type)
 
 
-def _parse_job_started(job_name: str) -> Optional[datetime]:
+def _parse_project_started(project_name: str) -> Optional[datetime]:
     """Extracts the job's own creation date/time, embedded as the leading YYYY-MM-DD_HH-MM of
     its name (e.g. "2026-08-05_10-14_regression_RAUL_TRICHOMONAS" -> 2026-08-05 10:14) - the same
-    value CONFIG's current_date field showed when the job was created. Returns None if job_name
+    value CONFIG's current_date field showed when the job was created. Returns None if project_name
     doesn't start with that pattern (e.g. a hand-renamed or otherwise unusual job folder)."""
-    match = re.match(r"^(\d{4}-\d{2}-\d{2}_\d{2}-\d{2})", job_name or "")
+    match = re.match(r"^(\d{4}-\d{2}-\d{2}_\d{2}-\d{2})", project_name or "")
     if not match:
         return None
     try:
@@ -2538,15 +2575,15 @@ def _format_working_time(delta, lang: str) -> str:
 # --------------------------------------------------------------------------------------
 
 def generate_final_report(
-    job_dir: str,
-    job_name: str,
+    project_dir: str,
+    project_name: str,
     state: Optional[dict[str, Any]] = None,
     progress_callback: Optional[Callable[[str], None]] = None,
     idioma: str = "pt",
     app_dir: Optional[str] = None,
 ) -> str:
-    """Build <job_dir>/RESULTS/<job_name>_REPORT_<generation timestamp>.docx from the job's
-    unified state JSON (job_dir/<job_name>.json) and the result files each STEP already writes to
+    """Build <project_dir>/RESULTS/<project_name>_REPORT_<generation timestamp>.docx from the job's
+    unified state JSON (project_dir/<project_name>.json) and the result files each STEP already writes to
     disk. The generation timestamp (not the job name's own date/time) means re-generating the
     report after changing parameters/re-running calculations never overwrites a previous report
     from the same job. Returns the output path. Raises RuntimeError if no section had any
@@ -2566,7 +2603,7 @@ def generate_final_report(
         if progress_callback is not None:
             progress_callback(text)
 
-    state = state if state is not None else load_job_settings(job_dir)
+    state = state if state is not None else load_project_settings(project_dir)
     if not isinstance(state, dict):
         state = {}
 
@@ -2585,9 +2622,9 @@ def generate_final_report(
 
     header_texts = _METHOD_RESULTS_TEXTS
     _bar(document, header_texts["title"][lang], COLOR_TITLE_BAR)
-    _field_line(document, header_texts["job_name"][lang], job_name)
+    _field_line(document, header_texts["project_name"][lang], project_name)
     _field_line(document, header_texts["task_type"][lang], _translate_task_type(state.get("task_type", ""), lang))
-    started_dt = _parse_job_started(job_name)
+    started_dt = _parse_project_started(project_name)
     if started_dt is not None:
         _field_line(document, header_texts["started"][lang], started_dt.strftime("%Y-%m-%d %H:%M"))
     _field_line(document, header_texts["finished"][lang], now.strftime("%Y-%m-%d %H:%M"))
@@ -2596,33 +2633,33 @@ def generate_final_report(
     document.add_paragraph()
 
     report("Building STEP 1 - Dataset Preparation...")
-    added_1 = _add_step1_section(document, job_dir, state, idioma)
+    added_1 = _add_step1_section(document, project_dir, state, idioma)
     report("Building STEP 2 - Preprocessing and Exploratory Analysis...")
-    added_23 = _add_step2_3_section(document, job_dir, state, idioma)
+    added_23 = _add_step2_3_section(document, project_dir, state, idioma)
     report("Building STEP 3 - Features Engineering...")
-    added_4 = _add_step4_section(document, job_dir, state, idioma, app_dir=app_dir)
+    added_4 = _add_step4_section(document, project_dir, state, idioma, app_dir=app_dir)
     report("Building STEP 4 - Machine Learning Models...")
-    added_5 = _add_step5_section(document, job_dir, state, idioma)
+    added_5 = _add_step5_section(document, project_dir, state, idioma)
     report("Building STEP 5 - Applicability Domain and Similarity Analysis...")
-    added_7 = _add_step7_section(document, job_dir, state, idioma)
+    added_7 = _add_step7_section(document, project_dir, state, idioma)
     report("Building STEP 5 - Model Interpretability...")
-    added_interp = _add_step5_interpretability_section(document, job_dir, idioma)
+    added_interp = _add_step5_interpretability_section(document, project_dir, idioma)
     report("Building STEP 6 - Consensus Analysis...")
-    added_8 = _add_step8_section(document, job_dir, state, idioma)
+    added_8 = _add_step8_section(document, project_dir, state, idioma)
 
     if not any((added_1, added_23, added_4, added_5, added_7, added_interp, added_8)):
         raise RuntimeError(
-            "No recorded state was found for this job. Run at least one STEP (Generate Base "
+            "No recorded state was found for this project. Run at least one STEP (Generate Base "
             "Dataset, Outlier Elimination, Compute AD, Consensus Generate, etc.) before "
             "generating the final report."
         )
 
-    results_dir = os.path.join(job_dir, "RESULTS")
+    results_dir = os.path.join(project_dir, "RESULTS")
     os.makedirs(results_dir, exist_ok=True)
     # Same "now" instant already shown as "Finished" above (not the job name's own date/time), so
     # re-generating the report after changing parameters/re-running calculations never overwrites
     # a previous report from the same job.
-    output_path = os.path.join(results_dir, f"{job_name}_REPORT_{now.strftime('%Y-%m-%d_%H-%M')}.docx")
+    output_path = os.path.join(results_dir, f"{project_name}_REPORT_{now.strftime('%Y-%m-%d_%H-%M')}.docx")
     report(f"Saving {output_path} ...")
     document.save(output_path)
     return output_path
