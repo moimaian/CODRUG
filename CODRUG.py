@@ -1789,70 +1789,101 @@ def fetch_chembl_paginated(
 # e .../group/chembl_activity/browser_table
 _CHEMBL_ACTIVITY_TARGET_TYPE_FIELD = "_metadata.target_data.target_type"
 
-# Mapeia o rótulo nativo exportado pelo ChEMBL para o nome de campo usado no schema baseado em
-# chembl_webresource_client (usado pelo restante do CODRUG), para que ferramentas de etapas
-# seguintes consigam localizar a coluna por qualquer um dos dois nomes.
-_CHEMBL_SCRAPE_COLUMN_ALIASES = {
-    "Molecule ChEMBL ID": "molecule_chembl_id",
-    "Smiles": "canonical_smiles",
-    "Assay Description": "assay_description",
-    "Assay Type": "assay_type",
-    "Target ChEMBL ID": "target_chembl_id",
-    "Target Organism": "target_organism",
-    "Target Name": "target_pref_name",
-    "Standard Type": "type",
-    "Standard Units": "standard_unit",
-    "Standard Value": "standard_value",
-    "Value": "value",
-}
-
-
-def _add_chembl_api_schema_aliases(df):
-    """Adiciona colunas-apelido no padrão snake_case da API, mantendo as colunas nativas do ChEMBL."""
-    for native_label, api_name in _CHEMBL_SCRAPE_COLUMN_ALIASES.items():
-        if native_label in df.columns and api_name not in df.columns:
-            df[api_name] = df[native_label]
-    if "Standard Units" in df.columns and "units" not in df.columns:
-        df["units"] = df["Standard Units"]
-    return df
-
-
-# Sinônimos aceitos para cada nome de coluna "canônico" (o padrão snake_case já usado pelo
-# restante do CODRUG, vindo do chembl_webresource_client). Cobre tanto os rótulos nativos do
-# export por Web Scraping quanto os apelidos já adicionados por _add_chembl_api_schema_aliases,
-# de modo que arquivos CSV mais antigos/baixados manualmente (sem os apelidos) também funcionem.
-_CHEMBL_CANONICAL_COLUMN_SYNONYMS = {
-    "units": ["units", "standard_unit", "Standard Units"],
-    "type": ["type", "standard_type", "Standard Type"],
-    "value": ["value", "Value"],
-    "standard_value": ["standard_value", "Standard Value"],
+# Colunas do ChEMBL: o CODRUG mantém os nomes exatamente como vieram do arquivo de origem e
+# localiza cada coluna pelo CONCEITO, aceitando os dois formatos possíveis:
+#   - API (chembl_webresource_client, "Generate Dataset by activity" sem Web Scraping): snake_case,
+#     com o par ORIGINAL publicado (type/value/units/relation) e o par PADRONIZADO pelo ChEMBL
+#     (standard_type/standard_value/standard_units/standard_relation);
+#   - export do site (botão "CSV" do portal, Web Scraping ou arquivo baixado à mão): rótulos
+#     nativos ("Standard Type", "Smiles", "Target Organism"...), SÓ com o par padronizado, mais a
+#     coluna "Value" (valor publicado, SEM unidade original correspondente no arquivo).
+# Antes, o CODRUG criava cópias com os nomes da API ("Standard Type" -> type, "Standard Units" ->
+# units, "Value" -> value...), o que juntava o valor publicado (Value) com a unidade padronizada
+# (Standard Units) num par inconsistente - por isso as cópias foram abolidas.
+_CHEMBL_COLUMN_CANDIDATES = {
     "molecule_chembl_id": ["molecule_chembl_id", "Molecule ChEMBL ID"],
+    "molecule_pref_name": ["molecule_pref_name", "Molecule Name", "molecule_name"],
     "canonical_smiles": ["canonical_smiles", "Smiles"],
+    "activity_id": ["activity_id", "Activity ID"],
+    "assay_chembl_id": ["assay_chembl_id", "Assay ChEMBL ID"],
+    "assay_description": ["assay_description", "Assay Description"],
+    "assay_type": ["assay_type", "Assay Type"],
+    "assay_organism": ["assay_organism", "Assay Organism"],
     "target_chembl_id": ["target_chembl_id", "Target ChEMBL ID"],
     "target_organism": ["target_organism", "Target Organism"],
     "target_pref_name": ["target_pref_name", "Target Name"],
-    "assay_description": ["assay_description", "Assay Description"],
-    "assay_type": ["assay_type", "Assay Type"],
+    "target_type": ["target_type", "Target Type"],
+    "data_validity_comment": ["data_validity_comment", "Data Validity Comment"],
+    "data_validity_description": ["data_validity_description", "Data Validity Description"],
+    "pchembl_value": ["pchembl_value", "pChEMBL Value"],
+    # Par original (publicado no artigo). O export do site só traz "Value".
+    "type": ["type"],
+    "value": ["value"],
+    "units": ["units", "unit"],
+    "relation": ["relation"],
+    # Par padronizado pelo ChEMBL.
+    "standard_type": ["standard_type", "Standard Type"],
+    "standard_value": ["standard_value", "Standard Value"],
+    "standard_units": ["standard_units", "standard_unit", "Standard Units"],
+    "standard_relation": ["standard_relation", "Standard Relation"],
 }
 
 
-def _normalize_chembl_columns(df):
-    """
-    Garante que os nomes de coluna canônicos (usados por todo o Step 2 em diante) existam no
-    DataFrame, preenchendo-os a partir do primeiro sinônimo encontrado (rótulo nativo do Web
-    Scraping do ChEMBL, ex.: 'Standard Units', ou apelido já existente, ex.: 'standard_unit').
-    Não remove nem sobrescreve nenhuma coluna já presente.
-    """
-    if df is None:
-        return df
-    for canonical, candidates in _CHEMBL_CANONICAL_COLUMN_SYNONYMS.items():
-        if canonical in df.columns:
-            continue
-        for candidate in candidates:
-            if candidate in df.columns:
-                df[canonical] = df[candidate]
-                break
-    return df
+def _chembl_name_key(name):
+    """Forma de comparação de nomes de coluna: sem diferença de caixa nem entre '_' e espaço."""
+    return re.sub(r"[\s_]+", " ", str(name).strip().lower())
+
+
+def _chembl_col(columns, concept):
+    """Nome real (exatamente como está no DataFrame) da coluna do conceito 'concept' (um nome
+    canônico da API, ex.: "canonical_smiles", "standard_units"), na ordem de preferência de
+    _CHEMBL_COLUMN_CANDIDATES - um nome escrito exatamente igual vence um que só difere na caixa
+    ou em '_'/espaço. None se nenhum existir."""
+    cols = [str(c) for c in columns]
+    candidates = _CHEMBL_COLUMN_CANDIDATES.get(concept, [concept])
+    for cand in candidates:
+        if cand in cols:
+            return cand
+    keyed = {}
+    for c in cols:
+        keyed.setdefault(_chembl_name_key(c), c)
+    for cand in candidates:
+        hit = keyed.get(_chembl_name_key(cand))
+        if hit is not None:
+            return hit
+    return None
+
+
+def _find_chembl_column(columns, kind, standard=True):
+    """Coluna do par padronizado (standard=True: standard_type/standard_value/standard_units/
+    standard_relation ou os rótulos nativos "Standard ...") ou do par original (standard=False:
+    type/value/units/relation) do conceito 'kind' ("type", "value", "units", "relation")."""
+    return _chembl_col(columns, f"standard_{kind}" if standard else kind)
+
+
+def _chembl_pair_col(columns, kind):
+    """Coluna do conceito 'kind' preferindo o par ORIGINAL e caindo para o PADRONIZADO na ausência
+    dele - mesma convenção dos filtros da STEP 1 (Assay Metric/Assay Unit): dados da API usam
+    type/units; o export do site (sem o par original) usa "Standard Type"/"Standard Units"."""
+    return _find_chembl_column(columns, kind, standard=False) or _find_chembl_column(columns, kind, standard=True)
+
+
+def _chembl_has_original_units(df):
+    """True se o DataFrame traz a unidade ORIGINAL (publicada) - dados da API. O export do site só
+    traz "Standard Units", e o "Value" dele não tem unidade correspondente: nesse caso só o par
+    padronizado (Standard Value + Standard Units) é consistente. Arquivos salvos por versões
+    anteriores do CODRUG a partir do export do site têm uma coluna 'units' que é só uma CÓPIA de
+    "Standard Units" (mesmos valores) - ela não conta como unidade original."""
+    units_col = _find_chembl_column(df.columns, "units", standard=False)
+    if units_col is None:
+        return False
+    native_std = next((c for c in df.columns if str(c) == "Standard Units"), None)
+    if native_std is not None:
+        a = df[units_col].astype(str).where(df[units_col].notna(), "")
+        b = df[native_std].astype(str).where(df[native_std].notna(), "")
+        if a.equals(b):
+            return False
+    return True
 
 
 def build_chembl_activity_lucene_query(target_type=None, target_organism=None,
@@ -1971,8 +2002,9 @@ def scrape_chembl_activity_csv(lucene_query, poll_interval=30, max_wait_seconds=
     except zipfile.BadZipFile as exc:
         raise RuntimeError("The file downloaded from the ChEMBL portal is not a valid .zip archive.") from exc
 
-    df = pd.read_csv(io.BytesIO(csv_bytes), sep=";", encoding="utf-8-sig")
-    return _add_chembl_api_schema_aliases(df)
+    # Mantém os rótulos nativos do export (ver _CHEMBL_COLUMN_CANDIDATES): nenhuma coluna é
+    # renomeada nem duplicada.
+    return pd.read_csv(io.BytesIO(csv_bytes), sep=";", encoding="utf-8-sig")
 
 
 # ============================================================================================================
@@ -2746,12 +2778,15 @@ def _skl_external_classification_metrics(y_obs, y_pred, model=None, x=None):
 
 def _skl_external_metrics_table(task, models, x, y, y_train=None):
     """Tabela de métricas externas (uma coluna por modelo) usada pela avaliação final no conjunto de
-    teste e pelo Predict com Y. Colunas: Metric, Acceptance, <modelo 1>, <modelo 2>, ..."""
+    teste e pelo Predict com Y. Colunas: Metric, Acceptance, <modelo 1>, <modelo 2>, ...
+    y_train: Y de treino de referência do Q²F1/Q²F3 - um único array para todos os modelos ou um
+    dict {modelo: array} (modelos "_refit" usam treino + teste, que é o treino deles)."""
     table = None
     for name, model in models.items():
         y_pred = model.predict(x)
         if task == "regression":
-            rows = _skl_external_regression_metrics(y, y_pred, y_train)
+            ref_y = y_train.get(name) if isinstance(y_train, dict) else y_train
+            rows = _skl_external_regression_metrics(y, y_pred, ref_y)
         else:
             rows = _skl_external_classification_metrics(y, y_pred, model, x)
         if table is None:
@@ -3143,11 +3178,13 @@ class SklEvaluateWorker(QThread): # type: ignore
             y_pred = fold_model.predict(x_te)
             all_y_true.extend(list(y_te)); all_y_pred.extend(list(y_pred))
 
-            row = {"Fold": fold_num, "Test Size": len(y_te)}
+            # "n Val"/"R2 Val"/"Accuracy Val": o fold de VALIDAÇÃO (as moléculas deixadas de fora
+            # nesta rodada) - não o conjunto teste do Screening, que nunca entra na validação cruzada.
+            row = {"Fold": fold_num, "n Val": len(y_te)}
             if task == "regression":
                 if not small_test_folds:
                     row["R2 Train"] = float(fold_model.score(x_tr, y_tr))
-                    row["R2 Test"] = float(r2_score(y_te, y_pred))
+                    row["R2 Val"] = float(r2_score(y_te, y_pred))
                     m = float(mse(y_te, y_pred))
                     row["MSE"] = m
                     row["RMSE"] = m ** 0.5
@@ -3157,7 +3194,7 @@ class SklEvaluateWorker(QThread): # type: ignore
             else:
                 if not small_test_folds:
                     row["Accuracy Train"] = float(fold_model.score(x_tr, y_tr))
-                    row["Accuracy Test"] = float(accuracy_score(y_te, y_pred))
+                    row["Accuracy Val"] = float(accuracy_score(y_te, y_pred))
                     row["F1"] = float(f1_score(y_te, y_pred, average="weighted"))
                     row["MCC"] = float(matthews_corrcoef(y_te, y_pred))
                 else:
@@ -3168,19 +3205,17 @@ class SklEvaluateWorker(QThread): # type: ignore
             self.oof = (list(all_y_true), list(all_y_pred))
 
         cv_df = pd.DataFrame(rows)
-        # "Fold" = "Mean" (antes "OVERALL"): a linha de resumo é, de fato, a média entre folds
-        # para as colunas de treino (ex.: Accuracy Train) - para as de teste (Accuracy Test, F1,
-        # MCC, R2 Test, MSE/RMSE/MAE) é a métrica global sobre as predições de todos os folds
-        # agrupadas (mais robusto que a média simples dos folds), mas "Mean" ainda descreve bem
-        # o papel dessa linha em relação aos folds individuais acima. Em inglês de propósito -
-        # mesmo critério já usado para nomes de hiperparâmetros: valor salvo no CSV e exibido na
-        # interface, não um rótulo traduzido via i18n (a interface em si continua seguindo o
-        # idioma selecionado normalmente).
-        summary = {"Fold": "Mean", "Test Size": len(all_y_true)}
+        # Linha de resumo "Pooled" (antes "Mean"/"OVERALL"): para as colunas de validação (R2 Val,
+        # Accuracy Val, F1, MCC, MSE/RMSE/MAE) é a métrica global sobre as predições out-of-fold de
+        # todos os folds agrupadas - em regressão, o R2 Val dessa linha é o Q² CV (1 - PRESS/SS); as
+        # colunas de treino (R2/Accuracy Train) são a média entre folds; "n Val" é o total de
+        # predições. Em inglês de propósito - mesmo critério já usado para nomes de hiperparâmetros:
+        # valor salvo no CSV e exibido na interface, não um rótulo traduzido via i18n.
+        summary = {"Fold": "Pooled", "n Val": len(all_y_true)}
         if task == "regression":
             if not small_test_folds:
                 summary["R2 Train"] = float(cv_df["R2 Train"].mean())
-            summary["R2 Test"] = float(r2_score(all_y_true, all_y_pred))
+            summary["R2 Val"] = float(r2_score(all_y_true, all_y_pred))
             m = float(mse(all_y_true, all_y_pred))
             summary["MSE"] = m
             summary["RMSE"] = m ** 0.5
@@ -3188,16 +3223,16 @@ class SklEvaluateWorker(QThread): # type: ignore
         else:
             if not small_test_folds:
                 summary["Accuracy Train"] = float(cv_df["Accuracy Train"].mean())
-            summary["Accuracy Test"] = float(accuracy_score(all_y_true, all_y_pred))
+            summary["Accuracy Val"] = float(accuracy_score(all_y_true, all_y_pred))
             summary["F1"] = float(f1_score(all_y_true, all_y_pred, average="weighted"))
             summary["MCC"] = float(matthews_corrcoef(all_y_true, all_y_pred))
 
-        # Linha extra "Std Dev" (em inglês, mesmo critério de "Mean" acima): desvio padrão ENTRE
+        # Linha extra "Std Dev" (em inglês, mesmo critério de "Pooled" acima): desvio padrão ENTRE
         # folds de cada coluna numérica (ddof=1, padrão do pandas) - complementa a linha "Mean",
         # que sozinha não comunica o quanto o desempenho variou de fold para fold.
         std_row = {"Fold": "Std Dev"}
         for col in cv_df.columns:
-            if col == "Fold":
+            if col in ("Fold", "n Val"):
                 continue
             try:
                 std_row[col] = float(cv_df[col].astype(float).std())
@@ -3233,15 +3268,15 @@ class SklEvaluateWorker(QThread): # type: ignore
             inner_search.fit(x_tr, y_tr)
             y_pred = inner_search.predict(x_te)
             oof_true.extend(list(y_te)); oof_pred.extend(list(y_pred))
-            row = {"Outer Fold": fold_num, "Best Params": str(inner_search.best_params_)}
+            row = {"Outer Fold": fold_num, "n Val": len(y_te), "Best Params": str(inner_search.best_params_)}
             if task == "regression":
-                row["R2 Test"] = float(r2_score(y_te, y_pred))
+                row["R2 Val"] = float(r2_score(y_te, y_pred))
                 m = float(mse(y_te, y_pred))
                 row["MSE"] = m
                 row["RMSE"] = m ** 0.5
                 row["MAE"] = float(mae(y_te, y_pred))
             else:
-                row["Accuracy Test"] = float(accuracy_score(y_te, y_pred))
+                row["Accuracy Val"] = float(accuracy_score(y_te, y_pred))
                 row["F1"] = float(f1_score(y_te, y_pred, average="weighted"))
                 row["MCC"] = float(matthews_corrcoef(y_te, y_pred))
             rows.append(row)
@@ -3266,15 +3301,16 @@ class SklEvaluateWorker(QThread): # type: ignore
             fold_model = clone(self.current_model)
             fold_model.fit(x_tr, y_tr)
             y_pred = fold_model.predict(x_te)
-            row = {"Iteration": it, "OOB Size": len(oob_idx)}
+            # "OOB": out-of-bag - as moléculas que não entraram na reamostragem desta iteração.
+            row = {"Iteration": it, "n OOB": len(oob_idx)}
             if task == "regression":
-                row["R2 Test"] = float(r2_score(y_te, y_pred))
+                row["R2 OOB"] = float(r2_score(y_te, y_pred))
                 m = float(mse(y_te, y_pred))
                 row["MSE"] = m
                 row["RMSE"] = m ** 0.5
                 row["MAE"] = float(mae(y_te, y_pred))
             else:
-                row["Accuracy Test"] = float(accuracy_score(y_te, y_pred))
+                row["Accuracy OOB"] = float(accuracy_score(y_te, y_pred))
                 row["F1"] = float(f1_score(y_te, y_pred, average="weighted"))
                 row["MCC"] = float(matthews_corrcoef(y_te, y_pred))
             rows.append(row)
@@ -4496,30 +4532,31 @@ class MainWindow(QMainWindow):
     def _autofill_assay_lists_from_activity_df(self, df):
         """Preenche Assay Metric/Assay Unit/Assay ChEMBL ID/Validity Comment/Validity
         Description com os valores efetivamente presentes no dataset baixado por "Generate
-        Dataset by activity" (colunas 'type', 'units', 'assay_chembl_id',
-        'data_validity_comment', 'data_validity_description'). Cada lista só é repopulada se a
-        coluna correspondente existir e tiver ao menos um valor não vazio."""
+        Dataset by activity" (Assay Metric/Assay Unit: 'type'/'units' da API ou, sem elas, "Standard
+        Type"/"Standard Units" do export do site; demais: assay_chembl_id, data_validity_comment,
+        data_validity_description ou os rótulos nativos equivalentes - ver _chembl_col). Cada
+        lista só é repopulada se a coluna correspondente existir e tiver ao menos um valor não vazio."""
         if not isinstance(df, pd.DataFrame):
             return
 
         def _unique_nonempty(col):
-            if col not in df.columns:
+            if col is None or col not in df.columns:
                 return []
             return [v for v in df[col].dropna().astype(str).map(str.strip).unique() if v]
 
-        assay_metric = _unique_nonempty("type")
+        assay_metric = _unique_nonempty(_chembl_pair_col(df.columns, "type"))
         if assay_metric:
             self.update_assay_metric(assay_metric)
-        assay_units = _unique_nonempty("units")
+        assay_units = _unique_nonempty(_chembl_pair_col(df.columns, "units"))
         if assay_units:
             self.update_assay_units(assay_units)
-        assay_chembl_ids = _unique_nonempty("assay_chembl_id")
+        assay_chembl_ids = _unique_nonempty(_chembl_col(df.columns, "assay_chembl_id"))
         if assay_chembl_ids:
             self.update_assay_chembl_id(assay_chembl_ids)
-        validity_comments = _unique_nonempty("data_validity_comment")
+        validity_comments = _unique_nonempty(_chembl_col(df.columns, "data_validity_comment"))
         if validity_comments:
             self.update_validity_comment(validity_comments)
-        validity_descriptions = _unique_nonempty("data_validity_description")
+        validity_descriptions = _unique_nonempty(_chembl_col(df.columns, "data_validity_description"))
         if validity_descriptions:
             self.update_validity_description(validity_descriptions)
 
@@ -5025,7 +5062,6 @@ class MainWindow(QMainWindow):
         if file_path and os.path.isfile(file_path):
             try:
                 df = self._read_selected_table_file(file_path)
-                df = _normalize_chembl_columns(df)
                 self.df_selecionado = df
                 self._step4_df_path = stored_path
                 self._refresh_step4_dataframe_widgets()
@@ -6179,11 +6215,18 @@ class MainWindow(QMainWindow):
                         raise FileNotFoundError("No file starting with 'df1_by_activity' found in INTERNAL_DATA.")
                     file_path = _candidates[0]
                     df_selecionado = read_table_file(file_path)
-                    df_selecionado = _normalize_chembl_columns(df_selecionado)
-                    descricao_contagem = df_selecionado['assay_description'].value_counts().reset_index()
-                    descricao_contagem.columns = ['assay_description', 'number of compounds']
-                    assay_metric = [t for t in df_selecionado['type'].dropna().astype(str).map(str.strip).unique() if t]
-                    assay_units = [u for u in df_selecionado['units'].dropna().astype(str).map(str.strip).unique() if u]
+                    desc_col = _chembl_col(df_selecionado.columns, "assay_description")
+                    if desc_col is None:
+                        raise ValueError("The dataset has no assay description column "
+                                         "('assay_description' or 'Assay Description').")
+                    descricao_contagem = df_selecionado[desc_col].value_counts().reset_index()
+                    descricao_contagem.columns = [desc_col, 'number of compounds']
+                    # Assay Metric/Assay Unit: par original (type/units) da API ou, sem ele, o
+                    # padronizado do export do site - mesma coluna usada pelo filtro do Generate Base Dataset.
+                    metric_col = _chembl_pair_col(df_selecionado.columns, "type")
+                    units_col = _chembl_pair_col(df_selecionado.columns, "units")
+                    assay_metric = [t for t in df_selecionado[metric_col].dropna().astype(str).map(str.strip).unique() if t] if metric_col else []
+                    assay_units = [u for u in df_selecionado[units_col].dropna().astype(str).map(str.strip).unique() if u] if units_col else []
                     self.update_assay_metric_signal.emit(assay_metric)
                     self.update_assay_units_signal.emit(assay_units)
                     self.result_signal.emit(descricao_contagem.head(50))
@@ -6600,13 +6643,24 @@ class MainWindow(QMainWindow):
                     return [str(t).strip() for t in val if str(t).strip()]
                 return [str(val).strip()] if val else []
 
+            # Nome real de cada coluna no arquivo (snake_case da API ou rótulo nativo do export do
+            # site - ver _chembl_col). Assay Metric/Assay Unit usam o par original (type/units) e, sem
+            # ele, o padronizado ("Standard Type"/"Standard Units") - a mesma coluna que preencheu as
+            # listas (ver _autofill_assay_lists_from_activity_df).
+            def _real_col(concept):
+                col_name = _chembl_pair_col(df_selecionado.columns, concept) if concept in ("type", "units") \
+                    else _chembl_col(df_selecionado.columns, concept)
+                if col_name is None:
+                    raise ValueError(f"Column for the '{concept}' filter not found in {os.path.basename(file_path)}.")
+                return col_name
+
             for col, val in filter_kwargs.items():
                 if col == 'assay_description':
                     # INCLUSÃO por correspondência PARCIAL (contains) com OU entre termos
                     terms = _split_terms(val)
                     if terms:
                         pattern = r"|".join(re.escape(t) for t in terms)
-                        df_selecionado = df_selecionado[df_selecionado['assay_description'].astype(str).str.contains(
+                        df_selecionado = df_selecionado[df_selecionado[_real_col('assay_description')].astype(str).str.contains(
                             pattern, case=False, na=False
                         )]
                 else:
@@ -6614,7 +6668,7 @@ class MainWindow(QMainWindow):
                     terms = _split_terms(val)
                     if not terms:
                         continue
-                    col_series = df_selecionado[col].astype(str).str.strip().str.lower()
+                    col_series = df_selecionado[_real_col(col)].astype(str).str.strip().str.lower()
                     terms_lower = [t.lower() for t in terms]
                     if len(terms_lower) == 1:
                         df_selecionado = df_selecionado[col_series == terms_lower[0]]
@@ -6626,7 +6680,7 @@ class MainWindow(QMainWindow):
                 excluded_terms = _split_terms(assay_description_excluded)
                 if excluded_terms:
                     pattern_ex = r"|".join(re.escape(t) for t in excluded_terms)
-                    df_selecionado = df_selecionado[~df_selecionado['assay_description'].astype(str).str.contains(
+                    df_selecionado = df_selecionado[~df_selecionado[_real_col('assay_description')].astype(str).str.contains(
                         pattern_ex, case=False, na=False
                     )]
 
@@ -6635,15 +6689,17 @@ class MainWindow(QMainWindow):
             # deve ser mantido: são valores de data_validity_comment/data_validity_description que
             # sinalizam problema no dado (segundo o próprio ChEMBL), então as linhas que os
             # contêm são REMOVIDAS - as demais (inclusive as com valor vazio/NaN) são mantidas.
-            if validity_comment and "data_validity_comment" in df_selecionado.columns:
+            validity_comment_col = _chembl_col(df_selecionado.columns, "data_validity_comment")
+            if validity_comment and validity_comment_col:
                 terms_lower = [t.lower() for t in _split_terms(validity_comment)]
                 if terms_lower:
-                    col_series = df_selecionado["data_validity_comment"].astype(str).str.strip().str.lower()
+                    col_series = df_selecionado[validity_comment_col].astype(str).str.strip().str.lower()
                     df_selecionado = df_selecionado[~col_series.isin(terms_lower)]
-            if validity_description and "data_validity_description" in df_selecionado.columns:
+            validity_description_col = _chembl_col(df_selecionado.columns, "data_validity_description")
+            if validity_description and validity_description_col:
                 terms_lower = [t.lower() for t in _split_terms(validity_description)]
                 if terms_lower:
-                    col_series = df_selecionado["data_validity_description"].astype(str).str.strip().str.lower()
+                    col_series = df_selecionado[validity_description_col].astype(str).str.strip().str.lower()
                     df_selecionado = df_selecionado[~col_series.isin(terms_lower)]
 
             # Salvando o dataframe na pasta de trabalho atual:
@@ -7558,7 +7614,6 @@ class MainWindow(QMainWindow):
         if file_path:
             try:
                 df = self._read_selected_table_file(file_path)
-                df = _normalize_chembl_columns(df)
                 self.df_selecionado = df
                 self.show_dataframe(df)
             except Exception as e:
@@ -7578,14 +7633,22 @@ class MainWindow(QMainWindow):
         if getattr(self, "df_selecionado", None) is None:
             self.list_columns.clear()
             return
+        self._enforce_standard_values_for_df()
         try:
             self.list_columns.clear()
             self.list_columns.addItems(self.df_selecionado.columns.astype(str))
-            # Pré-seleciona as colunas de interesse mais comuns, quando presentes:
-            default_selected = {"molecule_chembl_id", "canonical_smiles", "assay_chembl_id", "type", "units", "value"}
+            # Pré-seleciona as colunas de interesse mais comuns, quando presentes, pelo nome real no
+            # arquivo (API ou export do site - ver _chembl_col): ID, SMILES, assay e o par
+            # tipo/valor/unidade que "Use Standard values" indica (ver _step2_chembl_column).
+            cols = self.df_selecionado.columns
+            default_selected = {
+                _chembl_col(cols, "molecule_chembl_id"), _chembl_col(cols, "canonical_smiles"),
+                _chembl_col(cols, "assay_chembl_id"), self._step2_chembl_column("type"),
+                self._step2_chembl_column("units"), self._step2_chembl_column("value"),
+            } - {None}
             for i in range(self.list_columns.count()):
                 item = self.list_columns.item(i)
-                if item.text().strip() in default_selected:
+                if item.text() in default_selected:
                     item.setSelected(True)
         except Exception as e:
             self.list_columns.clear()
@@ -7595,10 +7658,7 @@ class MainWindow(QMainWindow):
             # 'units' quando presente; na ausência dela, cai para standard_unit(s) - mesma lógica
             # de fallback usada em "Convert type"/"Convert units" (run_convert_types/
             # run_convert_units) para dataframes que só mantiveram as colunas standard_*.
-            units_col = "units" if "units" in self.df_selecionado.columns else next(
-                (c for c in self.df_selecionado.columns if str(c).strip().lower() in ("standard_unit", "standard_units")),
-                None
-            )
+            units_col = self._step2_chembl_column("units")
             units_unique = (
                 [u for u in self.df_selecionado[units_col].dropna().astype(str).map(str.strip).unique() if u]
                 if units_col is not None else []
@@ -7612,10 +7672,7 @@ class MainWindow(QMainWindow):
             # 'type' quando presente; na ausência dela, cai para standard_type (mesmo fallback de
             # 'units' acima). Sem nenhuma das duas, a lista fica vazia - não é erro: o dataframe pode
             # simplesmente não ter essas colunas do ChEMBL (ex.: um dataframe só de descritores).
-            type_col = "type" if "type" in self.df_selecionado.columns else next(
-                (c for c in self.df_selecionado.columns if str(c).strip().lower() == "standard_type"),
-                None
-            )
+            type_col = self._step2_chembl_column("type")
             type_name_unique = (
                 [t for t in self.df_selecionado[type_col].dropna().astype(str).map(str.strip).unique() if t]
                 if type_col is not None else []
@@ -7628,7 +7685,8 @@ class MainWindow(QMainWindow):
             self.list_columns_rep.clear()
             self.list_columns_rep.addItems(self.df_selecionado.columns.astype(str))
             # Deixa "molecule_chembl_id" já selecionada, se existir:
-            idx = self.list_columns_rep.findText("molecule_chembl_id") if hasattr(self, "list_columns_rep") else -1
+            _id_col = _chembl_col(self.df_selecionado.columns, "molecule_chembl_id")
+            idx = self.list_columns_rep.findText(_id_col) if (_id_col and hasattr(self, "list_columns_rep")) else -1
             if idx >= 0:
                 self.list_columns_rep.setCurrentIndex(idx)
         except Exception as e:
@@ -7645,12 +7703,10 @@ class MainWindow(QMainWindow):
             search_value = None
             if type_name and type_name in cols:
                 search_value = type_name
-            elif 'value' in cols:
-                search_value = "value"
-            elif 'standard_value' in cols:
-                search_value = "standard_value"
-            elif "type" in cols and not self.df_selecionado['type'].dropna().empty:
-                search_value = str(self.df_selecionado['type'].dropna().iloc[0])
+            elif self._step2_chembl_column("value"):
+                search_value = self._step2_chembl_column("value")
+            elif self._step2_chembl_column("type") and not self.df_selecionado[self._step2_chembl_column("type")].dropna().empty:
+                search_value = str(self.df_selecionado[self._step2_chembl_column("type")].dropna().iloc[0])
 
             if search_value:
                 idx = self.list_columns_rep_check.findText(search_value)
@@ -7665,12 +7721,7 @@ class MainWindow(QMainWindow):
             # "3. Select the relation column": usa 'relation' quando presente; na ausência dela,
             # cai para 'standard_relation' (mesmo fallback já usado para value/units).
             cols = self.df_selecionado.columns
-            if "relation" in cols:
-                search_value = "relation"
-            elif "standard_relation" in cols:
-                search_value = "standard_relation"
-            else:
-                search_value = None
+            search_value = self._step2_chembl_column("relation")
             if search_value:
                 idx = self.cb_relation_column_rep.findText(search_value)
                 if idx >= 0:
@@ -7723,9 +7774,10 @@ class MainWindow(QMainWindow):
             if bio_col:
                 self._set_combo_text(self.list_columns_cat, bio_col)
 
-            if hasattr(self, "cb_molecule_chembl_id_cat") and "molecule_chembl_id" in self.df_selecionado.columns:
+            _id_col = _chembl_col(self.df_selecionado.columns, "molecule_chembl_id")
+            if hasattr(self, "cb_molecule_chembl_id_cat") and _id_col is not None:
                 self.cb_molecule_chembl_id_cat.clear()
-                self.cb_molecule_chembl_id_cat.addItems(self.df_selecionado["molecule_chembl_id"].astype(str).fillna("").tolist())
+                self.cb_molecule_chembl_id_cat.addItems(self.df_selecionado[_id_col].astype(str).fillna("").tolist())
 
         except Exception as e:
             self.list_columns_cat.clear()
@@ -7738,6 +7790,46 @@ class MainWindow(QMainWindow):
         # desmarcado, exigindo desmarcar/marcar manualmente de novo.
         self._apply_use_standard_values_selection()
 
+    def _enforce_standard_values_for_df(self):
+        """O export do site do ChEMBL (rótulos nativos) não traz a unidade ORIGINAL: o "Value" dele
+        é o valor publicado, sem unidade correspondente no arquivo, e só o par padronizado (Standard
+        Value + Standard Units) é consistente. Nesse caso "Use Standard values" fica marcado e
+        travado (com uma dica explicando o motivo); com a unidade original presente (dados da API),
+        o checkbox volta a ficar livre, no estado em que estava."""
+        chk = getattr(self, "chk_use_standard_values", None)
+        if chk is None:
+            return
+        df = getattr(self, "df_selecionado", None)
+        force = (df is not None and not _chembl_has_original_units(df)
+                 and _find_chembl_column(df.columns, "units", standard=True) is not None)
+        was_forced = getattr(self, "_std_values_forced", False)
+        if force and not was_forced:
+            # Guarda a escolha do usuário para devolvê-la quando um dataset com unidade original
+            # (ex.: da API) for carregado depois.
+            self._std_values_user_state = chk.isChecked()
+        if force and not chk.isChecked():
+            chk.blockSignals(True)
+            chk.setChecked(True)
+            chk.blockSignals(False)
+        elif not force and was_forced and chk.isChecked() != getattr(self, "_std_values_user_state", chk.isChecked()):
+            chk.blockSignals(True)
+            chk.setChecked(self._std_values_user_state)
+            chk.blockSignals(False)
+        self._std_values_forced = force
+        chk.setEnabled(not force)
+        chk.setToolTip(i18n.t("s2_tooltip_standard_values_forced", self._idioma) if force else "")
+
+    def _step2_chembl_column(self, kind, df=None):
+        """Coluna do conceito 'kind' ("type", "value", "units", "relation") que a STEP 2 deve usar
+        no DataFrame atual: com "Use Standard values" marcado, a standard (standard_* ou o rótulo
+        nativo "Standard ...") e, na falta dela, a original; desmarcado, o inverso."""
+        df = self.df_selecionado if df is None else df
+        if df is None:
+            return None
+        use_standard = getattr(self, "chk_use_standard_values", None) is not None and self.chk_use_standard_values.isChecked()
+        first = _find_chembl_column(df.columns, kind, standard=use_standard)
+        return first or _find_chembl_column(df.columns, kind, standard=not use_standard)
+
     def _apply_use_standard_values_selection(self, checked=None):
         """Marca/desmarca standard_value/standard_unit(s) em "1. Select columns of
         interest" conforme o estado do checkbox "Use Standard values" e, quando marcado,
@@ -7747,39 +7839,39 @@ class MainWindow(QMainWindow):
         """
         if getattr(self, "chk_use_standard_values", None) is None:
             return
-        if checked is None:
-            checked = self.chk_use_standard_values.isChecked()
+        # Export do site sem unidade original: o checkbox fica marcado e travado (o "checked"
+        # recebido do toggle pode estar desatualizado depois disso, então é relido).
+        self._enforce_standard_values_for_df()
+        checked = self.chk_use_standard_values.isChecked()
         if getattr(self, "df_selecionado", None) is None:
             return
+        # Para cada conceito (tipo, valor, unidade, relação), marca em "1. Select columns of interest" UMA
+        # coluna: com o checkbox marcado, a standard - de preferência a snake_case da API
+        # (standard_value, standard_units, standard_relation) e, na ausência dela, o rótulo nativo
+        # do ChEMBL ("Standard Type", "Standard Value", "Standard Units", "Standard Relation") -,
+        # desmarcando a original correspondente (type/value/units/relation), já que são as standard que alimentam o
+        # restante do pipeline (ver run_convert_units); desmarcado, o inverso. As variantes não
+        # escolhidas do mesmo conceito são desmarcadas (ex.: "Standard Value" quando standard_value
+        # também existe - o Web Scraping traz as duas). Um conceito sem a coluna preferida fica
+        # como está; as demais seleções não são tocadas.
+        items = {self.list_columns.item(i).text(): self.list_columns.item(i) for i in range(self.list_columns.count())}
+        for kind in ("type", "value", "units", "relation"):
+            std_col = _find_chembl_column(items.keys(), kind, standard=True)
+            orig_col = _find_chembl_column(items.keys(), kind, standard=False)
+            chosen = std_col if checked else orig_col
+            if chosen is None:
+                continue
+            variant_keys = {
+                _chembl_name_key(c)
+                for c in _CHEMBL_COLUMN_CANDIDATES[f"standard_{kind}"] + _CHEMBL_COLUMN_CANDIDATES[kind]
+            }
+            for text, item in items.items():
+                if _chembl_name_key(text) in variant_keys:
+                    item.setSelected(text == chosen)
         if not checked:
-            # Desmarca standard_value/standard_unit(s)/standard_relation em "1. Select columns of
-            # interest" e marca 'value'/'units'/'relation' de volta (espelhando o que o ramo
-            # "checked" faz ao contrário), deixando as demais seleções intocadas:
-            for i in range(self.list_columns.count()):
-                item = self.list_columns.item(i)
-                text_lower = item.text().strip().lower()
-                if text_lower in ("standard_value", "standard_unit", "standard_units", "standard_relation"):
-                    item.setSelected(False)
-                elif text_lower in ("value", "units", "relation"):
-                    item.setSelected(True)
             return
-        # Adiciona standard_value/standard_unit(s)/standard_relation à seleção de "1. Select
-        # columns of interest", quando presentes, preservando as demais colunas já selecionadas -
-        # e retira 'value'/'units'/'relation' dessa seleção, já que com "Use Standard values"
-        # marcado são as colunas standard_* que alimentam o restante do pipeline (ver
-        # run_convert_units), não mais essas três colunas originais do ChEMBL.
-        for i in range(self.list_columns.count()):
-            item = self.list_columns.item(i)
-            text_lower = item.text().strip().lower()
-            if text_lower in ("standard_value", "standard_unit", "standard_units", "standard_relation"):
-                item.setSelected(True)
-            elif text_lower in ("value", "units", "relation"):
-                item.setSelected(False)
         # Preenche "3. Select standard unit" com o valor já presente na coluna standard_unit(s):
-        standard_unit_col = next(
-            (c for c in self.df_selecionado.columns if str(c).strip().lower() in ("standard_unit", "standard_units")),
-            None
-        )
+        standard_unit_col = _find_chembl_column(self.df_selecionado.columns, "units", standard=True)
         if standard_unit_col is not None:
             vals = self.df_selecionado[standard_unit_col].dropna().astype(str).map(str.strip)
             vals = vals[vals != ""]
@@ -7793,10 +7885,11 @@ class MainWindow(QMainWindow):
                     self.list_units.addItem(val)
                     idx = self.list_units.findText(val)
                 self.list_units.setCurrentIndex(idx)
-        # Preenche "2. Select standard type" com o valor predominante da coluna 'type'
-        # (já normalizada a partir de standard_type, quando aplicável):
-        if "type" in self.df_selecionado.columns:
-            vals_t = self.df_selecionado["type"].dropna().astype(str).map(str.strip)
+        # Preenche "2. Select standard type" com o valor predominante da coluna de tipo
+        # (standard_type/"Standard Type", ou 'type' na ausência delas):
+        _type_col = self._step2_chembl_column("type")
+        if _type_col is not None:
+            vals_t = self.df_selecionado[_type_col].dropna().astype(str).map(str.strip)
             vals_t = vals_t[vals_t != ""]
             if not vals_t.empty:
                 try:
@@ -7874,7 +7967,7 @@ class MainWindow(QMainWindow):
             # values" estiver marcado) ou value (se desmarcado), mesma convenção usada em
             # Convert type/Convert units.
             use_standard = getattr(self, "chk_use_standard_values", None) is not None and self.chk_use_standard_values.isChecked()
-            col_type = "standard_value" if use_standard else "value"
+            col_type = self._step2_chembl_column("value") or ("standard_value" if use_standard else "value")
 
         if not col_rep or not method:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select column and method.")
@@ -7984,17 +8077,18 @@ class MainWindow(QMainWindow):
             col_for_filter = col_rep
 
         elif smiles:
-            if 'canonical_smiles' not in df.columns:
-                QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Column 'canonical_smiles' not found in DataFrame.")
+            smiles_col = _chembl_col(df.columns, "canonical_smiles")
+            if smiles_col is None:
+                QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "SMILES column ('canonical_smiles' or 'Smiles') not found in DataFrame.")
                 return
-            count = df[df['canonical_smiles'] == smiles].shape[0]
+            count = df[df[smiles_col] == smiles].shape[0]
             self.ed_count_rep.setText(str(count))
             if col_type:
-                values = df[df['canonical_smiles'] == smiles][col_type]
+                values = df[df[smiles_col] == smiles][col_type]
                 value_str = ", ".join(map(str, values.unique()))
                 self.ed_value_rep.setText(value_str)
             instance_value = smiles
-            col_for_filter = 'canonical_smiles'
+            col_for_filter = smiles_col
 
         else:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Fill in Molecule ChEMBL ID or Canonical SMILES to check repetitions.")
@@ -8175,19 +8269,19 @@ class MainWindow(QMainWindow):
         # Garantir colunas esperadas - usa 'value' quando presente; na ausência dela, cai
         # automaticamente para 'standard_value' (ex.: depois de "Count and Filter Columns of
         # interest" com 'value' desmarcada em favor de standard_value/standard_unit(s)).
-        if 'value' in df.columns:
-            value_col = 'value'
-        elif 'standard_value' in df.columns:
-            value_col = 'standard_value'
-        else:
-            value_col = None
-        if value_col is None or 'type' not in df.columns:
+        # Valor e tipo: as colunas standard com "Use Standard values" marcado (standard_* ou
+        # "Standard Value"/"Standard Type"), as originais (value/type) desmarcado - cada uma caindo
+        # para a outra forma na ausência (ver _step2_chembl_column).
+        value_col = self._step2_chembl_column("value", df)
+        type_col = self._step2_chembl_column("type", df)
+        if value_col is None or type_col is None:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma),
-                                 "DataFrame must have a 'value' (or 'standard_value') column, and a 'type' column.")
+                                 "DataFrame must have a value column ('value'/'standard_value') and a type "
+                                 "column ('type'/'standard_type').")
             return
 
         # Normaliza rótulos
-        norm = df['type'].map(_norm_type)
+        norm = df[type_col].map(_norm_type)
 
         # Vetores numéricos
         vals = pd.to_numeric(df[value_col], errors='coerce')
@@ -8204,7 +8298,7 @@ class MainWindow(QMainWindow):
         if tn == 'ic50':
             # converter somente onde o dado atual está em pIC50
             df.loc[is_pic50, value_col] = np.power(10.0, -vals[is_pic50])
-            df['type'] = 'IC50'
+            df[type_col] = 'IC50'
 
         elif tn == 'pic50':
             # converter somente onde o dado atual está em IC50 e é positivo (log indefinido para
@@ -8215,12 +8309,12 @@ class MainWindow(QMainWindow):
             unsafe_ic50 = is_ic50 & ~safe
             df.loc[safe, value_col] = -np.log10(vals[safe])
             df.loc[unsafe_ic50, value_col] = np.nan
-            df['type'] = 'pIC50'
+            df[type_col] = 'pIC50'
 
         elif tn == 'mic':
             # converter somente onde o dado atual está em pMIC
             df.loc[is_pmic, value_col] = np.power(10.0, -vals[is_pmic])
-            df['type'] = 'MIC'
+            df[type_col] = 'MIC'
 
         elif tn == 'pmic':
             # converter somente onde o dado atual está em MIC e é positivo (mesma proteção e
@@ -8230,7 +8324,7 @@ class MainWindow(QMainWindow):
             unsafe_mic = is_mic & ~safe
             df.loc[safe, value_col] = -np.log10(vals[safe])
             df.loc[unsafe_mic, value_col] = np.nan
-            df['type'] = 'pMIC'
+            df[type_col] = 'pMIC'
 
         else:
             QMessageBox.information(self, i18n.t("msg_title_info", self._idioma), f"Target type '{type_name}' does not require conversion.")
@@ -8369,9 +8463,7 @@ class MainWindow(QMainWindow):
         type_name = self.list_types.currentText().strip()
         value_col_target = type_name if type_name else "value"
 
-        standard_value_col = next(
-            (c for c in self.df_selecionado.columns if str(c).strip().lower() == "standard_value"), None
-        )
+        standard_value_col = _find_chembl_column(self.df_selecionado.columns, "value", standard=True)
         # "Convert type" já pode ter rodado antes e renomeado 'value'/standard_value ->
         # value_col_target (ver run_convert_types); nesse caso a coluna já está pronta.
         already_named = value_col_target in self.df_selecionado.columns
@@ -8388,10 +8480,7 @@ class MainWindow(QMainWindow):
             return
         self.type_name = value_col_target
 
-        standard_unit_col = next(
-            (c for c in self.df_selecionado.columns if str(c).strip().lower() in ("standard_unit", "standard_units")),
-            None
-        )
+        standard_unit_col = _find_chembl_column(self.df_selecionado.columns, "units", standard=True)
         has_units = "units" in self.df_selecionado.columns
         if standard_unit_col is not None and (use_standard or not has_units):
             if use_standard and has_units and standard_unit_col != "units":
@@ -8408,8 +8497,9 @@ class MainWindow(QMainWindow):
         # ---------------- 1) (Opcional) MW por SMILES para rota massa/volume→molar ----------------
         # Só calculamos MW se ele for necessário (origem massa/volume OU destino molar).
         need_mw = False  # definido mais adiante, após normalizar unidades
-        if "canonical_smiles" in self.df_selecionado.columns:
-            smis = self.df_selecionado["canonical_smiles"].astype(str).str.strip()
+        _smiles_col = _chembl_col(self.df_selecionado.columns, "canonical_smiles")
+        if _smiles_col is not None:
+            smis = self.df_selecionado[_smiles_col].astype(str).str.strip()
         else:
             smis = pd.Series([None] * len(self.df_selecionado), index=self.df_selecionado.index)
 
@@ -8605,7 +8695,7 @@ class MainWindow(QMainWindow):
 
         # calcular MW se necessário
         if need_mw:
-            if "canonical_smiles" not in self.df_selecionado.columns:
+            if _smiles_col is None:
                 QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma),
                                     "Canonical SMILES required to compute MW for mass/volume ↔ molar conversions.")
                 return
@@ -9195,9 +9285,10 @@ class MainWindow(QMainWindow):
         df = self.df_selecionado
 
         # 2) Verifica a existência da coluna-chave com os IDs
-        key_col = "molecule_chembl_id"
-        if key_col not in df.columns:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), f"Column '{key_col}' not found in the DataFrame.")
+        key_col = _chembl_col(df.columns, "molecule_chembl_id")
+        if key_col is None:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma),
+                                "Molecule ID column ('molecule_chembl_id' or 'Molecule ChEMBL ID') not found in the DataFrame.")
             return
 
         # 3) Busca o ID e obtém a classe
@@ -9362,8 +9453,10 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "df_selecionado") or self.df_selecionado is None or self.df_selecionado.empty:
             QMessageBox.warning(self, i18n.t("msg_title_attention_bang", self._idioma), "No DataFrame selected (df_selecionado is empty).")
             return
-        if "canonical_smiles" not in self.df_selecionado.columns:
-            QMessageBox.warning(self, i18n.t("msg_title_attention_bang", self._idioma), "Column 'canonical_smiles' was not found in df_selecionado.")
+        smiles_col = _chembl_col(self.df_selecionado.columns, "canonical_smiles")
+        if smiles_col is None:
+            QMessageBox.warning(self, i18n.t("msg_title_attention_bang", self._idioma),
+                                "SMILES column ('canonical_smiles', 'Smiles' or 'SMILES') was not found in df_selecionado.")
             return
 
         # Compose output file name
@@ -9396,7 +9489,7 @@ class MainWindow(QMainWindow):
                         )
 
                     df_in = self.df_in.copy()
-                    smiles = df_in["canonical_smiles"].astype(str)
+                    smiles = df_in[smiles_col].astype(str)
 
                     logp_list, hbd_list, hba_list, tpsa_list, rotb_list, mw_calc_list = [], [], [], [], [], []
 
@@ -10900,7 +10993,7 @@ class MainWindow(QMainWindow):
                     self.cb_select_structure.setCurrentIndex(idx)
             # Deixa "canonical_smiles" já selecionada, se existir:
             if hasattr(self, "cb_select_name_column"):
-                preferred_cols = ["Name", "Names", "Compound", "Compounds", "Drugs", "zinc_id", "molecule_chembl_id", "chembl_id", "Molecule_ChEMBL_ID"]
+                preferred_cols = ["Name", "Names", "Compound", "Compounds", "Drugs", "zinc_id", "molecule_chembl_id", "Molecule ChEMBL ID", "chembl_id", "Molecule_ChEMBL_ID"]
                 idx = -1
                 for col in preferred_cols:
                     idx = self.cb_select_name_column.findText(col, Qt.MatchFixedString | Qt.MatchCaseSensitive)
@@ -12655,7 +12748,7 @@ class MainWindow(QMainWindow):
                 combo.addItems([""] + columns)
                 combo.setCurrentIndex(0)
 
-            preferred_id_cols = ["molecule_chembl_id", "Molecule_ChEMBL_ID", "compound_id", "ID", "Name", "name"]
+            preferred_id_cols = ["molecule_chembl_id", "Molecule ChEMBL ID", "Molecule_ChEMBL_ID", "compound_id", "ID", "Name", "name"]
             preferred_value_cols = ["value", "Value", "bioactivity", "Bioactivity", "pIC50", "PIC50", "IC50"]
 
             if cb_id is not None:
@@ -15659,7 +15752,7 @@ class MainWindow(QMainWindow):
             verdict = np.where(score >= 75, "Within AD",
                      np.where(score >= 50, "Borderline", "Outside AD"))
 
-            _name_candidates = ["Name", "name", "molecule_chembl_id", "compound_name", "compound_id", "id"]
+            _name_candidates = ["Name", "name", "molecule_chembl_id", "Molecule ChEMBL ID", "compound_name", "compound_id", "id"]
             _name_col = next((c for c in _name_candidates if c in df_new.columns), None)
             _id_values = df_new[_name_col].values if _name_col else df_new.index
 
@@ -15994,7 +16087,7 @@ class MainWindow(QMainWindow):
             return next((c for c in df.columns if str(c).lower() in ("smiles", "canonical_smiles", "smile")), None)
 
         def _names(df):
-            name_col = next((c for c in ("Name", "name", "molecule_chembl_id") if c in df.columns), None)
+            name_col = next((c for c in ("Name", "name", "molecule_chembl_id", "Molecule ChEMBL ID") if c in df.columns), None)
             return df[name_col] if name_col else pd.Series(df.index.astype(str), index=df.index)
 
         df = getattr(self, "df_int", None)
@@ -16373,7 +16466,7 @@ class MainWindow(QMainWindow):
         if dfp is None or not hasattr(self, "cb_ad_expl_pred_col") or "Name" not in df_res.columns:
             return None
         pcol = self.cb_ad_expl_pred_col.currentText().strip()
-        ncol = next((c for c in ("Name", "name", "molecule_chembl_id", "compound_id", "id")
+        ncol = next((c for c in ("Name", "name", "molecule_chembl_id", "Molecule ChEMBL ID", "compound_id", "id")
                      if c in dfp.columns), None)
         if pcol not in dfp.columns or ncol is None:
             return None
@@ -17477,7 +17570,7 @@ class MainWindow(QMainWindow):
             if cb_id is not None:
                 cb_id.clear()
                 cb_id.addItems([""] + df.columns.astype(str).tolist())
-                for candidate in ["molecule_chembl_id", "Molecule_ChEMBL_ID", "compound_id", "ID", "Name", "name"]:
+                for candidate in ["molecule_chembl_id", "Molecule ChEMBL ID", "Molecule_ChEMBL_ID", "compound_id", "ID", "Name", "name"]:
                     idx = cb_id.findText(candidate)
                     if idx >= 0:
                         cb_id.setCurrentIndex(idx)
@@ -18516,12 +18609,13 @@ class MainWindow(QMainWindow):
                 do dataset carregado em 'Search Local Data', de forma equivalente ao que
                 'Generate Dataset by activity' deixa pronto para uso em 'Generate Base Dataset'.
                 Cada campo só é preenchido se a coluna correspondente existir no dataset."""
-                if "assay_type" in df.columns:
+                assay_type_col = _chembl_col(df.columns, "assay_type")
+                if assay_type_col:
                     # Seleção múltipla: marca TODOS os tipos (F/B/T/A/U) efetivamente presentes no
                     # dataset carregado, não só o mais frequente - equivalente a "Generate Dataset
                     # by activity" já deixar pronto para manter várias letras ao mesmo tempo.
                     raw_assay_types = {
-                        v.strip().upper() for v in df["assay_type"].dropna().astype(str) if v.strip()
+                        v.strip().upper() for v in df[assay_type_col].dropna().astype(str) if v.strip()
                     }
                     if raw_assay_types:
                         self.list_assay_type.clearSelection()
@@ -18537,7 +18631,7 @@ class MainWindow(QMainWindow):
                 # 'units', 'assay_chembl_id', 'data_validity_comment', 'data_validity_description').
                 self._autofill_assay_lists_from_activity_df(df)
 
-                target_type_col = next((c for c in df.columns if str(c).strip().lower() == "target_type"), None)
+                target_type_col = _chembl_col(df.columns, "target_type")
                 if target_type_col:
                     raw_target_type = _local_data_mode_value(df[target_type_col])
                     if raw_target_type:
@@ -18549,18 +18643,21 @@ class MainWindow(QMainWindow):
                         if idx >= 0:
                             self.cb_target_type.setCurrentIndex(idx)
 
-                if "target_organism" in df.columns:
-                    raw_organism = _local_data_mode_value(df["target_organism"])
+                organism_col = _chembl_col(df.columns, "target_organism")
+                if organism_col:
+                    raw_organism = _local_data_mode_value(df[organism_col])
                     if raw_organism:
                         self.ed_organism_name.setText(raw_organism)
 
-                if "target_pref_name" in df.columns:
-                    raw_pref_name = _local_data_mode_value(df["target_pref_name"])
+                pref_name_col = _chembl_col(df.columns, "target_pref_name")
+                if pref_name_col:
+                    raw_pref_name = _local_data_mode_value(df[pref_name_col])
                     if raw_pref_name:
                         self.ed_target_pref_name.setText(raw_pref_name)
 
-                if "target_chembl_id" in df.columns:
-                    raw_target_id = _local_data_mode_value(df["target_chembl_id"])
+                target_id_col = _chembl_col(df.columns, "target_chembl_id")
+                if target_id_col:
+                    raw_target_id = _local_data_mode_value(df[target_id_col])
                     if raw_target_id:
                         self.ed_target_chembl_id.setText(raw_target_id)
 
@@ -18601,7 +18698,6 @@ class MainWindow(QMainWindow):
 
                         # Concatena todos os DataFrames
                         final_df = pd.concat(df_list, ignore_index=True)
-                        final_df = _normalize_chembl_columns(final_df)
 
                         # Preenche Assay Type/Metric/Unit, Target Type, Organism e Target ChEMBL ID
                         # a partir das colunas do dataset, quando disponíveis:
@@ -20670,6 +20766,7 @@ class MainWindow(QMainWindow):
 
             self.tbl_skl_cv = QTableWidget()
             self.tbl_skl_cv.setMinimumHeight(110)
+            self._tr("s6_tooltip_cv_table", self.tbl_skl_cv.setToolTip)
             lay_skl_eval.addWidget(self.tbl_skl_cv, 1)
 
             eval_btn_row = QHBoxLayout()
@@ -20886,6 +20983,7 @@ class MainWindow(QMainWindow):
             self.cb_skl_tune_model.currentTextChanged.connect(self._refresh_skl_model_settings_widgets)
             self.cb_skl_tune_method.currentTextChanged.connect(self._update_skl_tune_method_widgets)
             self.cb_skl_cv_method.currentTextChanged.connect(self._update_skl_cv_method_widgets)
+            self.cb_skl_tune_model.currentTextChanged.connect(lambda _txt: self._update_skl_cv_method_widgets())
             self.btn_skl_run_tune.clicked.connect(self.run_skl_tune)
             self.btn_skl_tune_plot.clicked.connect(self.run_skl_tune_plot)
             self.btn_skl_hp_add.clicked.connect(self._skl_hp_add_row)
@@ -23353,6 +23451,7 @@ class MainWindow(QMainWindow):
                 self.sp_skl_cv_folds.setValue(int(validation["folds"]))
             if validation.get("p") is not None and hasattr(self, "sp_skl_cv_p"):
                 self.sp_skl_cv_p.setValue(int(validation["p"]))
+        self._update_skl_cv_method_widgets()
 
     def _skl_get_param_values_from_table(self, parameter_name):
         for row in range(self.tbl_skl_hyperparams.rowCount()):
@@ -23385,7 +23484,15 @@ class MainWindow(QMainWindow):
             "Bootstrap": "Trains on a bootstrap resample and evaluates on the out-of-bag samples, repeated 'Folds' times.",
         }
         if hasattr(self, "lbl_skl_cv_note"):
-            self.lbl_skl_cv_note.setText(notes.get(method, ""))
+            note = notes.get(method, "")
+            # Modelo "_refit" selecionado: avisa que Cross-Validation/Y-Scrambling usam treino + teste.
+            model_name = self.cb_skl_tune_model.currentText().strip() if hasattr(self, "cb_skl_tune_model") else ""
+            if model_name and self._skl_is_refit(model_name):
+                x_all, _y_all = self._skl_train_plus_test()
+                if x_all is not None:
+                    refit_note = i18n.t("s6_note_refit_full_data", self._idioma, model=model_name, n=len(x_all))
+                    note = f"{refit_note} {note}".strip()
+            self.lbl_skl_cv_note.setText(note)
 
         group_enabled = self.cb_skl_cv_method.isEnabled()
         if hasattr(self, "sp_skl_cv_p"):
@@ -23905,10 +24012,10 @@ class MainWindow(QMainWindow):
             if task == "clustering":
                 QMessageBox.information(self, i18n.t("msg_title_evaluate", self._idioma), "Cross-validation is not available for clustering models.")
                 return
-            # Validação cruzada SOMENTE sobre o conjunto de treino: o conjunto de teste do Screening
-            # nunca entra em nenhum fold (sem vazamento para a avaliação final no teste).
-            x = getattr(self, "skl_x_train", None)
-            y = getattr(self, "skl_y_train", None)
+            # Validação cruzada sobre os dados em que o modelo foi treinado: SOMENTE o conjunto de
+            # treino (o teste do Screening nunca entra em nenhum fold - sem vazamento para a avaliação
+            # final no teste) ou, para um modelo "_refit", treino + teste (o próprio treino dele).
+            x, y, scope = self._skl_dev_data_for(model_name)
             if x is None or y is None:
                 QMessageBox.warning(self, i18n.t("msg_title_evaluate", self._idioma), "Run Screening first.")
                 return
@@ -23967,6 +24074,8 @@ class MainWindow(QMainWindow):
             self._skl_evaluate_cv_folds = folds
             self._skl_evaluate_cv_shuffle = shuffle
             self._skl_evaluate_cv_p = self.sp_skl_cv_p.value()
+            self._skl_evaluate_scope = scope
+            self._skl_evaluate_n = len(x_reset)
             self._skl_evaluate_worker = SklEvaluateWorker(
                 mode, task, model, x_reset, y_reset, **worker_kwargs
             )
@@ -23976,7 +24085,8 @@ class MainWindow(QMainWindow):
             # Mensagem de espera (sem barra de progresso), fechada em _on_skl_evaluate_finished()/
             # _on_skl_evaluate_error() assim que o cálculo termina, logo antes de exibir o resultado.
             self._skl_evaluate_progress_dlg = self.show_wait_message_dialog(
-                "Validation", "Running cross-validation... Please wait for it to finish!"
+                "Validation", f"Running cross-validation on the {self._skl_scope_text(scope, len(x_reset))}... "
+                              "Please wait for it to finish!"
             )
             # Síncrono na thread da GUI — ver comentário em run_skl_screening() sobre os crashes
             # causados pelo uso de QThread em background para esses cálculos.
@@ -24007,6 +24117,7 @@ class MainWindow(QMainWindow):
             "model": eval_model_name, "usi": getattr(self, "skl_usi_key", None), "task": cv_task,
             "method": getattr(self, "_skl_evaluate_cv_method", ""), "folds": getattr(self, "_skl_evaluate_cv_folds", None),
             "y_true": oof[0] if oof else None, "y_pred": oof[1] if oof else None,
+            "scope": getattr(self, "_skl_evaluate_scope", "train"),
         }
         # Lembra Method/shuffle/Folds/p usados para esse modelo, para restaurá-los quando essa USI for
         # recarregada e o mesmo modelo for reselecionado.
@@ -24017,6 +24128,9 @@ class MainWindow(QMainWindow):
             "folds": getattr(self, "_skl_evaluate_cv_folds", None),
             "shuffle": getattr(self, "_skl_evaluate_cv_shuffle", None),
             "p": getattr(self, "_skl_evaluate_cv_p", None),
+            # "train" (conjunto de treino) ou "full" (treino + teste, modelos "_refit") - lido pelo relatório.
+            "data_scope": getattr(self, "_skl_evaluate_scope", "train"),
+            "n_samples": getattr(self, "_skl_evaluate_n", None),
         }
         self._save_skl_session_config()
         self._save_step6_sklearn_state()
@@ -24056,7 +24170,7 @@ class MainWindow(QMainWindow):
                 lims = [min(y_true.min(), y_pred.min()), max(y_true.max(), y_pred.max())]
                 ax.plot(lims, lims, "--", color="gray")
                 ax.set_xlabel("Experimental"); ax.set_ylabel("Predicted (out-of-fold)")
-                ax.set_title(f"{model_name}: Predicted vs Experimental\n{cv_desc} - training set (n={len(y_true)})")
+                ax.set_title(f"{model_name}: Predicted vs Experimental\n{cv_desc} - {self._skl_scope_text(oof.get('scope'), len(y_true))}")
                 if getattr(self, "chk_skl_metric_legend", None) is not None and self.chk_skl_metric_legend.isChecked():
                     # Predições out-of-fold: o R² delas é o Q² da validação cruzada.
                     ax.plot([], [], " ", label=_skl_regression_metrics_label(y_true, y_pred).replace("R²", "Q² (CV)"))
@@ -24070,7 +24184,7 @@ class MainWindow(QMainWindow):
                 ax.set_xticks(range(len(labels))); ax.set_xticklabels(labels)
                 ax.set_yticks(range(len(labels))); ax.set_yticklabels(labels)
                 ax.set_xlabel("Predicted (out-of-fold)"); ax.set_ylabel("True")
-                ax.set_title(f"{model_name}: Confusion Matrix\n{cv_desc} - training set (n={len(y_true)})")
+                ax.set_title(f"{model_name}: Confusion Matrix\n{cv_desc} - {self._skl_scope_text(oof.get('scope'), len(y_true))}")
                 thresh = cm.max() / 2.0
                 for i in range(cm.shape[0]):
                     for j in range(cm.shape[1]):
@@ -24268,8 +24382,10 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, i18n.t("msg_title_predict", self._idioma),
                 i18n.t("s6_msg_with_y_too_few", self._idioma, n=n_valid))
             return
+        # Referência do Q²F1/Q²F3: o Y de treino de CADA modelo (treino + teste para os "_refit").
+        ref_y_train = {name: self._skl_dev_data_for(name)[1] for name in models}
         metrics_df = _skl_external_metrics_table(
-            task, models, x_new[mask], y_ext[mask].to_numpy(), y_train=getattr(self, "skl_y_train", None)
+            task, models, x_new[mask], y_ext[mask].to_numpy(), y_train=ref_y_train
         )
         out_path = os.path.join(
             self.skl_out_data, f"skl_external_eval_{self.skl_usi_key}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
@@ -24285,6 +24401,30 @@ class MainWindow(QMainWindow):
         """True se 'name' é um modelo gerado pelo Refit (treinado em treino + teste)."""
         name = (name or "").strip()
         return bool(name) and (name in (getattr(self, "_skl_refit_settings", None) or {}) or name.endswith("_refit"))
+
+    def _skl_train_plus_test(self):
+        """Treino + teste do Run Screening (100% do Internal DataFrame) - os dados do Refit. None,
+        None se a USI não tem conjunto teste (Test Size = 0) ou ainda não rodou o Screening."""
+        x_tr, y_tr = getattr(self, "skl_x_train", None), getattr(self, "skl_y_train", None)
+        x_te, y_te = getattr(self, "skl_x_test", None), getattr(self, "skl_y_test", None)
+        if x_tr is None or y_tr is None or x_te is None or y_te is None or len(x_te) == 0:
+            return None, None
+        x_all = pd.concat([x_tr, x_te])
+        y_all = pd.concat([pd.Series(np.asarray(y_tr), index=x_tr.index), pd.Series(np.asarray(y_te), index=x_te.index)])
+        return x_all, y_all
+
+    def _skl_dev_data_for(self, model_name):
+        """(x, y, scope) com os dados em que o modelo foi treinado - os usados pela Validation,
+        Y-Scrambling e Learning Curve e como referência do Q²F1/Q²F3 externos: o conjunto de treino
+        ("train") para os modelos comuns e treino + teste ("full") para os modelos "_refit"."""
+        if self._skl_is_refit(model_name):
+            x_all, y_all = self._skl_train_plus_test()
+            if x_all is not None:
+                return x_all, y_all, "full"
+        return getattr(self, "skl_x_train", None), getattr(self, "skl_y_train", None), "train"
+
+    def _skl_scope_text(self, scope, n):
+        return i18n.t("s6_scope_full" if scope == "full" else "s6_scope_train", self._idioma, n=n)
 
     def run_skl_refit(self):
         """Botão "Refit" (grupo Refit, Evaluate, Predict and Remove): retreina o(s) modelo(s)
@@ -24337,8 +24477,7 @@ class MainWindow(QMainWindow):
             if answer != QMessageBox.Yes:
                 return
 
-            x_all = pd.concat([x_tr, x_te])
-            y_all = pd.concat([pd.Series(y_tr, index=x_tr.index), pd.Series(y_te, index=x_te.index)])
+            x_all, y_all = self._skl_train_plus_test()
             self._set_current_sklearn_usi_context()
             if not hasattr(self, "_skl_refit_settings") or self._skl_refit_settings is None:
                 self._skl_refit_settings = {}
@@ -24767,9 +24906,10 @@ class MainWindow(QMainWindow):
                 )
                 return
 
-            # Y-Scrambling é validação cruzada: roda só sobre o conjunto de treino (o teste fica
-            # fora de todos os folds, igual ao Cross-Validation).
-            x = getattr(self, "skl_x_train", None); y = getattr(self, "skl_y_train", None)
+            # Y-Scrambling é validação cruzada: roda sobre os mesmos dados do Cross-Validation - só o
+            # conjunto de treino (o teste fica fora de todos os folds) ou, para um modelo "_refit",
+            # treino + teste.
+            x, y, scope = self._skl_dev_data_for(model_name)
             if x is None or y is None:
                 QMessageBox.warning(self, i18n.t("msg_title_plot", self._idioma),
                     "This chart needs the X/y from Run Screening. Run Screening at least once in "
@@ -24874,7 +25014,7 @@ class MainWindow(QMainWindow):
             ax2.legend(fontsize=8, loc="best")
 
             crp2_text = f"{crp2:.3g}" if crp2 is not None else "N/A"
-            fig.suptitle(f"{model_name}: Y-Scrambling (n={n_perm})", fontweight="bold")
+            fig.suptitle(f"{model_name}: Y-Scrambling (n={n_perm}) - {self._skl_scope_text(scope, len(y_arr))}", fontweight="bold")
             fig.text(0.5, 0.01,
                 f"Scrambled {metric_label}: {mean_scr:.3g} ± {std_scr:.3g}  |  cR²p: {crp2_text}  |  "
                 f"empirical p-value: {p_value:.3g}  |  {n_jobs if n_jobs > 0 else 'all'} cores, {elapsed:.1f}s",
@@ -24907,11 +25047,14 @@ class MainWindow(QMainWindow):
                     "n_folds": int(n_folds),
                     "metric_label": metric_label,
                     "elapsed_seconds": elapsed,
+                    "data_scope": scope,
+                    "n_samples": len(y_arr),
                 }).to_csv(csv_path, index=False)
             except Exception:
                 pass
 
             summary_text = (
+                f"[{self._skl_scope_text(scope, len(y_arr))}]  "
                 f"Real {metric_label} = {real_metric:.3g}  |  Scrambled = {mean_scr:.3g} ± {std_scr:.3g}  |  "
                 f"cR²p = {crp2_text}  |  p-value = {p_value:.3g}  |  n = {n_perm} ({elapsed:.1f}s)"
             )
@@ -24945,9 +25088,7 @@ class MainWindow(QMainWindow):
             x_train = getattr(self, "skl_x_train", None)
             training_smiles = None
             if df_int is not None and x_train is not None:
-                smiles_col = "SMILES" if "SMILES" in df_int.columns else (
-                    "canonical_smiles" if "canonical_smiles" in df_int.columns else None
-                )
+                smiles_col = "SMILES" if "SMILES" in df_int.columns else _chembl_col(df_int.columns, "canonical_smiles")
                 if smiles_col is not None:
                     common_idx = x_train.index.intersection(df_int.index)
                     training_smiles = df_int.loc[common_idx, smiles_col].tolist()
@@ -25119,8 +25260,9 @@ class MainWindow(QMainWindow):
             return fig
 
         if kind == "learning_curve":
-            # Curva de aprendizado usa validação cruzada interna: só o conjunto de treino.
-            x = getattr(self, "skl_x_train", None); y = getattr(self, "skl_y_train", None)
+            # Curva de aprendizado usa validação cruzada interna: só o conjunto de treino (treino +
+            # teste para um modelo "_refit", que foi treinado com os dois).
+            x, y, lc_scope = self._skl_dev_data_for(model_name)
             if x is None or y is None:
                 return None
 
@@ -25154,7 +25296,7 @@ class MainWindow(QMainWindow):
             ax.plot(train_sizes, sign * train_scores.mean(axis=1), label="Train", marker="o", color="steelblue")
             ax.plot(train_sizes, sign * test_scores.mean(axis=1), label="Cross-Validation", marker="o", color="tomato")
             ax.set_xlabel("Training examples"); ax.set_ylabel(y_label)
-            ax.set_title(f"{model_name}: Learning Curve")
+            ax.set_title(f"{model_name}: Learning Curve - {self._skl_scope_text(lc_scope, len(x))}")
             ax.legend()
             return fig
 

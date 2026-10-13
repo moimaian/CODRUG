@@ -33,8 +33,69 @@ codrug (1.1.0-1) unstable; urgency=low
     vira "Split Method" e passa para logo abaixo do Test Size; CV Folds
     (train) vai para a linha dos botões, e View Split/View Rank ficam abaixo
     da barra de progresso, antes do Run Screening (CODRUG.py, BIN/i18n.py).
+  * Modelos "_refit": Cross-Validation (inclusive Nested CV e Bootstrap),
+    Y-Scrambling, Learning Curve e "Plot CV Predictions" passam a usar
+    treino + teste (os dados em que o refit foi treinado), em vez de só o
+    treino - antes davam os mesmos números do modelo de origem. Um aviso no
+    grupo Validation, os títulos dos gráficos e o resumo do Y-Scrambling
+    indicam o conjunto usado, e o relatório final explica quando a
+    validação foi feita no conjunto completo (CODRUG.py, BIN/i18n.py,
+    BIN/module_report.py).
+  * Predict com "With Y": Q²F1 e Q²F3 dos modelos "_refit" passam a usar a
+    média/variância de treino + teste como referência (antes usavam só o
+    treino, que não é o treino desses modelos); o relatório registra isso
+    (CODRUG.py, BIN/module_report.py).
+  * Tabela da Cross-Validation com nomes que não se confundem com o
+    conjunto teste do Screening: "Test Size"/"R2 Test"/"Accuracy Test"
+    viram "n Val"/"R2 Val"/"Accuracy Val" (fold de validação); a linha
+    "Mean" vira "Pooled" (predições out-of-fold agrupadas - em regressão, o
+    R2 Val dela é o Q² CV); no Bootstrap, "OOB Size"/"R2 Test" viram
+    "n OOB"/"R2 OOB". Dica (tooltip) na tabela e frase explicativa no
+    relatório; CSVs antigos continuam legíveis (CODRUG.py, BIN/i18n.py,
+    BIN/module_report.py).
+  * STEP 2, "Use Standard values": marca de preferência standard_type,
+    standard_value, standard_units e standard_relation e, na ausência
+    delas, os rótulos nativos do export do ChEMBL ("Standard Type",
+    "Standard Value", "Standard Units", "Standard Relation"), uma coluna
+    por conceito (a variante duplicada é desmarcada). Unidades, tipo,
+    relação e valor das etapas seguintes (Treat repetitions, Convert type,
+    Convert units) também reconhecem esses rótulos nativos, e o Convert
+    type usa as colunas standard quando o checkbox está marcado (CODRUG.py).
+  * Colunas do ChEMBL mantêm os nomes do arquivo de origem: o CODRUG deixa
+    de criar cópias com os nomes da API ("Standard Type" -> type, "Standard
+    Units" -> units/standard_unit, "Standard Value" -> standard_value,
+    "Value" -> value, "Smiles" -> canonical_smiles, "Molecule ChEMBL ID" ->
+    molecule_chembl_id...) ao baixar por Web Scraping e ao carregar arquivos
+    nas STEPs 1-3. Cada coluna passa a ser localizada pelo conceito, aceitando
+    o nome da API ou o rótulo nativo do export do site, em toda a STEP 1
+    (preenchimento automático, Count descriptions, filtros do Generate Base
+    Dataset), na STEP 2 e nas detecções de SMILES/ID das etapas seguintes
+    (CODRUG.py, BIN/module_compound_names.py).
+  * Corrige um erro de unidades em dados do site do ChEMBL (Web Scraping ou
+    CSV baixado do portal): a cópia "Value" -> value junto com "Standard
+    Units" -> units formava um par inconsistente (valor publicado com a
+    unidade padronizada - ex.: 0,39 uM lido como 0,39 nM; ~30% das linhas
+    do CHEMBL218 tinham Value diferente de Standard Value), usado pela STEP
+    2 com "Use Standard values" desmarcado (o padrão). Agora, sem unidade
+    original no arquivo (inclusive arquivos antigos em que 'units' é só uma
+    cópia de "Standard Units"), "Use Standard values" fica marcado e
+    travado, com uma dica explicando o motivo; com dados da API, o checkbox
+    volta ao estado escolhido pelo usuário (CODRUG.py, BIN/i18n.py).
+  * Corrige a seleção de features supervisionada (Run Selection) em
+    classificação com rótulos de texto (ex.: "active"/"inative"): o y era
+    convertido com to_numeric(...).fillna(0), virando uma única classe - SFS
+    e GB Importance falhavam ("y contains 1 class") e os demais métodos
+    selecionavam features sem informação real de classe. Agora os rótulos
+    viram códigos de classe, e linhas sem y ficam fora do ajuste em vez de
+    receber 0 (BIN/recommended_selection.py).
+  * Stepwise AIC/BIC em classificação passa a usar regressão logística
+    multinomial (MNLogit) no lugar da binária (Logit): funciona com 3 ou
+    mais classes (antes falhava) e, com 2 classes, dá exatamente o mesmo
+    resultado. Se o modelo com todas as features não puder ser ajustado
+    (muitos bits de fingerprint, separação perfeita), uma mensagem sugere
+    reduzir as features antes (BIN/recommended_selection.py).
 
- -- Moisés Maia Neto <moimaian@gmail.com>  Fri, 09 Oct 2026 03:00:00 -0300
+ -- Moisés Maia Neto <moimaian@gmail.com>  Tue, 13 Oct 2026 02:28:10 -0300
 
 codrug (1.0.0-2) unstable; urgency=low
 

@@ -1154,12 +1154,12 @@ def _add_step2_3_section(document: Any, project_dir: str, state: dict[str, Any],
 _STEP3_TEXTS = {
     "descriptors_intro_pt": (
         "Na etapa de engenharia de features foram gerados descritores a partir das informações "
-        "estruturais presentes na coluna canonical_smiles e assim obtidas as variáveis "
+        "estruturais presentes na coluna de SMILES e assim obtidas as variáveis "
         "independentes (valores de x ou features), usadas na construção dos modelos de ML."
     ),
     "descriptors_intro_en": (
         "In the feature engineering stage, descriptors were generated from the structural "
-        "information in the canonical_smiles column, obtaining the independent variables (x "
+        "information in the SMILES column, obtaining the independent variables (x "
         "values, or features) used to build the ML models."
     ),
 }
@@ -1518,6 +1518,14 @@ _STEP4_ML_TEXTS = {
     "test_eval_en": "Predictivity was assessed once on the test set ({n} compounds), which took no part in screening, hyperparameter tuning or cross-validation. Acceptance criteria follow Golbraikh & Tropsha (2002) and Chirico & Gramatica (2012):",
     "external_eval_pt": "Os modelos também foram aplicados ao conjunto externo, com {n} compostos com valor experimental conhecido, gerando as métricas a seguir:",
     "external_eval_en": "The models were also applied to the external set, with {n} compounds of known experimental value, giving the metrics below:",
+    "external_eval_refit_pt": " Para os modelos refit ({models}), Q²F1 e Q²F3 usam como referência a média e a variância de treino + teste, os dados em que esses modelos foram treinados.",
+    "external_eval_refit_en": " For the refit models ({models}), Q²F1 and Q²F3 use the mean and variance of training + test, the data these models were trained on, as reference.",
+    "cv_columns_pt": "Na tabela, R2 Val (ou Accuracy Val) é o desempenho em cada fold de validação, formado pelos compostos deixados de fora naquela rodada; a linha Pooled reúne as predições out-of-fold de todos os folds (em regressão, seu R2 Val corresponde ao Q² CV), e a linha Std Dev traz o desvio-padrão entre folds.",
+    "cv_columns_en": "In the table, R2 Val (or Accuracy Val) is the performance on each validation fold, made up of the compounds left out in that round; the Pooled row gathers the out-of-fold predictions of all folds (for regression, its R2 Val corresponds to Q² CV), and the Std Dev row gives the standard deviation between folds.",
+    "scope_full_cv_pt": " Por se tratar de um modelo refit, a validação cruzada foi feita sobre o conjunto interno completo (treino + teste, {n} compostos), os dados em que ele foi treinado.",
+    "scope_full_cv_en": " As a refit model, its cross-validation was performed on the full internal set (training + test, {n} compounds), the data it was trained on.",
+    "scope_full_yrand_pt": " Por se tratar de um modelo refit, o teste foi feito sobre o conjunto interno completo (treino + teste, {n} compostos).",
+    "scope_full_yrand_en": " As a refit model, the test was performed on the full internal set (training + test, {n} compounds).",
     "tuning_metric_pt": ", otimizando a métrica {metric} por validação cruzada no conjunto de treino",
     "tuning_metric_en": ", optimizing {metric} by cross-validation on the training set",
     "ranked_by_cv_pt": " Os modelos foram ranqueados por validação cruzada {k}-fold realizada somente no conjunto de treino; o conjunto teste não participou da triagem. ",
@@ -1569,7 +1577,7 @@ _STEP4_ML_TEXTS = {
 
 # Same shading used in the methodology template's STEP 4 tables (screening/tuning/cross-
 # validation): header = COLOR_TITLE_BAR (already used for the top-level section bars too),
-# highlighted first column = light blue, Cross-Validation's "OVERALL" summary row = yellow.
+# highlighted first column = light blue, Cross-Validation's "Pooled" (formerly "Mean"/"OVERALL") and "Std Dev" rows = yellow.
 _STEP4_COLOR_HIGHLIGHT = "DEEBF6"
 _STEP4_COLOR_OVERALL = "FEF2CC"
 
@@ -1866,12 +1874,18 @@ def _add_step5_section(document: Any, project_dir: str, state: dict[str, Any], i
             cv_csv = _find_skl_csv(data_dir, "skl_cv", usi, model_name)
             cv_df = _read_csv(cv_csv)
             if cv_df is not None:
-                _para(document).add_run(
-                    texts["cv_pt" if lang == "pt" else "cv_en"].format(model=model_name, method=method, folds=folds)
-                )
+                cv_text = texts["cv_pt" if lang == "pt" else "cv_en"].format(model=model_name, method=method, folds=folds)
+                if settings.get("data_scope") == "full":
+                    # Modelo "_refit": CV sobre treino + teste (CODRUG._skl_dev_data_for).
+                    cv_text = texts[f"scope_full_cv_{'pt' if lang == 'pt' else 'en'}"].format(
+                        n=settings.get("n_samples", "?")).strip() + " " + cv_text
+                _para(document).add_run(cv_text)
                 fold_col = 0 if list(cv_df.columns)[:1] == ["Fold"] else None
+                if "R2 Val" in cv_df.columns or "Accuracy Val" in cv_df.columns:
+                    _para(document).add_run(texts[f"cv_columns_{'pt' if lang == 'pt' else 'en'}"])
+                # "Pooled" (atual) ou "Mean" (CSVs de versões anteriores) + "Std Dev".
                 _add_skl_results_table(document, cv_df, highlight_col=fold_col, highlight_col_bold=True,
-                                        overall_row_value=("Mean", "Std Dev"))
+                                        overall_row_value=("Pooled", "Mean", "Std Dev"))
 
             chart_paths = [
                 path for path in (_find_skl_image(midia_dir, model_name, kind, usi) for kind in _STEP4_CHART_KINDS)
@@ -1919,6 +1933,9 @@ def _add_step5_section(document: Any, project_dir: str, state: dict[str, Any], i
                         metric=first.get("metric_label", "score"), real=float(first.get("real_metric", 0.0)),
                         mean=float(first.get("scrambled_mean", 0.0)), std=float(first.get("scrambled_std", 0.0)),
                         crp2=crp2_text, pvalue=float(first.get("p_value", 0.0)),
+                    ) + (
+                        texts[f"scope_full_yrand_{'pt' if lang == 'pt' else 'en'}"].format(n=int(first.get("n_samples", 0)))
+                        if str(first.get("data_scope", "")) == "full" else ""
                     )
                 )
                 yrand_png = _find_skl_image(midia_dir, model_name, "yrandomization", usi)
@@ -1947,7 +1964,12 @@ def _add_step5_section(document: Any, project_dir: str, state: dict[str, Any], i
                 n_val = int(float(n_val))
             except (TypeError, ValueError):
                 pass
-            _para(document).add_run(texts[f"{key}_{'pt' if lang == 'pt' else 'en'}"].format(n=n_val))
+            eval_text = texts[f"{key}_{'pt' if lang == 'pt' else 'en'}"].format(n=n_val)
+            refit_cols = [c for c in eval_df.columns[2:] if str(c).endswith("_refit")]
+            if key == "external_eval" and refit_cols and (eval_df["Metric"] == "Q2F1").any():
+                eval_text = eval_text.rstrip(":") + "." + texts[f"external_eval_refit_{'pt' if lang == 'pt' else 'en'}"].format(
+                    models=", ".join(refit_cols))
+            _para(document).add_run(eval_text)
 
             def _fmt(value):
                 # Model columns mix numbers with "Pass"/"Fail" (Golbraikh-Tropsha row), so they

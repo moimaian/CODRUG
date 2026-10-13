@@ -163,8 +163,8 @@ def find_smiles_lookup(project_dir: str, ids: set[str]) -> dict[str, str]:
             df = pd.read_csv(path)
         except Exception:
             continue
-        id_col = next((c for c in ("Name", "name", "molecule_chembl_id", "ID", "id") if c in df.columns), None)
-        smiles_col = next((c for c in ("SMILES", "smiles", "canonical_smiles") if c in df.columns), None)
+        id_col = next((c for c in ("Name", "name", "molecule_chembl_id", "Molecule ChEMBL ID", "ID", "id") if c in df.columns), None)
+        smiles_col = next((c for c in ("SMILES", "smiles", "canonical_smiles", "Smiles") if c in df.columns), None)
         if not id_col or not smiles_col:
             continue
         for _, row in df[[id_col, smiles_col]].iterrows():

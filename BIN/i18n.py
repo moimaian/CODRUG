@@ -300,6 +300,12 @@ _TEXTOS = {
     "s2_grp_select_convert": {"en": "Remove or convert data", "pt": "Remover ou converter dados"},
     "s2_lbl_select_columns_interest": {"en": "1. Select columns \nof interest:", "pt": "1. Selecione as colunas \nde interesse:"},
     "s2_chk_use_standard_values": {"en": "Use Standard values", "pt": "Usar valores padronizados"},
+    "s2_tooltip_standard_values_forced": {
+        "en": "Locked on: this dataset (ChEMBL website export) has no original units - its 'Value' column is the "
+              "published value without a matching unit, so only Standard Value + Standard Units are consistent.",
+        "pt": "Travado marcado: este dataset (export do site do ChEMBL) não tem a unidade original - a coluna 'Value' "
+              "é o valor publicado sem unidade correspondente, então só Standard Value + Standard Units são consistentes.",
+    },
     "s2_btn_count_filter_columns": {"en": "Count and Filter \nColumns of interest", "pt": "Contar e Filtrar \nColunas de interesse"},
     "s2_btn_count_del_null": {"en": "Count and delete \nnull or empty values", "pt": "Contar e excluir \nvalores nulos ou vazios"},
     "s2_lbl_select_standard_type": {"en": "2. Select \nstandard type:", "pt": "2. Selecione o \ntipo padrão:"},
@@ -793,6 +799,24 @@ _TEXTOS = {
     "btn_select_all": {"en": "Select All", "pt": "Selecionar Tudo"},
     "s6_btn_view_train_test_freq": {"en": "View Split", "pt": "Ver Divisão"},
     "s6_btn_view_rank": {"en": "View Rank", "pt": "Ver Ranking"},
+    "s6_tooltip_cv_table": {
+        "en": "n Val / R2 Val / Accuracy Val: the validation fold of each round (the compounds left out of it), "
+              "never the Screening test set. R2/Accuracy Train: the same round's training folds. "
+              "Pooled: metrics over all out-of-fold predictions together (for regression, R2 Val = Q² CV); "
+              "Train columns are the mean between folds. Std Dev: standard deviation between folds. "
+              "Bootstrap: OOB = out-of-bag compounds of each iteration.",
+        "pt": "n Val / R2 Val / Accuracy Val: o fold de validação de cada rodada (as moléculas deixadas de fora), "
+              "nunca o conjunto teste do Screening. R2/Accuracy Train: os folds de treino da mesma rodada. "
+              "Pooled: métricas sobre todas as predições out-of-fold juntas (em regressão, R2 Val = Q² CV); "
+              "as colunas Train são a média entre folds. Std Dev: desvio-padrão entre folds. "
+              "Bootstrap: OOB = moléculas fora da reamostragem (out-of-bag) de cada iteração.",
+    },
+    "s6_scope_train": {"en": "training set (n={n})", "pt": "conjunto de treino (n={n})"},
+    "s6_scope_full": {"en": "full dataset: training + test (n={n})", "pt": "conjunto completo: treino + teste (n={n})"},
+    "s6_note_refit_full_data": {
+        "en": "{model} is a refit model: Cross-Validation and Y-Scrambling use training + test (n={n}), the data it was trained on.",
+        "pt": "{model} é um modelo refit: Cross-Validation e Y-Scrambling usam treino + teste (n={n}), os dados em que ele foi treinado.",
+    },
     "s6_tooltip_view_rank": {
         "en": "Bar chart of the 5 best models of the selected USI's Run Screening (best at the top), "
               "one bar per metric. Enabled after Run Screening has been executed for this USI.",

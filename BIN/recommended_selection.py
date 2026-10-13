@@ -168,7 +168,30 @@ def apply_recommended_selection(
     if needs_y:
         if y_series is None or y_series.dropna().empty:
             raise ValueError("The selected method requires a label column (y).")
-        y = pd.to_numeric(y_series, errors="coerce").fillna(0.0)
+        y_series = pd.Series(y_series)
+        if len(y_series) == len(X) and not y_series.index.equals(X.index):
+            # Mesmo número de linhas do DataFrame, mas outro índice: alinha por posição.
+            y_series = pd.Series(y_series.to_numpy(), index=X.index)
+        if task_type.startswith("class"):
+            # Rótulos de classe podem ser texto ("active"/"inactive"...): viram códigos inteiros
+            # (0, 1, 2...), um por classe - mesma convenção de recommended_projection. Antes eram
+            # convertidos com pd.to_numeric(..., errors="coerce").fillna(0), o que transformava todo
+            # rótulo de texto em 0 e deixava o y com uma única classe.
+            valid = y_series.notna() & (y_series.astype(str).str.strip() != "")
+            y = pd.Series(pd.Categorical(y_series[valid].astype(str).str.strip()).codes,
+                          index=y_series[valid].index)
+            if y.nunique() < 2:
+                raise ValueError("The label column (y) has fewer than 2 classes - supervised selection "
+                                 "needs at least 2 classes.")
+        else:
+            y = pd.to_numeric(y_series, errors="coerce")
+            valid = y.notna()
+            y = y[valid]
+            if y.empty:
+                raise ValueError("The label column (y) has no numeric values for a regression task.")
+        # Linhas sem y não entram no ajuste do seletor (antes o y ausente virava 0, um valor falso);
+        # a seleção de colunas vale para o DataFrame inteiro do mesmo jeito.
+        X = X.loc[y.index]
     else:
         y = None
 
@@ -283,12 +306,23 @@ def apply_recommended_selection(
     # ======================= MODELOS ESTATÍSTICOS ======================= #
 
     elif method_name in ["Stepwise AIC", "Stepwise BIC"]:
-        from statsmodels.api import OLS, add_constant, Logit
+        # Classificação: regressão logística MULTINOMIAL (MNLogit), que aceita 2 ou mais classes.
+        # Com 2 classes ela é idêntica à logística binária (Logit) - uma única equação, mesmos
+        # coeficientes, AIC e BIC -, então a seleção não muda nesse caso; antes, com 3+ classes,
+        # o Logit binário falhava.
+        from statsmodels.api import OLS, add_constant, MNLogit
         Xc = add_constant(X)
-        if task_type.startswith("class"):
-            model = Logit(y, Xc).fit(disp=0)
-        else:
-            model = OLS(y, Xc).fit(disp=0)
+        try:
+            if task_type.startswith("class"):
+                model = MNLogit(y, Xc).fit(disp=0)
+            else:
+                model = OLS(y, Xc).fit(disp=0)
+        except Exception as exc:
+            raise ValueError(
+                f"{method_name}: the model with all {len(X_cols)} features could not be fitted ({exc}). "
+                "This is common with many fingerprint bits or perfectly separating features - reduce the "
+                "features first (e.g. Mutual Information or SelectKBest) and run the stepwise method on them."
+            ) from exc
 
         crit = "aic" if "AIC" in method_name else "bic"
         base_score = getattr(model, crit)
@@ -300,7 +334,7 @@ def apply_recommended_selection(
                 continue
             X_try = add_constant(X[cols_try])
             try:
-                new_model = (Logit(y, X_try).fit(disp=0)
+                new_model = (MNLogit(y, X_try).fit(disp=0)
                              if task_type.startswith("class")
                              else OLS(y, X_try).fit(disp=0))
                 new_score = getattr(new_model, crit)
