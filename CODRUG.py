@@ -5597,6 +5597,7 @@ class MainWindow(QMainWindow):
             self.ed_skl_USI.blockSignals(False)
         if hasattr(self, "skl_usi_key"):
             self.skl_usi_key = None
+        self._refresh_skl_view_rank_enabled()
 
         # STEP8 (Consensus) and EDIT already have their own correct reset routines (reused by
         # each tab's own "Clear" button) - reused here instead of duplicating their logic.
@@ -5646,6 +5647,7 @@ class MainWindow(QMainWindow):
         loaded_any = self._apply_step6_sklearn_state(payload.get("step6_sklearn", {})) or loaded_any
         loaded_any = self._apply_step8_state(payload.get("step8_consensus", {})) or loaded_any
         loaded_any = self._apply_statistics_state(payload.get("statistics", {})) or loaded_any
+        self._refresh_skl_view_rank_enabled()
         new_path = self._project_state_path(project_dir)
         if loaded_any and new_path and not os.path.isfile(new_path):
             self._save_project_state({})
@@ -10733,7 +10735,7 @@ class MainWindow(QMainWindow):
         dataframe yet).
 
         Originally built for STEP 4's "Feature Columns Range" (applied to self.df_selecionado,
-        the default when 'df' is omitted); also reused for STEP 6's "Select X range" (Model
+        the default when 'df' is omitted); also reused for STEP 6's "X range" (Model
         Screening, over the Internal DataFrame) and "Descriptors Columns Range" (Remove Model and
         Predict, over the External DataFrame) by passing the relevant dataframe explicitly."""
         if df is None:
@@ -17166,7 +17168,7 @@ class MainWindow(QMainWindow):
 
         # Ao carregar manualmente (botão "Select Internal DataFrame", não a restauração de Previous
         # Project), já gera a USI que será usada pela primeira execução de Run Screening — assim
-        # "View Frequency" clicado antes do Screening salva numa USI real (ligada a este DataFrame),
+        # "View Split" clicado antes do Screening salva numa USI real (ligada a este DataFrame),
         # em vez de cair numa USI "LOAD" vazia/genérica. A própria Run Screening consome essa USI
         # pendente uma única vez; da segunda execução em diante volta a gerar uma nova a cada clique.
         if show_preview and hasattr(self, "ed_skl_USI"):
@@ -17190,7 +17192,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, i18n.t("msg_title_error_list_columns_csv", self._idioma), str(e))
 
         self._update_predict_descriptor_range_inputs(getattr(self, "df_int", None) if getattr(self, "chk_pd_internal", None) and self.chk_pd_internal.isChecked() else None)
-        # STEP 6 Model Screening's "Select X range (internal df):" — mesma heurística de detecção de
+        # STEP 6 Model Screening's "X range (internal df):" — mesma heurística de detecção de
         # descritores usada em STEP 4 (exclui Name/SMILES/Class/bioatividade, prioriza colunas "FP").
         self._apply_detected_feature_range(getattr(self, "df_int", None), "ed_skl_x_first_col", "ed_skl_x_last_col")
         return True
@@ -19679,7 +19681,7 @@ class MainWindow(QMainWindow):
 
             # Separação do conjunto EXTERNO (antes de escalonamento/seleção/projeção, para ele não
             # influenciar nenhuma etapa de desenvolvimento - Princípio 4 da OECD): tamanho e método,
-            # de forma semelhante ao "Select Test Size"/"Split:" da Etapa 4 (ver run_split_external_dataframe).
+            # de forma semelhante ao "Test Size"/"Split Method:" da Etapa 4 (ver run_split_external_dataframe).
             ext_split_layout = QHBoxLayout()
             ext_split_layout.addStretch()
             ext_split_layout.addWidget(self._trL("s4_lbl_external_size"))
@@ -20404,9 +20406,16 @@ class MainWindow(QMainWindow):
             gb_skl_screen.setStyleSheet("QGroupBox { font-weight: bold; }")
             lay_skl_screen = QVBoxLayout(gb_skl_screen)
 
-            screen_cols_row = QHBoxLayout()
+            # Grade de 3 colunas (proporções 2:1:3), com a linha de botões alinhada às colunas de cima:
+            #   linha 0: Models | Sort metric/X range/Y column/Test Size/Split Method | Status + progresso
+            #   linha 1: Select All | CV Folds (train) | View Split, View Rank ... Run Screening
+            screen_grid = QGridLayout()
+            screen_grid.setColumnStretch(0, 2)
+            screen_grid.setColumnStretch(1, 1)
+            screen_grid.setColumnStretch(2, 3)
+            screen_grid.setRowStretch(0, 1)
 
-            # Coluna 1 (proporção 2): Models
+            # Coluna 1: Models
             models_col_skl = QVBoxLayout()
             models_col_skl.addWidget(self._trL("lbl_models"))
             self.list_skl_models = QListWidget()
@@ -20416,37 +20425,45 @@ class MainWindow(QMainWindow):
             # altura fixa, o widget nunca encolhia ao reduzir a janela principal.
             self.list_skl_models.setMinimumHeight(100)
             models_col_skl.addWidget(self.list_skl_models, 1)
-            screen_cols_row.addLayout(models_col_skl, 2)
+            screen_grid.addLayout(models_col_skl, 0, 0)
 
-            # Coluna 2 (proporção 1): Select All, Sort metric, Select X range, Select Y column, Select Test Size
-            # QFormLayout (rótulo ao lado do campo, não em cima) em vez da pilha vertical
-            # anterior: essa coluna só tinha campos de altura fixa e nenhuma folga, então
-            # forçava a LINHA inteira (e, por tabela, list_skl_models/txt_skl_status ao lado)
-            # a nunca ficar mais baixa que ela — impedindo Models/Status de encolher junto
-            # com a janela principal. Rótulo ao lado reduz bastante a altura mínima dessa
-            # coluna, liberando a linha para encolher de verdade.
+            # Coluna 2: Sort metric, X range, Y column, Test Size, Split Method (rótulo ao lado do
+            # campo, alinhado à direita, colado na caixa) e, na linha dos botões, CV Folds (train).
+            # Rótulo ao lado (não em cima) mantém baixa a altura mínima da coluna, para Models/Status
+            # poderem encolher junto com a janela principal. A coluna ocupa as duas linhas da grade
+            # para que CV Folds use as mesmas colunas de rótulo/campo dos itens de cima.
             metric_col_skl_widget = QWidget()
-            metric_col_skl = QFormLayout(metric_col_skl_widget)
+            metric_col_skl = QGridLayout(metric_col_skl_widget)
             metric_col_skl.setContentsMargins(0, 10, 0, 0)
             metric_col_skl.setVerticalSpacing(8)
+            metric_col_skl.setColumnStretch(0, 1)
+            _lbl_align = Qt.AlignRight | Qt.AlignVCenter
+
+            def _metric_row(row, label_key, field):
+                metric_col_skl.addWidget(self._trL(label_key), row, 0, alignment=_lbl_align)
+                if isinstance(field, QWidget):
+                    metric_col_skl.addWidget(field, row, 1, alignment=Qt.AlignLeft | Qt.AlignVCenter)
+                else:
+                    metric_col_skl.addLayout(field, row, 1)
 
             self.cb_skl_metric = QComboBox()
             self.cb_skl_metric.setFixedWidth(160)
-            metric_col_skl.addRow(self._trL("s6_lbl_sort_metric"), self.cb_skl_metric)
+            _metric_row(0, "s6_lbl_sort_metric", self.cb_skl_metric)
 
             x_range_row_skl = QHBoxLayout()
             self.ed_skl_x_first_col = QLineEdit(); self.ed_skl_x_first_col.setToolTip("First Column Index"); self.ed_skl_x_first_col.setFixedSize(60, 25); self.ed_skl_x_first_col.setAlignment(Qt.AlignCenter); self.ed_skl_x_first_col.setValidator(QIntValidator()); self.ed_skl_x_first_col.setText("2")
             x_range_row_skl.addWidget(self.ed_skl_x_first_col)
-            label_skl_x_to = self._trL("lbl_to_short"); label_skl_x_to.setAlignment(Qt.AlignCenter); label_skl_x_to.setFixedSize(20, 25)
+            label_skl_x_to = self._trL("lbl_to_short"); label_skl_x_to.setAlignment(Qt.AlignCenter); label_skl_x_to.setFixedSize(28, 25)
             x_range_row_skl.addWidget(label_skl_x_to)
             self.ed_skl_x_last_col = QLineEdit(); self.ed_skl_x_last_col.setToolTip("Last Column Index"); self.ed_skl_x_last_col.setFixedSize(60, 25); self.ed_skl_x_last_col.setAlignment(Qt.AlignCenter); self.ed_skl_x_last_col.setValidator(QIntValidator())
             x_range_row_skl.addWidget(self.ed_skl_x_last_col)
-            metric_col_skl.addRow(self._trL("s6_lbl_select_x_range"), x_range_row_skl)
+            x_range_row_skl.addStretch()
+            _metric_row(1, "s6_lbl_select_x_range", x_range_row_skl)
 
             self.cb_skl_y = QComboBox(); self.cb_skl_y.setEditable(True)
             self.cb_skl_y.addItems([""])
             self.cb_skl_y.setFixedWidth(160)
-            metric_col_skl.addRow(self._trL("s6_lbl_select_y_column_internal"), self.cb_skl_y)
+            _metric_row(2, "s6_lbl_select_y_column_internal", self.cb_skl_y)
 
             self.dsp_skl_test_size = QDoubleSpinBox()
             # 0 = "modo sem teste": todo o Internal DataFrame vira treino (Screening/Tuning/Validation);
@@ -20456,7 +20473,20 @@ class MainWindow(QMainWindow):
             self.dsp_skl_test_size.setSingleStep(0.05)
             self.dsp_skl_test_size.setValue(0.20)
             self.dsp_skl_test_size.setFixedWidth(90)
-            metric_col_skl.addRow(self._trL("s6_lbl_select_test_size"), self.dsp_skl_test_size)
+            _metric_row(3, "s6_lbl_select_test_size", self.dsp_skl_test_size)
+
+            # Método de divisão treino/teste, logo abaixo do Test Size: aleatório (padrão, reprodutível
+            # pelo Random State) ou racional (Kennard-Stone / Sphere Exclusion - BIN/rational_split.py).
+            self.cb_skl_split_method = QComboBox()
+            self.cb_skl_split_method.addItems(["Random", "Kennard-Stone", "Sphere Exclusion"] if rational_split is not None else ["Random"])
+            self.cb_skl_split_method.setFixedWidth(160)
+            self._tr("s6_tooltip_split_method", self.cb_skl_split_method.setToolTip)
+            _metric_row(4, "s6_lbl_split_method", self.cb_skl_split_method)
+            # Com Test Size = 0 (modo sem teste) não há divisão - o método fica desabilitado.
+            self.dsp_skl_test_size.valueChanged.connect(lambda v: self.cb_skl_split_method.setEnabled(v > 0))
+
+            # Folga entre os campos de cima e o CV Folds, que fica na altura da linha de botões.
+            metric_col_skl.setRowStretch(5, 1)
 
             # Nº de folds da validação cruzada (só no conjunto de treino) usada para ranquear o Screening.
             self.sp_skl_screen_cv_folds = QSpinBox()
@@ -20464,12 +20494,11 @@ class MainWindow(QMainWindow):
             self.sp_skl_screen_cv_folds.setValue(5)
             self.sp_skl_screen_cv_folds.setFixedWidth(90)
             self._tr("s6_tooltip_screening_cv_folds", self.sp_skl_screen_cv_folds.setToolTip)
-            metric_col_skl.addRow(self._trL("s6_lbl_screening_cv_folds"), self.sp_skl_screen_cv_folds)
+            _metric_row(6, "s6_lbl_screening_cv_folds", self.sp_skl_screen_cv_folds)
 
-            screen_cols_row.addWidget(metric_col_skl_widget, 1)
-            screen_cols_row.setAlignment(metric_col_skl_widget, Qt.AlignTop)
+            screen_grid.addWidget(metric_col_skl_widget, 0, 1, 2, 1)
 
-            # Coluna 3 (proporção 3): Status + barra de progresso
+            # Coluna 3: Status + barra de progresso
             status_col_skl = QVBoxLayout()
             status_col_skl.addWidget(self._trL("lbl_status"))
             self.txt_skl_status = QTextEdit()
@@ -20481,42 +20510,43 @@ class MainWindow(QMainWindow):
             self.pb_skl_screening.setMaximum(100); self.pb_skl_screening.setValue(0)
             self._tr("s6_fmt_screening_progress", self.pb_skl_screening.setFormat)
             status_col_skl.addWidget(self.pb_skl_screening)
-            screen_cols_row.addLayout(status_col_skl, 3)
+            screen_grid.addLayout(status_col_skl, 0, 2)
 
-            lay_skl_screen.addLayout(screen_cols_row, 1)
-            screen_btns_row = QHBoxLayout()
-
+            # Linha de botões - coluna 1: Select All
             self.btn_skl_select_all = QPushButton(); self._tr("btn_select_all", self.btn_skl_select_all.setText)
             self.btn_skl_select_all.setProperty("role", "secondary")
             self.btn_skl_select_all.setFixedWidth(120)
             self.btn_skl_select_all.clicked.connect(self.list_skl_models.selectAll)
-            screen_btns_row.addWidget(self.btn_skl_select_all, alignment=Qt.AlignLeft)
+            screen_grid.addWidget(self.btn_skl_select_all, 1, 0, alignment=Qt.AlignLeft | Qt.AlignVCenter)
 
-            screen_btns_row.addStretch()
+            # Linha de botões - coluna 3 (abaixo da barra de progresso): View Split, View Rank e Run Screening
+            screen_btns_row = QHBoxLayout()
             self.btn_skl_view_train_test_freq = QPushButton(); self._tr("s6_btn_view_train_test_freq", self.btn_skl_view_train_test_freq.setText)
             self.btn_skl_view_train_test_freq.setProperty("role", "secondary")
             self.btn_skl_view_train_test_freq.setFixedWidth(150)
             self.btn_skl_view_train_test_freq.clicked.connect(self.run_view_skl_train_test_frequency)
-            screen_btns_row.addWidget(self.btn_skl_view_train_test_freq, alignment=Qt.AlignCenter)
+            screen_btns_row.addWidget(self.btn_skl_view_train_test_freq)
+            # "View Rank": gráfico dos 5 melhores modelos do Run Screening da USI atual - só fica
+            # habilitado quando essa USI já tem um skl_screening_<USI>_*.csv (ver
+            # _refresh_skl_view_rank_enabled).
+            self.btn_skl_view_rank = QPushButton(); self._tr("s6_btn_view_rank", self.btn_skl_view_rank.setText)
+            self._tr("s6_tooltip_view_rank", self.btn_skl_view_rank.setToolTip)
+            self.btn_skl_view_rank.setProperty("role", "secondary")
+            self.btn_skl_view_rank.setFixedWidth(150)
+            self.btn_skl_view_rank.setEnabled(False)
+            self.btn_skl_view_rank.clicked.connect(self.run_view_skl_screening_rank)
+            screen_btns_row.addWidget(self.btn_skl_view_rank)
             screen_btns_row.addStretch()
-
-            # Método de divisão treino/teste, ao lado do Run Screening: aleatório (padrão, reprodutível
-            # pelo Random State) ou racional (Kennard-Stone / Sphere Exclusion - BIN/rational_split.py).
-            screen_btns_row.addWidget(self._trL("s6_lbl_split_method"), alignment=Qt.AlignRight)
-            self.cb_skl_split_method = QComboBox()
-            self.cb_skl_split_method.addItems(["Random", "Kennard-Stone", "Sphere Exclusion"] if rational_split is not None else ["Random"])
-            self.cb_skl_split_method.setFixedWidth(200)
-            self._tr("s6_tooltip_split_method", self.cb_skl_split_method.setToolTip)
-            screen_btns_row.addWidget(self.cb_skl_split_method, alignment=Qt.AlignRight)
-            # Com Test Size = 0 (modo sem teste) não há divisão - o método fica desabilitado.
-            self.dsp_skl_test_size.valueChanged.connect(lambda v: self.cb_skl_split_method.setEnabled(v > 0))
-            screen_btns_row.addSpacing(10)
 
             self.btn_skl_run_screening = QPushButton(); self._tr("s6_btn_run_screening", self.btn_skl_run_screening.setText)
             self.btn_skl_run_screening.setProperty("role", "primary")
             self.btn_skl_run_screening.setFixedWidth(160)
-            screen_btns_row.addWidget(self.btn_skl_run_screening, alignment=Qt.AlignRight)
-            lay_skl_screen.addLayout(screen_btns_row, 1)
+            screen_btns_row.addWidget(self.btn_skl_run_screening)
+            screen_grid.addLayout(screen_btns_row, 1, 2)
+            # A linha 1 do CV Folds tem a mesma altura da linha de botões (centros alinhados).
+            metric_col_skl.setRowMinimumHeight(6, self.btn_skl_run_screening.sizeHint().height())
+
+            lay_skl_screen.addLayout(screen_grid, 1)
 
             # Stretch=1: sem isso, gb_skl_screen (e a lista Models/caixa Status dentro dele)
             # sempre usava seu tamanho natural, e era outra parte da aba que absorvia toda a
@@ -20849,6 +20879,7 @@ class MainWindow(QMainWindow):
             # ============== CONEXÕES ==============
             self._populate_skl_model_list()
             self.ed_skl_USI.activated.connect(self._on_skl_usi_selected)
+            self.ed_skl_USI.currentTextChanged.connect(lambda _txt: self._refresh_skl_view_rank_enabled())
             self.btn_skl_run_screening.clicked.connect(self.run_skl_screening)
             self.cb_skl_tune_model.currentTextChanged.connect(self._refresh_skl_hyperparam_table)
             self.cb_skl_tune_model.currentTextChanged.connect(self._refresh_skl_tune_param_options)
@@ -22866,6 +22897,7 @@ class MainWindow(QMainWindow):
             self.ed_skl_USI.blockSignals(False)
 
         self._refresh_skl_usi_combo()
+        self._refresh_skl_view_rank_enabled()
 
         return paths
 
@@ -23544,6 +23576,7 @@ class MainWindow(QMainWindow):
             rank_df.to_csv(out_path, index=False)
         except Exception:
             pass
+        self._refresh_skl_view_rank_enabled()
 
         self.show_dataframe(rank_df)
 
@@ -24163,7 +24196,7 @@ class MainWindow(QMainWindow):
             _registry, task = self._get_skl_registry()
             # Nome das colunas de predição: <métrica de bioatividade>_<nome do modelo> (ex.:
             # "IC50_RandomForestRegressor") — usa a mesma coluna Y escolhida no Screening
-            # ("Select Y column (internal df):"), para que STEP 8/Value Column consiga reconhecer a
+            # ("Y column (internal df):"), para que STEP 8/Value Column consiga reconhecer a
             # natureza da métrica mesmo com vários modelos gerando várias colunas de predição.
             y_col = self.cb_skl_y.currentText().strip() if hasattr(self, "cb_skl_y") else ""
 
@@ -24404,7 +24437,7 @@ class MainWindow(QMainWindow):
 
     def _skl_detect_external_y_column(self, df_ext=None):
         """Heurística do "With Y": procura no External DataFrame a coluna Y usada no treino da USI
-        atual ("Select Y column (internal df)"). Tenta, em ordem: nome idêntico; mesmo nome
+        atual ("Y column (internal df)"). Tenta, em ordem: nome idêntico; mesmo nome
         ignorando maiúsculas/espaços nas pontas; mesmo nome só com letras e dígitos (ex.:
         "pIC50" == "p_IC50" == "PIC50 "). A coluna só é aceita se tiver valores utilizáveis:
         numéricos (>= 3) na regressão; na classificação, ao menos uma classe vista no treino.
@@ -24459,7 +24492,7 @@ class MainWindow(QMainWindow):
     # ---------- CHARTS ----------
 
     def run_view_skl_train_test_frequency(self):
-        """Botão "View Frequency" do grupo Model Screening (STEP 4): gráfico de barras com o
+        """Botão "View Split" do grupo Model Screening (STEP 4): gráfico de barras com o
         tamanho do conjunto de treino e do conjunto de teste, calculados a partir de "Select Test
         Size" e do número de linhas do DataFrame Interno selecionado - não depende de Run
         Screening já ter sido executado (não faz nenhum split de fato). Salva automaticamente em
@@ -24505,6 +24538,154 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, i18n.t("msg_title_plot", self._idioma), f"Could not auto-save chart to MIDIA:\n{e}")
 
         self._show_skl_plot_dialog(fig, "train_test_frequency", file_stem)
+
+    # Métricas do gráfico "View Rank" (legenda, nomes de coluna aceitos em ordem de preferência).
+    # " CV" = ranking atual (validação cruzada no treino); " Test"/sem sufixo = USIs antigas, de
+    # quando o Screening ainda ranqueava pelo conjunto de teste. R2 CV é o Q² da tabela.
+    _SKL_RANK_CHART_METRICS = {
+        "regression": [
+            ("R2", ["Q2 CV", "R2 CV", "R2 Test", "R2"]),
+            ("MSE", ["MSE CV", "MSE Test", "MSE"]),
+            ("RMSE", ["RMSE CV", "RMSE Test", "RMSE"]),
+            ("MAE", ["MAE CV", "MAE Test", "MAE"]),
+        ],
+        "classification": [
+            ("Accuracy", ["Accuracy CV", "Accuracy Test", "Accuracy"]),
+            ("Precision", ["Precision CV", "Precision Test", "Precision"]),
+            ("Specificity", ["Specificity CV", "Specificity Test", "Specificity"]),
+            ("MCC", ["MCC CV", "MCC Test", "MCC"]),
+        ],
+    }
+
+    def _skl_latest_screening_csv(self, usi=None):
+        """skl_screening_<USI>_*.csv mais recente da USI indicada (ou da exibida no combobox USI),
+        sem criar pastas. None se a USI ainda não teve um Run Screening."""
+        project_dir = getattr(self, "project_dir", None)
+        if not project_dir:
+            return None
+        if usi is None:
+            try:
+                usi = self.ed_skl_USI.currentText().strip() if hasattr(self, "ed_skl_USI") else ""
+            except Exception:
+                usi = ""
+            usi = usi or str(getattr(self, "skl_usi_key", "") or "").strip()
+        if not usi:
+            return None
+        files = glob.glob(os.path.join(project_dir, "RESULTS", "USI", usi, "DATA", f"skl_screening_{glob.escape(usi)}_*.csv"))
+        return max(files, key=os.path.getmtime) if files else None
+
+    def _refresh_skl_view_rank_enabled(self):
+        if hasattr(self, "btn_skl_view_rank"):
+            self.btn_skl_view_rank.setEnabled(self._skl_latest_screening_csv() is not None)
+
+    def run_view_skl_screening_rank(self):
+        """Botão "View Rank" do grupo Model Screening (STEP 4): barras horizontais com os 5 melhores
+        modelos do último Run Screening da USI atual (o melhor em cima, na ordem do ranking já gravada
+        em skl_screening_<USI>_*.csv), uma barra por métrica (regressão: R2, MSE, RMSE e MAE;
+        classificação: Accuracy, Precision, Specificity e MCC). O nome de cada modelo fica dentro da
+        área do gráfico, à direita das suas barras, e a legenda das métricas fica suspensa acima do
+        gráfico (arrastável). O diálogo oferece "Save Chart" na pasta MIDIA dessa USI."""
+        csv_path = self._skl_latest_screening_csv()
+        if csv_path is None:
+            QMessageBox.warning(self, i18n.t("msg_title_screening", self._idioma), "Run Screening first for this USI.")
+            self._refresh_skl_view_rank_enabled()
+            return
+        usi = os.path.basename(os.path.dirname(os.path.dirname(csv_path)))
+        try:
+            df = pd.read_csv(csv_path)
+        except Exception as e:
+            QMessageBox.critical(self, i18n.t("msg_title_screening", self._idioma), f"Could not read {csv_path}:\n{e}")
+            return
+
+        session = {}
+        try:
+            session = json.loads(Path(os.path.join(os.path.dirname(os.path.dirname(csv_path)), "skl_session.json")).read_text(encoding="utf-8"))
+        except Exception:
+            pass
+        task = str(session.get("task", "")).strip().lower()
+        if task not in self._SKL_RANK_CHART_METRICS:
+            task = "regression" if any(c in df.columns for c in ("Q2 CV", "R2 Test", "RMSE CV", "RMSE")) else (
+                "classification" if any(c in df.columns for c in ("Accuracy CV", "Accuracy Test", "Accuracy")) else task)
+        if task not in self._SKL_RANK_CHART_METRICS or "Model" not in df.columns:
+            QMessageBox.information(self, i18n.t("msg_title_screening", self._idioma),
+                                    "View Rank is available for regression and classification screenings.")
+            return
+
+        metrics = []
+        for label, candidates in self._SKL_RANK_CHART_METRICS[task]:
+            col = next((c for c in candidates if c in df.columns), None)
+            if col is not None:
+                metrics.append((label, col))
+        if not metrics:
+            QMessageBox.warning(self, i18n.t("msg_title_screening", self._idioma), "No metric column found in the screening file.")
+            return
+
+        top = df.head(5).reset_index(drop=True)
+        n_models, n_metrics = len(top), len(metrics)
+        values = np.array([[pd.to_numeric(top.loc[i, col], errors="coerce") for _, col in metrics]
+                           for i in range(n_models)], dtype=float)
+        colors = ["#357fb4", "#bd793d", "#59af59", "#bd5e5e"]
+        group_h = 0.8
+        bar_h = group_h / n_metrics
+
+        fig, ax = plt.subplots(figsize=(10, 1.3 * n_models + 2.2))
+        for j, (label, _col) in enumerate(metrics):
+            # Melhor modelo em cima (y maior) e, dentro de cada grupo, as métricas na ordem da legenda.
+            ys = [(n_models - 1 - i) + ((n_metrics - 1) / 2 - j) * bar_h for i in range(n_models)]
+            ax.barh(ys, np.nan_to_num(values[:, j]), height=bar_h * 0.92, color=colors[j % len(colors)], label=label)
+
+        finite = values[np.isfinite(values)]
+        v_min = min(0.0, float(finite.min())) if finite.size else 0.0
+        v_max = max(0.0, float(finite.max())) if finite.size else 1.0
+        # R2/MCC/Accuracy & cia. ficam em [-1, 1]; MSE/RMSE/MAE podem ficar ordens de grandeza acima
+        # (ex.: MSE ~750 com R2 ~0,9), o que achataria as demais barras. Nesse caso usa escala symlog:
+        # linear em [-1, 1] e logarítmica fora dele.
+        use_symlog = v_max > 10 or v_min < -10
+        if use_symlog:
+            ax.set_xscale("symlog", linthresh=1.0)
+        if v_min < 0:
+            ax.axvline(0, color="#888888", linewidth=0.8)
+
+        name_texts = []
+        for i in range(n_models):
+            row_vals = values[i][np.isfinite(values[i])]
+            x_right = max(0.0, float(row_vals.max())) if row_vals.size else 0.0
+            x_text = x_right * 1.15 if use_symlog else x_right + 0.02 * (v_max - v_min or 1.0)
+            name_texts.append(ax.text(x_text, n_models - 1 - i, f"{i + 1}. {top.loc[i, 'Model']}",
+                                      va="center", ha="left", fontsize=9, fontweight="bold"))
+
+        ax.set_ylim(-0.6, n_models - 0.4)
+        ax.set_yticks([])
+        ax.set_ylabel("Models", fontsize=10, fontweight="bold")
+        ax.set_xlabel("Metrics", fontsize=10, fontweight="bold")
+        ax.spines[["top", "right"]].set_visible(False)
+        ax.grid(False)
+        left = v_min * 1.1 if v_min < 0 else 0.0
+        ax.set_xlim(left, v_max * 1.2 if v_max > 0 else 1.0)
+        # Estende o eixo X até caber o nome mais comprido (dentro da área do gráfico).
+        try:
+            for _ in range(3):
+                fig.canvas.draw()
+                inv = ax.transData.inverted()
+                renderer = fig.canvas.get_renderer()
+                right = max(inv.transform(t.get_window_extent(renderer))[1][0] for t in name_texts)
+                if right <= ax.get_xlim()[1]:
+                    break
+                ax.set_xlim(left, right * 1.05 if use_symlog else right + 0.02 * (right - left))
+        except Exception:
+            pass
+
+        source = "cross-validation on the training set" if metrics[0][1].endswith(" CV") else "test set"
+        sort_metric = str(session.get("sort_metric", "") or "").strip()
+        subtitle = f"{source}" + (f" · ranked by {sort_metric}" if sort_metric else "") + (" · symlog scale" if use_symlog else "")
+        fig.suptitle(f"Top {n_models} models - Run Screening (USI {usi})", fontweight="bold")
+        ax.set_title(subtitle, fontsize=9, color="#555555", pad=34)
+        legend = ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=n_metrics, frameon=True, fontsize=9)
+        legend.set_draggable(True)
+        fig.tight_layout()
+
+        self._set_current_sklearn_usi_context(usi)
+        self._show_skl_plot_dialog(fig, "screening_rank", f"Screening_Rank_Top{n_models}_{usi}")
 
     def run_skl_plot(self):
         try:

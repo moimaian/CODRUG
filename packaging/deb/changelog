@@ -17,6 +17,22 @@ codrug (1.1.0-1) unstable; urgency=low
     lugar do sudo (BIN/module_requirements.py).
   * Janela do CPU/GPU Monitor mostra só os quadros de CPU e GPU, sem o
     título e a nota de rodapé internos (BIN/hw_monitor_window.py).
+  * STEP 2: o grupo "Select columns and convert units" passa a se chamar
+    "Remove or convert data" ("Remover ou converter dados") (BIN/i18n.py).
+  * STEP 4: "View Frequency" passa a se chamar "View Split", e o novo botão
+    "View Rank" (habilitado quando a USI selecionada já tem um Run
+    Screening) mostra barras horizontais dos 5 melhores modelos do ranking
+    (o melhor em cima), uma barra por métrica (regressão: R2, MSE, RMSE,
+    MAE; classificação: Accuracy, Precision, Specificity, MCC), com o nome
+    do modelo à direita das barras, legenda suspensa arrastável e "Save
+    Chart" na pasta MIDIA da USI. Escala symlog automática quando os erros
+    passam de 10, para as métricas em [-1, 1] não sumirem (CODRUG.py,
+    BIN/i18n.py).
+  * STEP 4, grupo Model Screening: rótulos sem "Select" ("X range", "Y
+    column", "Test Size"), todos alinhados à direita junto do campo; "Split"
+    vira "Split Method" e passa para logo abaixo do Test Size; CV Folds
+    (train) vai para a linha dos botões, e View Split/View Rank ficam abaixo
+    da barra de progresso, antes do Run Screening (CODRUG.py, BIN/i18n.py).
 
  -- Moisés Maia Neto <moimaian@gmail.com>  Fri, 09 Oct 2026 03:00:00 -0300
 

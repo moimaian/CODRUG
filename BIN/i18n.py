@@ -297,7 +297,7 @@ _TEXTOS = {
     "chk_trend_line": {"en": "Trend Line", "pt": "Linha de Tendência"},
 
     # ---------------------------------------------------------------- STEP 2 (Preprocessing / Exploratory Analysis)
-    "s2_grp_select_convert": {"en": "Select columns and convert units", "pt": "Selecionar colunas e converter unidades"},
+    "s2_grp_select_convert": {"en": "Remove or convert data", "pt": "Remover ou converter dados"},
     "s2_lbl_select_columns_interest": {"en": "1. Select columns \nof interest:", "pt": "1. Selecione as colunas \nde interesse:"},
     "s2_chk_use_standard_values": {"en": "Use Standard values", "pt": "Usar valores padronizados"},
     "s2_btn_count_filter_columns": {"en": "Count and Filter \nColumns of interest", "pt": "Contar e Filtrar \nColunas de interesse"},
@@ -626,9 +626,9 @@ _TEXTOS = {
     "s6_grp_model_screening": {"en": "Model Screening", "pt": "Seleção de Modelos"},
     "lbl_models": {"en": "Models:", "pt": "Modelos:"},
     "s6_lbl_sort_metric": {"en": "Sort metric:", "pt": "Métrica de ordenação:"},
-    "s6_lbl_select_x_range": {"en": "Select X range (internal df):", "pt": "Selecione o intervalo X (df interno):"},
-    "s6_lbl_select_y_column_internal": {"en": "Select Y column (internal df):", "pt": "Selecione a coluna Y (df interno):"},
-    "s6_lbl_select_test_size": {"en": "Select Test Size:", "pt": "Selecione o Tamanho do Teste:"},
+    "s6_lbl_select_x_range": {"en": "X range (internal df):", "pt": "Intervalo X (df interno):"},
+    "s6_lbl_select_y_column_internal": {"en": "Y column (internal df):", "pt": "Coluna Y (df interno):"},
+    "s6_lbl_select_test_size": {"en": "Test Size:", "pt": "Tamanho do Teste:"},
     "s6_chk_with_y": {"en": "With Y", "pt": "Com Y"},
     "s6_tooltip_with_y": {
         "en": "Checked automatically when the External DataFrame has the same Y column used to train "
@@ -703,7 +703,7 @@ _TEXTOS = {
         "pt": "O método '{method}' prevê o mesmo composto mais de uma vez (Leave-P-Out com p > 1, Bootstrap), então "
               "não há uma predição out-of-fold única por composto. Use KFold, StratifiedKFold, LOOCV ou Nested CV.",
     },
-    "s6_lbl_split_method": {"en": "Split:", "pt": "Divisão:"},
+    "s6_lbl_split_method": {"en": "Split Method:", "pt": "Método de Divisão:"},
     "s6_tooltip_split_method": {
         "en": "How the Internal DataFrame is divided into training and test sets.\n"
               "Random: random split, reproducible with the Random State (default).\n"
@@ -791,7 +791,14 @@ _TEXTOS = {
     "lbl_status": {"en": "Status:", "pt": "Status:"},
     "s6_fmt_screening_progress": {"en": "Screening: %p%", "pt": "Seleção: %p%"},
     "btn_select_all": {"en": "Select All", "pt": "Selecionar Tudo"},
-    "s6_btn_view_train_test_freq": {"en": "View Frequency", "pt": "Ver Frequência"},
+    "s6_btn_view_train_test_freq": {"en": "View Split", "pt": "Ver Divisão"},
+    "s6_btn_view_rank": {"en": "View Rank", "pt": "Ver Ranking"},
+    "s6_tooltip_view_rank": {
+        "en": "Bar chart of the 5 best models of the selected USI's Run Screening (best at the top), "
+              "one bar per metric. Enabled after Run Screening has been executed for this USI.",
+        "pt": "Gráfico de barras dos 5 melhores modelos do Run Screening da USI selecionada (o melhor "
+              "em cima), uma barra por métrica. Habilitado depois de executar o Run Screening nesta USI.",
+    },
     "s6_btn_run_screening": {"en": "Run Screening", "pt": "Executar Seleção"},
     "s6_grp_hyperparameter_tuning": {"en": "Hyperparameter Tuning", "pt": "Ajuste de Hiperparâmetros"},
     "lbl_model": {"en": "Model:", "pt": "Modelo:"},
