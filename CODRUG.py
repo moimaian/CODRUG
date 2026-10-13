@@ -471,7 +471,7 @@ SKL_PARAM_GRIDS = {
     "GradientBoostingRegressor": [("n_estimators", "100,200,300"), ("learning_rate", "0.01,0.05,0.1"), ("max_depth", "3,5,7"), ("subsample", "0.8,1.0")],
     "ExtraTreesRegressor": [("n_estimators", "100,200,300"), ("max_depth", "None,10,20"), ("min_samples_split", "2,5,10"), ("min_samples_leaf", "1,2,4")],
     "AdaBoostRegressor": [("n_estimators", "50,100,200"), ("learning_rate", "0.01,0.1,1.0"), ("loss", "linear,square,exponential")],
-    "KNeighborsRegressor": [("n_neighbors", "3,5,7,10"), ("weights", "uniform,distance"), ("algorithm", "auto,ball_tree,kd_tree")],
+    "KNeighborsRegressor": [("n_neighbors", "3,5,7,10"), ("weights", "uniform,distance"), ("metric", "minkowski,jaccard"), ("algorithm", "auto,ball_tree,brute")],
     "Ridge": [("alpha", "0.1,1.0,10.0,100.0"), ("solver", "auto,svd,cholesky")],
     "Lasso": [("alpha", "0.001,0.01,0.1,1.0"), ("max_iter", "1000,5000")],
     "ElasticNet": [("alpha", "0.001,0.01,0.1,1.0"), ("l1_ratio", "0.1,0.5,0.9")],
@@ -493,7 +493,7 @@ SKL_PARAM_GRIDS = {
     "GradientBoostingClassifier": [("n_estimators", "100,200,300"), ("learning_rate", "0.01,0.05,0.1"), ("max_depth", "3,5,7"), ("subsample", "0.8,1.0")],
     "ExtraTreesClassifier": [("n_estimators", "100,200,300"), ("max_depth", "None,10,20"), ("min_samples_split", "2,5,10"), ("min_samples_leaf", "1,2,4")],
     "AdaBoostClassifier": [("n_estimators", "50,100,200"), ("learning_rate", "0.01,0.1,1.0")],
-    "KNeighborsClassifier": [("n_neighbors", "3,5,7,10"), ("weights", "uniform,distance"), ("algorithm", "auto,ball_tree,kd_tree")],
+    "KNeighborsClassifier": [("n_neighbors", "3,5,7,10"), ("weights", "uniform,distance"), ("metric", "minkowski,jaccard"), ("algorithm", "auto,ball_tree,brute")],
     "LogisticRegression": [("C", "0.01,0.1,1.0,10.0"), ("solver", "lbfgs,liblinear")],
     "RidgeClassifier": [("alpha", "0.1,1.0,10.0")],
     "SGDClassifier": [("alpha", "0.0001,0.001,0.01"), ("penalty", "l2,l1,elasticnet")],
@@ -2504,7 +2504,8 @@ class SklScreeningWorker(QThread): # type: ignore
     finished_all = pyqtSignal(object)
     error = pyqtSignal(str)
 
-    def __init__(self, task, model_specs, x, y, random_state, test_size=0.2, cv_folds=5, split_method="Random"):
+    def __init__(self, task, model_specs, x, y, random_state, test_size=0.2, cv_folds=5, split_method="Random",
+                 smiles=None):
         super().__init__()
         self.task = task
         self.model_specs = model_specs  # lista de (nome, classe, kwargs)
@@ -2513,7 +2514,8 @@ class SklScreeningWorker(QThread): # type: ignore
         self.random_state = random_state
         self.test_size = test_size
         self.cv_folds = cv_folds
-        self.split_method = split_method  # "Random", "Kennard-Stone" ou "Sphere Exclusion"
+        self.split_method = split_method  # "Random", "Kennard-Stone", "Sphere Exclusion" ou "Scaffold"
+        self.smiles = smiles  # SMILES alinhados linha a linha com x - só para o split "Scaffold"
         self.trained_models = {}
         self.x_train = self.x_test = self.y_train = self.y_test = None
 
@@ -2558,7 +2560,7 @@ class SklScreeningWorker(QThread): # type: ignore
                         # espaço químico do treino - ver BIN/rational_split.py.
                         self.x_train, self.x_test, self.y_train, self.y_test = rational_split.split(
                             self.x, self.y, self.test_size, self.split_method, self.task,
-                            random_state=self.random_state,
+                            random_state=self.random_state, smiles=self.smiles,
                         )
                     else:
                         self.x_train, self.x_test, self.y_train, self.y_test = train_test_split(
@@ -2949,16 +2951,34 @@ class SklTuneWorker(QThread): # type: ignore
 
 
 def _specificity_score(y_true, y_pred):
-    """Specificity / True Negative Rate = TN/(TN+FP) - classificação binária apenas (o
-    equivalente do CODRUG à 'Specificity' reportada pelo POSEIDON; Sensitivity/Recall e Accuracy
-    já são a mesma métrica sob outro nome, e MCC já existe com a mesma fórmula). Como não há um
-    conceito único de "classe negativa" para 3+ classes, retorna NaN fora do caso binário - mesma
-    degradação graciosa já usada para AUC em contextos incompatíveis."""
+    """Specificity / True Negative Rate = TN/(TN+FP) (o equivalente do CODRUG à 'Specificity'
+    reportada pelo POSEIDON; Sensitivity/Recall e Accuracy já são a mesma métrica sob outro nome,
+    e MCC já existe com a mesma fórmula).
+    - Binária: TN/(TN+FP), tomando a segunda classe em ordem (rótulos ordenados) como positiva.
+    - 3+ classes: não há uma única "classe negativa", então calcula a especificidade de cada classe
+      contra as demais (one-vs-rest) e faz a média ponderada pelo nº de amostras reais de cada classe
+      - mesmo critério "weighted" de Precision/Recall/F1. Antes retornava NaN nesse caso."""
     labels = np.unique(np.concatenate([np.asarray(y_true), np.asarray(y_pred)]))
-    if len(labels) != 2:
+    if len(labels) < 2:
         return float("nan")
-    tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=labels).ravel()
-    return float(tn / (tn + fp)) if (tn + fp) > 0 else float("nan")
+    cm = confusion_matrix(y_true, y_pred, labels=labels)
+    if len(labels) == 2:
+        tn, fp, fn, tp = cm.ravel()
+        return float(tn / (tn + fp)) if (tn + fp) > 0 else float("nan")
+    total = cm.sum()
+    support = cm.sum(axis=1)
+    specs, weights = [], []
+    for i in range(len(labels)):
+        tp = cm[i, i]
+        fp = cm[:, i].sum() - tp
+        fn = cm[i, :].sum() - tp
+        tn = total - tp - fp - fn
+        if (tn + fp) > 0 and support[i] > 0:
+            specs.append(tn / (tn + fp))
+            weights.append(support[i])
+    if not specs:
+        return float("nan")
+    return float(np.average(specs, weights=weights))
 
 
 def _skl_curve_compute_metric(metric, y_true, y_pred, model=None, x=None):
@@ -11657,7 +11677,17 @@ class MainWindow(QMainWindow):
 
             # X: colunas de descritores (Feature Columns Range ou detecção automática); Y quando existir.
             x = None
-            if method != "Random":
+            smiles = None
+            if method == "Scaffold":
+                # Scaffold: agrupa pelos esqueletos de Bemis-Murcko do SMILES - não usa os descritores.
+                smiles_col = (self.cb_select_structure.currentText().strip() if hasattr(self, "cb_select_structure") else "")
+                if smiles_col not in df.columns:
+                    smiles_col = _chembl_col(df.columns, "canonical_smiles")
+                if not smiles_col:
+                    QMessageBox.warning(self, title, i18n.t("s4_msg_split_no_smiles", idioma)); return
+                smiles = df[smiles_col].tolist()
+                x = df[[]].assign(_row=np.arange(len(df)))
+            elif method != "Random":
                 rng = None
                 try:
                     first = int(self.ed_feature_first_column.text().strip())
@@ -11694,7 +11724,7 @@ class MainWindow(QMainWindow):
             if rational_split is not None:
                 x_int, x_ext, _yi, _ye = rational_split.split(
                     x, y, size, method, task if task in ("regression", "classification") else "regression",
-                    random_state=seed)
+                    random_state=seed, smiles=smiles)
             else:
                 from sklearn.model_selection import train_test_split
                 x_int, x_ext = train_test_split(x, test_size=size, random_state=seed)
@@ -11727,7 +11757,7 @@ class MainWindow(QMainWindow):
             self._refresh_step4_dataframe_widgets()
             self._step4_last_external_split = {
                 "source": os.path.basename(src_path), "method": method, "external_size": size,
-                "random_state": seed if method == "Random" else None,
+                "random_state": seed if method in ("Random", "Scaffold") else None,
                 "n_total": int(len(df)), "n_internal": int(len(df_int)), "n_external": int(len(df_ext)),
                 "internal_file": int_name, "external_file": ext_name,
                 "y_column": ycol if y is not None else None,
@@ -19789,7 +19819,7 @@ class MainWindow(QMainWindow):
             ext_split_layout.addSpacing(12)
             ext_split_layout.addWidget(self._trL("s4_lbl_split_method"))
             self.cb_ext_split_method = QComboBox()
-            self.cb_ext_split_method.addItems(["Random", "Kennard-Stone", "Sphere Exclusion"] if rational_split is not None else ["Random"])
+            self.cb_ext_split_method.addItems(["Random", "Kennard-Stone", "Sphere Exclusion", "Scaffold"] if rational_split is not None else ["Random"])
             self.cb_ext_split_method.setFixedWidth(170)
             self._tr("s4_tooltip_ext_split_method", self.cb_ext_split_method.setToolTip)
             ext_split_layout.addWidget(self.cb_ext_split_method)
@@ -20491,6 +20521,13 @@ class MainWindow(QMainWindow):
             head_skl2.addWidget(df_name_view_ext_skl, alignment=Qt.AlignLeft)
             head_skl2.addWidget(USI_label_skl, alignment=Qt.AlignRight)
             head_skl2.addWidget(self.ed_skl_USI, alignment=Qt.AlignLeft)
+            # "Remove USI": apaga a pasta inteira da USI selecionada (mesmo estilo "danger" do Remove Model).
+            self.btn_skl_remove_usi = QPushButton(); self._tr("s6_btn_remove_usi", self.btn_skl_remove_usi.setText)
+            self._tr("s6_tooltip_remove_usi", self.btn_skl_remove_usi.setToolTip)
+            self.btn_skl_remove_usi.setProperty("role", "danger")
+            self.btn_skl_remove_usi.setFixedWidth(120)
+            self.btn_skl_remove_usi.clicked.connect(self.run_skl_remove_usi)
+            head_skl2.addWidget(self.btn_skl_remove_usi, alignment=Qt.AlignLeft)
             head_skl2.addStretch()
 
             l_skl.addLayout(head_skl1)
@@ -20574,7 +20611,7 @@ class MainWindow(QMainWindow):
             # Método de divisão treino/teste, logo abaixo do Test Size: aleatório (padrão, reprodutível
             # pelo Random State) ou racional (Kennard-Stone / Sphere Exclusion - BIN/rational_split.py).
             self.cb_skl_split_method = QComboBox()
-            self.cb_skl_split_method.addItems(["Random", "Kennard-Stone", "Sphere Exclusion"] if rational_split is not None else ["Random"])
+            self.cb_skl_split_method.addItems(["Random", "Kennard-Stone", "Sphere Exclusion", "Scaffold"] if rational_split is not None else ["Random"])
             self.cb_skl_split_method.setFixedWidth(160)
             self._tr("s6_tooltip_split_method", self.cb_skl_split_method.setToolTip)
             _metric_row(4, "s6_lbl_split_method", self.cb_skl_split_method)
@@ -23152,7 +23189,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-    def _on_skl_usi_selected(self, index):
+    def _on_skl_usi_selected(self, index, quiet=False):
         """Carrega automaticamente uma corrida anterior da STEP 6 quando o usuário seleciona um
         código existente no combobox USI: modelos treinados, dados de treino/teste (para Performance
         Charts), os campos de Screening (Sort metric/X range/Y column/Test Size) e, por modelo, as
@@ -23259,11 +23296,115 @@ class MainWindow(QMainWindow):
 
         if not names:
             QMessageBox.warning(self, i18n.t("msg_title_usi", self._idioma), f"No saved models were found on disk for USI '{code}'.")
-        else:
+        elif not quiet:
             QMessageBox.information(self, i18n.t("msg_title_usi", self._idioma),
                 f"USI '{code}' loaded: {len(names)} model(s) available"
                 f"{' (with train/test data)' if getattr(self, 'skl_x_train', None) is not None else ''}."
             )
+
+    def _clear_skl_session(self):
+        """Esvazia a sessão da STEP 4 (modelos, split treino/teste, configurações por modelo, tabelas)
+        - usado quando a última USI do projeto é removida e não há outra para carregar."""
+        self.skl_trained_models = {}
+        for attr in ("skl_x", "skl_y", "skl_x_train", "skl_x_test", "skl_y_train", "skl_y_test",
+                     "skl_current_model", "skl_current_model_name", "skl_screening_best_model_name",
+                     "skl_screening_rank", "_skl_cv_oof", "skl_usi_key"):
+            setattr(self, attr, None)
+        self._skl_tuned_param_grids = {}
+        self._skl_tuning_settings = {}
+        self._skl_validation_settings = {}
+        self._skl_refit_settings = {}
+        self._skl_usi_pending_from_load = False
+        self._refresh_skl_model_combo()
+        if hasattr(self, "tbl_skl_cv"):
+            self.tbl_skl_cv.setRowCount(0)
+            self.tbl_skl_cv.setColumnCount(0)
+        for attr in ("txt_skl_status", "lbl_skl_yrand_summary"):
+            widget = getattr(self, attr, None)
+            if widget is not None:
+                widget.clear()
+        if hasattr(self, "pb_skl_screening"):
+            self.pb_skl_screening.setValue(0)
+        if hasattr(self, "ed_skl_USI"):
+            self.ed_skl_USI.blockSignals(True)
+            self.ed_skl_USI.setCurrentText("")
+            self.ed_skl_USI.blockSignals(False)
+        self._refresh_skl_view_rank_enabled()
+
+    def run_skl_remove_usi(self):
+        """Botão "Remove USI" (ao lado do combobox USI): apaga, após confirmação, a pasta inteira
+        RESULTS/USI/<USI> da USI selecionada (modelos, dados, gráficos, predições) e carrega a USI
+        seguinte da lista (ou a anterior, se a removida era a última). Sem nenhuma USI restante, a
+        sessão da STEP 4 é esvaziada."""
+        idioma = self._idioma
+        title = i18n.t("msg_title_usi", idioma)
+        project_dir = getattr(self, "project_dir", None)
+        code = self.ed_skl_USI.currentText().strip() if hasattr(self, "ed_skl_USI") else ""
+        usi_root = os.path.join(project_dir, "RESULTS", "USI") if project_dir else ""
+        folder = os.path.join(usi_root, code) if code else ""
+        # Só remove uma pasta que esteja de fato dentro de RESULTS/USI (nunca um caminho digitado
+        # com "..", "/" etc. no combobox editável).
+        if (not code or not project_dir or os.sep in code or code in (".", "..")
+                or not os.path.isdir(folder)
+                or os.path.dirname(os.path.realpath(folder)) != os.path.realpath(usi_root)):
+            QMessageBox.warning(self, title, i18n.t("s6_msg_remove_usi_none", idioma, usi=code or "-"))
+            return
+
+        n_files, n_bytes = 0, 0
+        for root, _dirs, files in os.walk(folder):
+            for f in files:
+                n_files += 1
+                try:
+                    n_bytes += os.path.getsize(os.path.join(root, f))
+                except OSError:
+                    pass
+        models_dir = os.path.join(folder, "MODELS")
+        n_models = len([f for f in os.listdir(models_dir) if f.endswith(".joblib")]) if os.path.isdir(models_dir) else 0
+        answer = QMessageBox.question(
+            self, title,
+            i18n.t("s6_msg_remove_usi_confirm", idioma, usi=code, n_models=n_models, n_files=n_files,
+                   size=f"{n_bytes / 1048576:.1f}", path=folder),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+
+        # Lista de USIs (as do combobox) ANTES da remoção, para escolher a seguinte.
+        codes = [self.ed_skl_USI.itemText(i) for i in range(self.ed_skl_USI.count())]
+        try:
+            shutil.rmtree(folder)
+        except Exception as e:
+            QMessageBox.critical(self, title, i18n.t("s6_msg_remove_usi_error", idioma, usi=code, error=str(e)))
+            self._refresh_skl_usi_combo()
+            return
+
+        next_code = None
+        if code in codes:
+            pos = codes.index(code)
+            remaining = codes[:pos] + codes[pos + 1:]
+            if remaining:
+                next_code = remaining[min(pos, len(remaining) - 1)]
+        else:
+            remaining = [c for c in codes if c != code]
+            next_code = remaining[0] if remaining else None
+        if next_code and not os.path.isfile(os.path.join(usi_root, next_code, "skl_session.json")):
+            next_code = None
+
+        self._refresh_skl_usi_combo()
+        if next_code:
+            idx = self.ed_skl_USI.findText(next_code)
+            self.ed_skl_USI.blockSignals(True)
+            self.ed_skl_USI.setCurrentIndex(idx)
+            self.ed_skl_USI.blockSignals(False)
+            self._on_skl_usi_selected(idx, quiet=True)
+            self._save_step6_sklearn_state()
+            QMessageBox.information(self, title, i18n.t(
+                "s6_msg_remove_usi_done_next", idioma, usi=code, next_usi=next_code,
+                n=len(getattr(self, "skl_trained_models", {}) or {})))
+        else:
+            self._clear_skl_session()
+            self._save_project_state({"step6_sklearn": {}})
+            QMessageBox.information(self, title, i18n.t("s6_msg_remove_usi_done_none", idioma, usi=code))
 
     def _populate_skl_model_list(self):
         if not hasattr(self, "list_skl_models"):
@@ -23600,9 +23741,18 @@ class MainWindow(QMainWindow):
                     "Reduce 'CV Folds (train)' or the test size.")
                 return
             split_method = self.cb_skl_split_method.currentText() if hasattr(self, "cb_skl_split_method") else "Random"
+            smiles = None
+            if split_method == "Scaffold" and test_size > 0:
+                # SMILES do Internal DataFrame, nas mesmas linhas de X (Bemis-Murcko por composto).
+                smiles_col = _chembl_col(self.df_int.columns, "canonical_smiles")
+                if smiles_col is None:
+                    QMessageBox.warning(self, i18n.t("msg_title_screening", self._idioma),
+                                        i18n.t("s4_msg_split_no_smiles", self._idioma))
+                    return
+                smiles = self.df_int.loc[x.index, smiles_col].tolist()
             self._skl_screening_worker = SklScreeningWorker(task, model_specs, x, y, random_state,
                                                             test_size=test_size, cv_folds=cv_folds,
-                                                            split_method=split_method)
+                                                            split_method=split_method, smiles=smiles)
             self._skl_screening_worker.progress.connect(self._on_skl_screening_progress)
             self._skl_screening_worker.finished_all.connect(self._on_skl_screening_finished)
             self._skl_screening_worker.error.connect(self._on_skl_screening_error)

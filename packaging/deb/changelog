@@ -1,3 +1,32 @@
+codrug (1.2.0-1) unstable; urgency=low
+
+  * Nova divisão por Scaffold (Bemis & Murcko, versão "balanced") no
+    "Split Method" da STEP 4 e no "Split External DataFrame" da STEP 3:
+    agrupa os compostos pelo esqueleto de Bemis-Murcko do SMILES e reparte
+    grupos inteiros (nenhum scaffold compartilhado entre os conjuntos),
+    reprodutível pelo Random State - mede a previsão de famílias químicas
+    novas, ao contrário de Kennard-Stone/Sphere Exclusion, que deixam o
+    teste/externo dentro do espaço químico do treino. Relatório final e
+    dicas descrevem o método (BIN/rational_split.py, CODRUG.py,
+    BIN/i18n.py, BIN/module_report.py).
+  * Grade padrão do Tuning do KNeighborsClassifier/Regressor ganha
+    metric = minkowski,jaccard (Jaccard = Tanimoto, adequada a
+    fingerprints binários); algorithm passa a auto,ball_tree,brute, já que
+    o kd_tree não aceita Jaccard (CODRUG.py).
+  * Corrige a Specificity em classificação com 3 ou mais classes (antes
+    NaN): média ponderada da especificidade de cada classe contra as
+    demais (one-vs-rest), mesmo critério "weighted" de Precision/Recall/F1.
+    Vale para Screening, Validation, Tuning e avaliações de teste/externa
+    (CODRUG.py).
+  * STEP 4: novo botão "Remove USI" ao lado do combobox USI (mesmo estilo do
+    Remove Model): após confirmação (com nº de modelos, arquivos e tamanho),
+    apaga a pasta inteira RESULTS/USI/<USI> selecionada e carrega a USI
+    seguinte da lista (ou a anterior, se era a última); sem USI restante, a
+    sessão da STEP 4 é esvaziada. Só remove pastas dentro de RESULTS/USI
+    (CODRUG.py, BIN/i18n.py).
+
+ -- Moisés Maia Neto <moimaian@gmail.com>  Tue, 13 Oct 2026 03:18:10 -0300
+
 codrug (1.1.0-1) unstable; urgency=low
 
   * O CODRUG abre sem terminal: Terminal=false no .desktop do pacote e no

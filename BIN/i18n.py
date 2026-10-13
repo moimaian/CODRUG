@@ -537,10 +537,14 @@ _TEXTOS = {
     "s4_tooltip_ext_split_method": {
         "en": "Random: random split, reproducible with this step's Random State.\n"
               "Kennard-Stone / Sphere Exclusion: rational splits on the descriptor columns of 'Feature Columns Range' "
-              "(the external set lies inside the chemical space of the internal one) - same methods as the 'Split:' of STEP 4.",
+              "(the external set lies inside the chemical space of the internal one) - same methods as the 'Split Method' of STEP 4.\n"
+              "Scaffold: Bemis-Murcko scaffolds of the SMILES column; whole scaffold groups go to one side, so the external "
+              "set has only chemical families absent from the internal one (extrapolation - a harder, more realistic test).",
         "pt": "Random: divisão aleatória, reprodutível pelo Random State desta etapa.\n"
               "Kennard-Stone / Sphere Exclusion: divisões racionais sobre as colunas de descritores de 'Feature Columns Range' "
-              "(o conjunto externo fica dentro do espaço químico do interno) - os mesmos métodos do 'Split:' da ETAPA 4.",
+              "(o conjunto externo fica dentro do espaço químico do interno) - os mesmos métodos do 'Split Method' da ETAPA 4.\n"
+              "Scaffold: esqueletos de Bemis-Murcko da coluna de SMILES; grupos inteiros de scaffold vão para um só lado, então o "
+              "conjunto externo só tem famílias químicas ausentes do interno (extrapolação - teste mais difícil e realista).",
     },
     "s4_tooltip_split_external": {
         "en": "Splits the current dataframe into an INTERNAL and an EXTERNAL set (the original file is kept). Do it BEFORE "
@@ -710,6 +714,10 @@ _TEXTOS = {
               "não há uma predição out-of-fold única por composto. Use KFold, StratifiedKFold, LOOCV ou Nested CV.",
     },
     "s6_lbl_split_method": {"en": "Split Method:", "pt": "Método de Divisão:"},
+    "s4_msg_split_no_smiles": {
+        "en": "The Scaffold split needs a SMILES column (e.g. 'SMILES', 'canonical_smiles' or 'Smiles') in the dataframe.",
+        "pt": "A divisão por Scaffold precisa de uma coluna de SMILES (ex.: 'SMILES', 'canonical_smiles' ou 'Smiles') no dataframe.",
+    },
     "s6_tooltip_split_method": {
         "en": "How the Internal DataFrame is divided into training and test sets.\n"
               "Random: random split, reproducible with the Random State (default).\n"
@@ -718,7 +726,10 @@ _TEXTOS = {
               "Sphere Exclusion (Golbraikh & Tropsha): sphere centres go to training and the compounds "
               "inside each sphere go to test; the radius is tuned to approach the chosen test size.\n"
               "Rational methods use Euclidean distances on autoscaled descriptors (first principal "
-              "components, up to 50, when there are more columns) and are applied per class in classification.",
+              "components, up to 50, when there are more columns) and are applied per class in classification.\n"
+              "Scaffold (Bemis-Murcko, balanced): groups compounds by the scaffold of their SMILES and assigns whole "
+              "groups, so no scaffold is shared between training and test - measures prediction of NEW chemical "
+              "families. Reproducible with the Random State; the test size may differ slightly; not stratified by class.",
         "pt": "Como o Internal DataFrame é dividido em conjuntos de treino e teste.\n"
               "Random: divisão aleatória, reprodutível pelo Random State (padrão).\n"
               "Kennard-Stone: escolhe o treino para cobrir o espaço dos descritores (distância max-min); "
@@ -727,7 +738,10 @@ _TEXTOS = {
               "compostos dentro de cada esfera vão para o teste; o raio é ajustado para se aproximar do "
               "tamanho de teste escolhido.\n"
               "Os métodos racionais usam distâncias euclidianas nos descritores autoescalados (primeiras "
-              "componentes principais, até 50, quando há mais colunas) e são aplicados por classe na classificação.",
+              "componentes principais, até 50, quando há mais colunas) e são aplicados por classe na classificação.\n"
+              "Scaffold (Bemis-Murcko, balanced): agrupa os compostos pelo esqueleto do SMILES e reparte grupos "
+              "inteiros, então nenhum scaffold aparece no treino e no teste - mede a previsão de famílias químicas "
+              "NOVAS. Reprodutível pelo Random State; o tamanho do teste pode diferir um pouco; não estratifica por classe.",
     },
     "msg_title_refit": {"en": "Refit", "pt": "Refit"},
     "s6_btn_refit": {"en": "Refit", "pt": "Refit"},
@@ -843,6 +857,35 @@ _TEXTOS = {
     "s6_grp_remove_model_predict": {"en": "Refit, Evaluate, Predict and Remove", "pt": "Retreinar, Avaliar, Predizer e Remover"},
     "s6_chk_remove_descriptors": {"en": "Remove Descriptors", "pt": "Remover Descritores"},
     "s6_btn_remove_model": {"en": "Remove Model", "pt": "Remover Modelo"},
+    "s6_btn_remove_usi": {"en": "Remove USI", "pt": "Remover USI"},
+    "s6_tooltip_remove_usi": {
+        "en": "Deletes the whole folder of the USI selected in the combobox (models, data, charts, predictions) "
+              "after confirmation, and loads the next USI of the list.",
+        "pt": "Apaga, após confirmação, a pasta inteira da USI selecionada no combobox (modelos, dados, gráficos, "
+              "predições) e carrega a USI seguinte da lista.",
+    },
+    "s6_msg_remove_usi_confirm": {
+        "en": "Permanently delete USI '{usi}'?\n\n{n_models} model(s), {n_files} file(s), {size} MB will be removed:\n"
+              "{path}\n\nThis cannot be undone.",
+        "pt": "Apagar definitivamente a USI '{usi}'?\n\n{n_models} modelo(s), {n_files} arquivo(s) e {size} MB serão "
+              "removidos:\n{path}\n\nEsta ação não pode ser desfeita.",
+    },
+    "s6_msg_remove_usi_done_next": {
+        "en": "USI '{usi}' was removed. USI '{next_usi}' was loaded ({n} model(s)).",
+        "pt": "A USI '{usi}' foi removida. A USI '{next_usi}' foi carregada ({n} modelo(s)).",
+    },
+    "s6_msg_remove_usi_done_none": {
+        "en": "USI '{usi}' was removed. There is no other USI in this project.",
+        "pt": "A USI '{usi}' foi removida. Não há outra USI neste projeto.",
+    },
+    "s6_msg_remove_usi_none": {
+        "en": "Select an existing USI in the USI combobox to remove (current: '{usi}').",
+        "pt": "Selecione no combobox USI uma USI existente para remover (atual: '{usi}').",
+    },
+    "s6_msg_remove_usi_error": {
+        "en": "Could not remove USI '{usi}':\n{error}",
+        "pt": "Não foi possível remover a USI '{usi}':\n{error}",
+    },
     "s6_grp_performance_charts": {"en": "Performance Charts", "pt": "Gráficos de Desempenho"},
     "s6_chk_metric_legend": {"en": "Metric Legend", "pt": "Legenda de Métricas"},
     "s6_tooltip_metric_legend": {

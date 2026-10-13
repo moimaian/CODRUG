@@ -1469,9 +1469,13 @@ def _add_step4_section(document: Any, project_dir: str, state: dict[str, Any], i
     if ext_split:
         method = ext_split.get("method", "Random")
         rs = ext_split.get("random_state")
-        how_pt = {"Kennard-Stone": "pelo algoritmo de Kennard-Stone", "Sphere Exclusion": "por sphere exclusion"}.get(
+        how_pt = {"Kennard-Stone": "pelo algoritmo de Kennard-Stone", "Sphere Exclusion": "por sphere exclusion",
+                  "Scaffold": "por scaffold (esqueletos de Bemis-Murcko; nenhum scaffold compartilhado entre os conjuntos"
+                              + (f", random state = {rs}" if rs is not None else "") + ")"}.get(
             method, "de forma aleatória" + (f" (random state = {rs})" if rs is not None else ""))
-        how_en = {"Kennard-Stone": "with the Kennard-Stone algorithm", "Sphere Exclusion": "by sphere exclusion"}.get(
+        how_en = {"Kennard-Stone": "with the Kennard-Stone algorithm", "Sphere Exclusion": "by sphere exclusion",
+                  "Scaffold": "by scaffold (Bemis-Murcko scaffolds; no scaffold shared between the sets"
+                              + (f", random state = {rs}" if rs is not None else "") + ")"}.get(
             method, "randomly" + (f" (random state = {rs})" if rs is not None else ""))
         pct = int(round(100 * float(ext_split.get("external_size", 0))))
         pe = _para(document)
@@ -1510,6 +1514,8 @@ _STEP4_ML_TEXTS = {
     "split_ks_en": "The training/test split was performed with the Kennard-Stone algorithm, which selects the training set to cover the descriptor space and keeps the test set within that space. ",
     "split_se_pt": "A divisão entre treino e teste foi feita por sphere exclusion (Golbraikh & Tropsha, 2002), que mantém o conjunto teste dentro do espaço químico do conjunto de treino. ",
     "split_se_en": "The training/test split was performed by sphere exclusion (Golbraikh & Tropsha, 2002), which keeps the test set within the chemical space of the training set. ",
+    "split_scaffold_pt": "A divisão entre treino e teste foi feita por scaffold (Bemis & Murcko, 1996; versão balanceada): os compostos foram agrupados pelo esqueleto de Bemis-Murcko e cada grupo foi atribuído inteiro a um dos conjuntos, de modo que o conjunto teste contém apenas famílias químicas ausentes do treino. ",
+    "split_scaffold_en": "The training/test split was performed by scaffold (Bemis & Murcko, 1996; balanced variant): compounds were grouped by their Bemis-Murcko scaffold and each group was assigned as a whole to one set, so the test set contains only chemical families absent from the training set. ",
     "no_test_split_pt": " Todo o conjunto interno foi usado como conjunto de treino (sem conjunto teste); a capacidade preditiva foi avaliada no conjunto externo. ",
     "no_test_split_en": " The whole internal dataset was used as the training set (no test set); predictivity was assessed on the external set. ",
     "refit_pt": "O modelo {model} foi retreinado (refit) com os mesmos hiperparâmetros do modelo {source} usando todos os {n_total} compostos do conjunto interno (treino: {n_train}; teste: {n_test}). As métricas do conjunto teste referem-se ao modelo {source} e constituem uma estimativa conservadora para {model}. ",
@@ -1813,6 +1819,8 @@ def _add_step5_section(document: Any, project_dir: str, state: dict[str, Any], i
                 add_bi(texts["split_ks_pt"], texts["split_ks_en"], False)
             elif split_method == "Sphere Exclusion":
                 add_bi(texts["split_se_pt"], texts["split_se_en"], False)
+            elif split_method == "Scaffold":
+                add_bi(texts["split_scaffold_pt"], texts["split_scaffold_en"], False)
             else:
                 rs = screening.get("random_state")
                 add_bi(texts["split_random_pt"].format(rs=f" (random state = {rs})" if rs is not None else ""),

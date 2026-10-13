@@ -15,7 +15,15 @@ espaço (interpolação):
   raio R é ajustado por busca binária para a fração de teste ficar o mais próxima possível da pedida
   (o tamanho final pode diferir ligeiramente). Determinístico.
 
-Espaço usado pelos dois métodos: descritores autoescalados (z-score; colunas constantes são
+- Scaffold (Bemis & Murcko, 1996), versão "balanced" (Yang et al., 2019 - Chemprop): agrupa os
+  compostos pelo esqueleto de Bemis-Murcko do SMILES e reparte GRUPOS inteiros - nenhum scaffold
+  aparece nos dois conjuntos. Grupos maiores que metade do teste vão para o treino; os demais são
+  sorteados (Random State) e entram no teste enquanto couberem. Mede a previsão de famílias químicas
+  NOVAS (extrapolação) - o oposto de Kennard-Stone/Sphere Exclusion. Precisa da coluna de SMILES; o
+  tamanho final do teste pode diferir um pouco do pedido (grupos não são partidos) e não há
+  estratificação por classe (um scaffold pode ter compostos de classes diferentes).
+
+Espaço usado por Kennard-Stone e Sphere Exclusion: descritores autoescalados (z-score; colunas constantes são
 ignoradas) e, se houver mais de MAX_COMPONENTS colunas, projetados nas primeiras componentes
 principais (até MAX_COMPONENTS) - distâncias euclidianas nesse espaço. Em classificação, os métodos
 são aplicados dentro de cada classe (split estratificado), preservando as proporções de classe.
@@ -30,7 +38,8 @@ import pandas as pd
 RANDOM = "Random"
 KENNARD_STONE = "Kennard-Stone"
 SPHERE_EXCLUSION = "Sphere Exclusion"
-METHODS = (RANDOM, KENNARD_STONE, SPHERE_EXCLUSION)
+SCAFFOLD = "Scaffold"
+METHODS = (RANDOM, KENNARD_STONE, SPHERE_EXCLUSION, SCAFFOLD)
 
 MAX_COMPONENTS = 50
 
@@ -138,11 +147,72 @@ def sphere_exclusion(z: np.ndarray, test_fraction: float, first: int, iterations
     return best_train
 
 
+def murcko_scaffold(smiles) -> str:
+    """SMILES canônico do esqueleto de Bemis-Murcko (anéis + ligantes entre eles); "" para moléculas
+    acíclicas e None para SMILES inválido/vazio."""
+    if smiles is None or (isinstance(smiles, float) and math.isnan(smiles)) or not str(smiles).strip():
+        return None
+    from rdkit import Chem
+    from rdkit.Chem.Scaffolds import MurckoScaffold
+    mol = Chem.MolFromSmiles(str(smiles).strip())
+    if mol is None:
+        return None
+    try:
+        return MurckoScaffold.MurckoScaffoldSmiles(mol=mol, includeChirality=False)
+    except Exception:
+        return None
+
+
+def scaffold_split_positions(smiles, test_size: float, random_state=None) -> np.ndarray:
+    """Posições (0..n-1) do conjunto de TREINO na divisão por scaffold "balanced". SMILES inválidos
+    formam cada um o seu próprio grupo."""
+    smiles = list(smiles)
+    n = len(smiles)
+    n_test = int(math.ceil(test_size * n))
+    groups = {}
+    for i, smi in enumerate(smiles):
+        key = murcko_scaffold(smi)
+        groups.setdefault(key if key is not None else f"__invalid_{i}", []).append(i)
+    sets = list(groups.values())
+    big = [g for g in sets if len(g) > n_test / 2]
+    small = [g for g in sets if len(g) <= n_test / 2]
+    rng = np.random.RandomState(random_state if random_state is not None else 0)
+    rng.shuffle(small)
+    train, test = [], []
+    for g in big:
+        train.extend(g)
+    for g in small:
+        if len(test) + len(g) <= n_test:
+            test.extend(g)
+        else:
+            train.extend(g)
+    if not test and small:  # teste vazio (grupos grandes demais): usa o menor grupo
+        smallest = min(small, key=len)
+        test.extend(smallest)
+        train = [i for i in train if i not in set(smallest)]
+    return np.array(sorted(train), dtype=int)
+
+
 def split(x: pd.DataFrame, y, test_size: float, method: str, task: str,
-          random_state=None):
+          random_state=None, smiles=None):
     """Mesmo contrato de sklearn.train_test_split: devolve (x_train, x_test, y_train, y_test),
-    preservando os índices originais. method: RANDOM, KENNARD_STONE ou SPHERE_EXCLUSION.
-    y pode ser None (divisão só por X; y_train/y_test devolvidos como None)."""
+    preservando os índices originais. method: RANDOM, KENNARD_STONE, SPHERE_EXCLUSION ou SCAFFOLD
+    (este exige 'smiles', alinhado linha a linha com x). y pode ser None (divisão só por X;
+    y_train/y_test devolvidos como None)."""
+    if method == SCAFFOLD:
+        if smiles is None:
+            raise ValueError("The Scaffold split needs a SMILES column.")
+        smiles = list(smiles)
+        if len(smiles) != len(x):
+            raise ValueError("The SMILES column must have one value per row of X.")
+        train_mask = np.zeros(len(x), dtype=bool)
+        train_mask[scaffold_split_positions(smiles, test_size, random_state)] = True
+        x_train, x_test = x.iloc[train_mask], x.iloc[~train_mask]
+        if y is None:
+            return x_train, x_test, None, None
+        y_arr = y if isinstance(y, pd.Series) else pd.Series(np.asarray(y), index=x.index)
+        return x_train, x_test, y_arr.iloc[train_mask], y_arr.iloc[~train_mask]
+
     if y is None:
         # Sem variável resposta (ex.: separação do conjunto externo na Etapa 3 sem coluna Y definida):
         # divide só por X; no Sphere Exclusion o primeiro centro passa a ser o mais próximo do centróide.
