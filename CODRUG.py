@@ -102,7 +102,7 @@ try:
     from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QTabWidget, QTabBar, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QTextEdit, QAction, QMessageBox, QLineEdit, QFormLayout,
-    QComboBox as _QtQComboBox, QFileDialog, QCheckBox, QProgressBar, QGroupBox, QGridLayout, QSpinBox, QStackedLayout, QDialog, QTableWidget, QTableWidgetItem, QProgressDialog, QListWidget, QAbstractItemView, QDoubleSpinBox, QScrollArea, QFrame, QStyle, QStylePainter, QStyleOptionTab, QSizePolicy
+    QComboBox as _QtQComboBox, QFileDialog, QCheckBox, QProgressBar, QGroupBox, QGridLayout, QSpinBox, QStackedLayout, QDialog, QTableWidget, QTableWidgetItem, QProgressDialog, QListWidget, QListWidgetItem, QAbstractItemView, QDoubleSpinBox, QScrollArea, QFrame, QStyle, QStylePainter, QStyleOptionTab, QSizePolicy, QToolTip
     )
 except ImportError as e:
     print("⚠️ PyQt5 libs not found...")
@@ -367,7 +367,7 @@ try:
     )
     from sklearn.model_selection import (
         cross_val_score, cross_val_predict, train_test_split, KFold, StratifiedKFold, GridSearchCV, RandomizedSearchCV, learning_curve,
-        LeaveOneOut, LeavePOut, TimeSeriesSplit
+        LeaveOneOut, LeavePOut, TimeSeriesSplit, RepeatedKFold, RepeatedStratifiedKFold
     )
     from sklearn.experimental import enable_halving_search_cv  # noqa: F401 — habilita HalvingGridSearchCV/HalvingRandomSearchCV
     from sklearn.model_selection import HalvingGridSearchCV, HalvingRandomSearchCV
@@ -2558,7 +2558,7 @@ class SklScreeningWorker(QThread): # type: ignore
     error = pyqtSignal(str)
 
     def __init__(self, task, model_specs, x, y, random_state, test_size=0.2, cv_folds=5, split_method="Random",
-                 smiles=None):
+                 smiles=None, cv_repeats=1):
         super().__init__()
         self.task = task
         self.model_specs = model_specs  # lista de (nome, classe, kwargs)
@@ -2567,6 +2567,8 @@ class SklScreeningWorker(QThread): # type: ignore
         self.random_state = random_state
         self.test_size = test_size
         self.cv_folds = cv_folds
+        # Nº de repetições da validação cruzada do ranking (cada uma com outra partição dos folds).
+        self.cv_repeats = max(1, int(cv_repeats or 1))
         self.split_method = split_method  # "Random", "Kennard-Stone", "Sphere Exclusion" ou "Scaffold"
         self.smiles = smiles  # SMILES alinhados linha a linha com x - só para o split "Scaffold"
         self.trained_models = {}
@@ -2628,11 +2630,16 @@ class SklScreeningWorker(QThread): # type: ignore
                 # conjunto de teste fica guardado, sem influenciar nenhuma escolha (algoritmo,
                 # hiperparâmetros), para a avaliação final de predictivity (Princípio 4 da OECD).
                 # Os mesmos folds valem para todos os modelos, para a comparação ser justa.
-                if self.task == "classification":
-                    splitter = StratifiedKFold(n_splits=self.cv_folds, shuffle=True, random_state=self.random_state)
-                else:
-                    splitter = KFold(n_splits=self.cv_folds, shuffle=True, random_state=self.random_state)
-                cv_splits = list(splitter.split(self.x_train, self.y_train))
+                # Com "CV Repeats" > 1, a CV é repetida com partições diferentes (Random State + r); a
+                # repetição 0 é a mesma partição de quando não havia repetições.
+                cv_splits = []
+                for r in range(self.cv_repeats):
+                    seed = _skl_repetition_seed(self.random_state, r)
+                    if self.task == "classification":
+                        splitter = StratifiedKFold(n_splits=self.cv_folds, shuffle=True, random_state=seed)
+                    else:
+                        splitter = KFold(n_splits=self.cv_folds, shuffle=True, random_state=seed)
+                    cv_splits.append(list(splitter.split(self.x_train, self.y_train)))
                 for name, cls, kwargs in self.model_specs:
                     try:
                         kwargs = _skl_force_single_thread_kwargs(cls, kwargs)
@@ -2662,7 +2669,25 @@ class SklScreeningWorker(QThread): # type: ignore
         finally:
             backend_ctx.__exit__(None, None, None)
 
-    def _cross_validate_on_train(self, cls, kwargs, cv_splits):
+    def _cross_validate_on_train(self, cls, kwargs, cv_splits_by_repetition):
+        """Métricas de validação cruzada do Screening sobre x_train/y_train. Uma repetição: igual a
+        _cross_validate_one_repetition ("<métrica> CV" sobre as predições out-of-fold agrupadas e
+        "<métrica> CV SD" = desvio padrão ENTRE folds). Várias repetições ("CV Repeats" > 1):
+        "<métrica> CV" = média, entre repetições, do valor agrupado de cada uma, e "<métrica> CV SD" =
+        desvio padrão ENTRE REPETIÇÕES - a variação devida à partição, que é a incerteza a relatar."""
+        results = [self._cross_validate_one_repetition(cls, kwargs, splits) for splits in cv_splits_by_repetition]
+        if len(results) == 1:
+            return results[0]
+        out = {}
+        for key in results[0]:
+            if key.endswith(" CV SD"):
+                continue
+            vals = np.array([r[key] for r in results], dtype=float)
+            out[key] = float(np.nanmean(vals))
+            out[f"{key} SD"] = float(np.nanstd(vals, ddof=1)) if np.isfinite(vals).sum() > 1 else float("nan")
+        return out
+
+    def _cross_validate_one_repetition(self, cls, kwargs, cv_splits):
         """Métricas de validação cruzada do Screening, calculadas só sobre x_train/y_train.
         Mesmo critério do grupo Validation (SklEvaluateWorker._run_standard): o valor "<métrica> CV"
         é a métrica global sobre as predições out-of-fold de todos os folds agrupadas (para R², é o
@@ -2875,9 +2900,10 @@ class SklTuneWorker(QThread): # type: ignore
     error = pyqtSignal(str)
 
     def __init__(self, cls, base_kwargs, param_grid, method, folds, n_iter, random_state, x_train, y_train,
-                 scoring=None, sign=1.0):
+                 scoring=None, sign=1.0, repeats=1):
         super().__init__()
         self.cls = cls
+        self.repeats = max(1, int(repeats or 1))
         self.base_kwargs = base_kwargs
         self.param_grid = param_grid
         self.method = method
@@ -2918,6 +2944,11 @@ class SklTuneWorker(QThread): # type: ignore
             search_param_grid = param_grid
             if isinstance(base_model, _LabelEncodingClassifierWrapper):
                 search_param_grid = {f"base_estimator__{k}": v for k, v in param_grid.items()}
+
+            # Folds embaralhados (Random State), estratificados em classificação e repetidos
+            # "Repeats" vezes - ver _skl_make_cv. Usado por todos os métodos de busca abaixo.
+            from sklearn.base import is_classifier
+            folds = _skl_make_cv(is_classifier(base_model), folds, self.repeats, random_state)
 
             if method == "RandomizedSearchCV":
                 search = RandomizedSearchCV(base_model, search_param_grid, n_iter=self.n_iter,
@@ -3001,6 +3032,30 @@ class SklTuneWorker(QThread): # type: ignore
             self.error.emit(str(e))
         finally:
             backend_ctx.__exit__(None, None, None)
+
+
+def _skl_make_cv(classification, folds, repeats=1, random_state=None):
+    """Esquema de validação cruzada usado pelo Tuning (e pela busca interna do Nested CV): k folds
+    SEMPRE embaralhados (com o Random State), estratificados em classificação, e repetidos 'repeats'
+    vezes com partições diferentes (RepeatedKFold/RepeatedStratifiedKFold). Antes o Tuning passava
+    só o número de folds (cv=folds) - o scikit-learn então usa folds contíguos, SEM embaralhar, e um
+    dataset ordenado (ex.: ChEMBL, agrupado por ensaio/série) gerava folds homogêneos."""
+    folds = int(folds)
+    repeats = max(1, int(repeats or 1))
+    if repeats > 1:
+        cls = RepeatedStratifiedKFold if classification else RepeatedKFold
+        return cls(n_splits=folds, n_repeats=repeats, random_state=random_state)
+    cls = StratifiedKFold if classification else KFold
+    return cls(n_splits=folds, shuffle=True, random_state=random_state)
+
+
+def _skl_repetition_seed(random_state, repetition):
+    """Semente da repetição 'repetition' (0, 1, 2...) de uma CV repetida: a repetição 0 usa o próprio
+    Random State (mesmos folds de quando não havia repetições); as demais, Random State + repetição."""
+    try:
+        return int(random_state) + int(repetition)
+    except (TypeError, ValueError):
+        return repetition
 
 
 def _specificity_score(y_true, y_pred):
@@ -3235,12 +3290,9 @@ class SklEvaluateWorker(QThread): # type: ignore
         finally:
             backend_ctx.__exit__(None, None, None)
 
-    def _run_standard(self):
+    def _standard_splits(self, method, folds, shuffle, random_state):
+        """(split_iter, small_test_folds) do método de validação escolhido."""
         x_reset, y_reset, task = self.x_reset, self.y_reset, self.task
-        method = self.kwargs["method"]
-        folds = self.kwargs["folds"]
-        shuffle = self.kwargs["shuffle"]
-        random_state = self.kwargs["random_state"]
 
         small_test_folds = False
         if method == "Leave-One-Out (LOOCV)":
@@ -3262,6 +3314,12 @@ class SklEvaluateWorker(QThread): # type: ignore
             splitter = KFold(n_splits=folds, shuffle=shuffle, random_state=random_state if shuffle else None)
             split_iter = splitter.split(x_reset)
 
+        return split_iter, small_test_folds
+
+    def _standard_pass(self, split_iter, small_test_folds, label_prefix=""):
+        """Uma passada de validação cruzada: (tabela por fold, linha de resumo "Pooled", (y_true,
+        y_pred) out-of-fold). label_prefix numera os folds por repetição (ex.: "2-3" = repetição 2, fold 3)."""
+        x_reset, y_reset, task = self.x_reset, self.y_reset, self.task
         rows = []
         all_y_true, all_y_pred = [], []
         for fold_num, (train_idx, test_idx) in enumerate(split_iter, start=1):
@@ -3274,7 +3332,7 @@ class SklEvaluateWorker(QThread): # type: ignore
 
             # "n Val"/"R2 Val"/"Accuracy Val": o fold de VALIDAÇÃO (as moléculas deixadas de fora
             # nesta rodada) - não o conjunto teste do Screening, que nunca entra na validação cruzada.
-            row = {"Fold": fold_num, "n Val": len(y_te)}
+            row = {"Fold": f"{label_prefix}{fold_num}" if label_prefix else fold_num, "n Val": len(y_te)}
             if task == "regression":
                 if not small_test_folds:
                     row["R2 Train"] = float(fold_model.score(x_tr, y_tr))
@@ -3294,9 +3352,6 @@ class SklEvaluateWorker(QThread): # type: ignore
                 else:
                     row["Correct"] = bool(np.mean(np.asarray(y_te) == np.asarray(y_pred)) >= 0.5)
             rows.append(row)
-
-        if not (method == "Leave-P-Out" and self.kwargs.get("p", 1) > 1):
-            self.oof = (list(all_y_true), list(all_y_pred))
 
         cv_df = pd.DataFrame(rows)
         # Linha de resumo "Pooled" (antes "Mean"/"OVERALL"): para as colunas de validação (R2 Val,
@@ -3321,20 +3376,67 @@ class SklEvaluateWorker(QThread): # type: ignore
             summary["F1"] = float(f1_score(all_y_true, all_y_pred, average="weighted"))
             summary["MCC"] = float(matthews_corrcoef(all_y_true, all_y_pred))
 
-        # Linha extra "Std Dev" (em inglês, mesmo critério de "Pooled" acima): desvio padrão ENTRE
-        # folds de cada coluna numérica (ddof=1, padrão do pandas) - complementa a linha "Mean",
-        # que sozinha não comunica o quanto o desempenho variou de fold para fold.
+        return cv_df, summary, (list(all_y_true), list(all_y_pred))
+
+    def _run_standard(self):
+        method = self.kwargs["method"]
+        folds = self.kwargs["folds"]
+        shuffle = self.kwargs["shuffle"]
+        random_state = self.kwargs["random_state"]
+        # Repetições ("Repeats"): só KFold/StratifiedKFold - LOOCV/Leave-P-Out/Time Series são
+        # determinísticos (repetir daria o mesmo resultado). Cada repetição usa outra partição
+        # (Random State + r), por isso exige embaralhar.
+        repeats = max(1, int(self.kwargs.get("repeats", 1) or 1))
+        if method not in ("KFold", "StratifiedKFold"):
+            repeats = 1
+
+        if repeats == 1:
+            split_iter, small_test_folds = self._standard_splits(method, folds, shuffle, random_state)
+            cv_df, summary, oof = self._standard_pass(split_iter, small_test_folds)
+            if not (method == "Leave-P-Out" and self.kwargs.get("p", 1) > 1):
+                self.oof = oof
+            # Linha extra "Std Dev" (em inglês, mesmo critério de "Pooled" acima): desvio padrão ENTRE
+            # folds de cada coluna numérica (ddof=1, padrão do pandas) - complementa a linha "Pooled",
+            # que sozinha não comunica o quanto o desempenho variou de fold para fold.
+            std_row = {"Fold": "Std Dev"}
+            for col in cv_df.columns:
+                if col in ("Fold", "n Val"):
+                    continue
+                try:
+                    std_row[col] = float(cv_df[col].astype(float).std())
+                except (TypeError, ValueError):
+                    continue
+            return pd.concat([cv_df, pd.DataFrame([summary]), pd.DataFrame([std_row])], ignore_index=True)
+
+        # Várias repetições: os folds de todas as repetições (numerados "repetição-fold"), depois
+        # "Pooled" = média, entre repetições, do resumo agrupado de cada uma e "Std Dev" = desvio
+        # padrão ENTRE REPETIÇÕES (a variação devida à partição). "Plot CV Predictions" usa as
+        # predições out-of-fold da 1ª repetição (uma predição por composto).
+        fold_tables, summaries = [], []
+        for r in range(repeats):
+            split_iter, small_test_folds = self._standard_splits(
+                method, folds, True, _skl_repetition_seed(random_state, r))
+            cv_df, summary, oof = self._standard_pass(split_iter, small_test_folds, label_prefix=f"{r + 1}-")
+            fold_tables.append(cv_df)
+            summaries.append(summary)
+            if r == 0:
+                self.oof = oof
+        summ = pd.DataFrame(summaries)
+        pooled = {"Fold": "Pooled", "n Val": int(summ["n Val"].iloc[0])}
         std_row = {"Fold": "Std Dev"}
-        for col in cv_df.columns:
+        for col in summ.columns:
             if col in ("Fold", "n Val"):
                 continue
-            try:
-                std_row[col] = float(cv_df[col].astype(float).std())
-            except (TypeError, ValueError):
-                continue
-        return pd.concat([cv_df, pd.DataFrame([summary]), pd.DataFrame([std_row])], ignore_index=True)
+            vals = pd.to_numeric(summ[col], errors="coerce")
+            pooled[col] = float(vals.mean())
+            std_row[col] = float(vals.std(ddof=1))
+        return pd.concat(fold_tables + [pd.DataFrame([pooled]), pd.DataFrame([std_row])], ignore_index=True)
 
     def _run_nested(self):
+        """Nested CV: busca interna (GridSearchCV, folds embaralhados - ver _skl_make_cv) dentro de cada
+        fold externo. Com "Repeats" > 1, a CV externa é repetida com outras partições (Random State +
+        r); os folds aparecem numerados "repetição-fold" e as predições out-of-fold usadas no gráfico
+        são as da 1ª repetição."""
         x_reset, y_reset, task = self.x_reset, self.y_reset, self.task
         cls = self.kwargs["cls"]
         base_kwargs = self.kwargs["base_kwargs"]
@@ -3343,38 +3445,45 @@ class SklEvaluateWorker(QThread): # type: ignore
         shuffle = self.kwargs["shuffle"]
         random_state = self.kwargs["random_state"]
         inner_folds = self.kwargs["inner_folds"]
-
-        if task == "classification":
-            outer_splitter = StratifiedKFold(n_splits=folds, shuffle=shuffle, random_state=random_state if shuffle else None)
-            outer_split_iter = outer_splitter.split(x_reset, y_reset)
-        else:
-            outer_splitter = KFold(n_splits=folds, shuffle=shuffle, random_state=random_state if shuffle else None)
-            outer_split_iter = outer_splitter.split(x_reset)
+        repeats = max(1, int(self.kwargs.get("repeats", 1) or 1))
 
         rows = []
-        oof_true, oof_pred = [], []
-        for fold_num, (train_idx, test_idx) in enumerate(outer_split_iter, start=1):
-            x_tr, x_te = x_reset.iloc[train_idx], x_reset.iloc[test_idx]
-            y_tr, y_te = y_reset.iloc[train_idx], y_reset.iloc[test_idx]
-            inner_model = _skl_instantiate(cls, _skl_force_single_thread_kwargs(cls, base_kwargs), random_state)
-            inner_search = GridSearchCV(inner_model, param_grid, cv=inner_folds, n_jobs=-1,
-                                        scoring=self.kwargs.get("scoring"))
-            inner_search.fit(x_tr, y_tr)
-            y_pred = inner_search.predict(x_te)
-            oof_true.extend(list(y_te)); oof_pred.extend(list(y_pred))
-            row = {"Outer Fold": fold_num, "n Val": len(y_te), "Best Params": str(inner_search.best_params_)}
-            if task == "regression":
-                row["R2 Val"] = float(r2_score(y_te, y_pred))
-                m = float(mse(y_te, y_pred))
-                row["MSE"] = m
-                row["RMSE"] = m ** 0.5
-                row["MAE"] = float(mae(y_te, y_pred))
+        for r in range(repeats):
+            seed = _skl_repetition_seed(random_state, r)
+            use_shuffle = shuffle or repeats > 1
+            if task == "classification":
+                outer_splitter = StratifiedKFold(n_splits=folds, shuffle=use_shuffle, random_state=seed if use_shuffle else None)
+                outer_split_iter = outer_splitter.split(x_reset, y_reset)
             else:
-                row["Accuracy Val"] = float(accuracy_score(y_te, y_pred))
-                row["F1"] = float(f1_score(y_te, y_pred, average="weighted"))
-                row["MCC"] = float(matthews_corrcoef(y_te, y_pred))
-            rows.append(row)
-        self.oof = (oof_true, oof_pred)
+                outer_splitter = KFold(n_splits=folds, shuffle=use_shuffle, random_state=seed if use_shuffle else None)
+                outer_split_iter = outer_splitter.split(x_reset)
+
+            oof_true, oof_pred = [], []
+            for fold_num, (train_idx, test_idx) in enumerate(outer_split_iter, start=1):
+                x_tr, x_te = x_reset.iloc[train_idx], x_reset.iloc[test_idx]
+                y_tr, y_te = y_reset.iloc[train_idx], y_reset.iloc[test_idx]
+                inner_model = _skl_instantiate(cls, _skl_force_single_thread_kwargs(cls, base_kwargs), random_state)
+                inner_cv = _skl_make_cv(task == "classification", inner_folds, 1, seed)
+                inner_search = GridSearchCV(inner_model, param_grid, cv=inner_cv, n_jobs=-1,
+                                            scoring=self.kwargs.get("scoring"))
+                inner_search.fit(x_tr, y_tr)
+                y_pred = inner_search.predict(x_te)
+                oof_true.extend(list(y_te)); oof_pred.extend(list(y_pred))
+                label = f"{r + 1}-{fold_num}" if repeats > 1 else fold_num
+                row = {"Outer Fold": label, "n Val": len(y_te), "Best Params": str(inner_search.best_params_)}
+                if task == "regression":
+                    row["R2 Val"] = float(r2_score(y_te, y_pred))
+                    m = float(mse(y_te, y_pred))
+                    row["MSE"] = m
+                    row["RMSE"] = m ** 0.5
+                    row["MAE"] = float(mae(y_te, y_pred))
+                else:
+                    row["Accuracy Val"] = float(accuracy_score(y_te, y_pred))
+                    row["F1"] = float(f1_score(y_te, y_pred, average="weighted"))
+                    row["MCC"] = float(matthews_corrcoef(y_te, y_pred))
+                rows.append(row)
+            if r == 0:
+                self.oof = (oof_true, oof_pred)
         return pd.DataFrame(rows)
 
     def _run_bootstrap(self):
@@ -3437,10 +3546,82 @@ class _WaitMessageProcessHandle:
 # ==========================================================================================================================================
 # ================================================ CLASSE DA JANELA PRINCIPAL ==============================================================
 # ==========================================================================================================================================
+# ------------------------------------------------------------------------------------------------
+# Tooltips: quebra de linha automática
+# ------------------------------------------------------------------------------------------------
+# Tooltip com mais de TOOLTIP_WRAP_MIN_WORDS palavras é exibido quebrado em linhas de até
+# TOOLTIP_WRAP_CHARS caracteres, para não ficar mais largo que a própria janela do CODRUG. Feito
+# num filtro de eventos global (instalado no QApplication pelo MainWindow), no momento em que o
+# tooltip vai aparecer - vale para todo widget (setToolTip direto, textos do i18n, tooltips de
+# células de tabela/lista e de diálogos), sem alterar o texto guardado em cada widget.
+TOOLTIP_WRAP_MIN_WORDS = 6
+TOOLTIP_WRAP_CHARS = 60
+
+
+def _wrap_tooltip_text(text):
+    """Texto do tooltip com quebras de linha (ver TOOLTIP_WRAP_*). Tooltips em HTML (ex.: com
+    font-size) são convertidos para o texto puro, quebrados e remontados mantendo o tamanho de fonte.
+    Quebras de linha já existentes são preservadas. Textos curtos voltam inalterados."""
+    import textwrap
+    import html as _html
+    if not text:
+        return text
+    rich = Qt.mightBeRichText(text)
+    if rich:
+        from PyQt5.QtGui import QTextDocument
+        doc = QTextDocument()
+        doc.setHtml(text)
+        plain = doc.toPlainText()
+    else:
+        plain = text
+    if len(plain.split()) <= TOOLTIP_WRAP_MIN_WORDS:
+        return text
+    lines = []
+    for paragraph in plain.split("\n"):
+        lines.extend(textwrap.wrap(paragraph, TOOLTIP_WRAP_CHARS, break_long_words=False) or [""])
+    if not rich:
+        return "\n".join(lines)
+    size = re.search(r"font-size\s*:\s*([0-9.]+\s*pt)", text)
+    style = f" style='font-size:{size.group(1)};'" if size else ""
+    return f"<html><p{style}>" + "<br>".join(_html.escape(l, quote=False) for l in lines) + "</p></html>"
+
+
+class _TooltipWrapFilter(QObject):
+    """Filtro global (QApplication) que intercepta o evento de tooltip e exibe o texto já quebrado
+    por _wrap_tooltip_text. Cobre também tooltips por célula de tabelas/listas (Qt.ToolTipRole)."""
+
+    def eventFilter(self, obj, event):
+        if event.type() != QEvent.ToolTip or not isinstance(obj, QWidget):
+            return False
+        try:
+            text = obj.toolTip()
+            view = obj.parent() if isinstance(obj.parent(), QAbstractItemView) else None
+            if view is not None and obj is view.viewport():
+                index = view.indexAt(event.pos())
+                cell_tip = index.data(Qt.ToolTipRole) if index.isValid() else None
+                if cell_tip:
+                    text = str(cell_tip)
+            if not text:
+                return False
+            wrapped = _wrap_tooltip_text(text)
+            if wrapped == text:
+                return False
+            QToolTip.showText(event.globalPos(), wrapped, obj)
+            return True
+        except Exception:
+            return False
+
+
 class MainWindow(QMainWindow):
 # GENERAL AND MENU:
     def __init__(self):
         super().__init__()
+
+        # Quebra de linha automática dos tooltips longos (uma única instalação por aplicação).
+        _app = QApplication.instance()
+        if _app is not None and getattr(_app, "_codrug_tooltip_filter", None) is None:
+            _app._codrug_tooltip_filter = _TooltipWrapFilter(_app)
+            _app.installEventFilter(_app._codrug_tooltip_filter)
 
         # Idioma da interface (PT-BR/EN, ver BIN/i18n.py): lido de QSettings para persistir
         # entre sessões, com o mesmo padrão de bandeiras BR/UK do AgendaLab (i18n.py + widget de
@@ -20618,9 +20799,11 @@ class MainWindow(QMainWindow):
 
             # Grade de 3 colunas (proporções 2:1:3), com a linha de botões alinhada às colunas de cima:
             #   linha 0: Models | Sort metric/X range/Y column/Test Size/Split Method | Status + progresso
-            #   linha 1: Select All | CV Folds (train) | View Split, View Rank ... Run Screening
+            #   linha 1: Select All | Folds (train) | View Split, View Rank ... Run Screening
             screen_grid = QGridLayout()
-            screen_grid.setColumnStretch(0, 2)
+            # Coluna Models sem stretch: a lista tem a largura do maior nome de modelo (ver
+            # _fit_skl_model_list_width) e o espaço restante vai para os campos e o Status.
+            screen_grid.setColumnStretch(0, 0)
             screen_grid.setColumnStretch(1, 1)
             screen_grid.setColumnStretch(2, 3)
             screen_grid.setRowStretch(0, 1)
@@ -20638,7 +20821,7 @@ class MainWindow(QMainWindow):
             screen_grid.addLayout(models_col_skl, 0, 0)
 
             # Coluna 2: Sort metric, X range, Y column, Test Size, Split Method (rótulo ao lado do
-            # campo, alinhado à direita, colado na caixa) e, na linha dos botões, CV Folds (train).
+            # campo, alinhado à direita, colado na caixa) e, na linha dos botões, Folds (train).
             # Rótulo ao lado (não em cima) mantém baixa a altura mínima da coluna, para Models/Status
             # poderem encolher junto com a janela principal. A coluna ocupa as duas linhas da grade
             # para que CV Folds use as mesmas colunas de rótulo/campo dos itens de cima.
@@ -20702,9 +20885,25 @@ class MainWindow(QMainWindow):
             self.sp_skl_screen_cv_folds = QSpinBox()
             self.sp_skl_screen_cv_folds.setRange(2, 20)
             self.sp_skl_screen_cv_folds.setValue(5)
-            self.sp_skl_screen_cv_folds.setFixedWidth(90)
+            self.sp_skl_screen_cv_folds.setFixedWidth(60)
             self._tr("s6_tooltip_screening_cv_folds", self.sp_skl_screen_cv_folds.setToolTip)
-            _metric_row(6, "s6_lbl_screening_cv_folds", self.sp_skl_screen_cv_folds)
+            # Repetições da CV do ranking, na mesma linha dos folds.
+            self.sp_skl_screen_cv_repeats = QSpinBox()
+            self.sp_skl_screen_cv_repeats.setRange(1, 20)
+            self.sp_skl_screen_cv_repeats.setValue(1)
+            self.sp_skl_screen_cv_repeats.setFixedWidth(60)
+            self._tr("s6_tooltip_cv_repeats", self.sp_skl_screen_cv_repeats.setToolTip)
+            cv_row_skl = QHBoxLayout()
+            cv_row_skl.addWidget(self.sp_skl_screen_cv_folds)
+            # Espaço entre a spinbox de Folds e o rótulo "Repeats" - também alarga a coluna do grid
+            # na mesma medida, para o rótulo não parecer colado na caixa anterior.
+            cv_row_skl.addSpacing(16)
+            cv_row_skl.addWidget(self._trL("s6_lbl_cv_repeats"))
+            cv_row_skl.addSpacing(4)
+            cv_row_skl.addWidget(self.sp_skl_screen_cv_repeats)
+            cv_row_skl.addSpacing(10)   # folga até os botões View Split/View Rank da coluna ao lado
+            cv_row_skl.addStretch()
+            _metric_row(6, "s6_lbl_screening_cv_folds", cv_row_skl)
 
             screen_grid.addWidget(metric_col_skl_widget, 0, 1, 2, 1)
 
@@ -20787,8 +20986,14 @@ class MainWindow(QMainWindow):
             tune_row2.addWidget(self._trL("s6_lbl_cv_folds"))
             self.sp_skl_tune_folds = QSpinBox(); self.sp_skl_tune_folds.setRange(2, 20); self.sp_skl_tune_folds.setValue(5)
             tune_row2.addWidget(self.sp_skl_tune_folds)
+            # Repetições da CV do Tuning (cada uma com outra partição dos folds; 1 = sem repetição).
+            tune_row2.addWidget(self._trL("s6_lbl_cv_repeats"))
+            self.sp_skl_tune_repeats = QSpinBox(); self.sp_skl_tune_repeats.setRange(1, 20); self.sp_skl_tune_repeats.setValue(1)
+            self._tr("s6_tooltip_cv_repeats", self.sp_skl_tune_repeats.setToolTip)
+            tune_row2.addWidget(self.sp_skl_tune_repeats)
             tune_row2.addWidget(self._trL("s6_lbl_n_iter"))
             self.sp_skl_tune_n_iter = QSpinBox(); self.sp_skl_tune_n_iter.setRange(1, 500); self.sp_skl_tune_n_iter.setValue(20)
+            self._tr("s6_tooltip_n_iter", self.sp_skl_tune_n_iter.setToolTip)
             tune_row2.addWidget(self.sp_skl_tune_n_iter)
             # "+" / "−" (adicionar/remover linha da grade de hiperparâmetros): só o símbolo, sem fundo
             # nem contorno, na linha de CV folds / n_iter, à direita delas. Permite testar qualquer
@@ -20859,6 +21064,12 @@ class MainWindow(QMainWindow):
             eval_row2.addWidget(self._trL("s6_lbl_folds"))
             self.sp_skl_cv_folds = QSpinBox(); self.sp_skl_cv_folds.setRange(2, 50); self.sp_skl_cv_folds.setValue(10)
             eval_row2.addWidget(self.sp_skl_cv_folds)
+            # Repetições da validação cruzada (KFold/StratifiedKFold/Nested CV; 1 = sem repetição).
+            eval_row2.addWidget(self._trL("s6_lbl_cv_repeats"))
+            self.sp_skl_cv_repeats = QSpinBox(); self.sp_skl_cv_repeats.setRange(1, 50); self.sp_skl_cv_repeats.setValue(1)
+            self._tr("s6_tooltip_cv_repeats", self.sp_skl_cv_repeats.setToolTip)
+            self.sp_skl_cv_repeats.valueChanged.connect(lambda _v: self._update_skl_cv_method_widgets())
+            eval_row2.addWidget(self.sp_skl_cv_repeats)
             eval_row2.addWidget(self._trL("s6_lbl_p_leave_p_out"))
             self.sp_skl_cv_p = QSpinBox(); self.sp_skl_cv_p.setRange(1, 10); self.sp_skl_cv_p.setValue(2)
             eval_row2.addWidget(self.sp_skl_cv_p)
@@ -23255,6 +23466,7 @@ class MainWindow(QMainWindow):
                 "y_column": self.cb_skl_y.currentText() if hasattr(self, "cb_skl_y") else "",
                 "test_size": self.dsp_skl_test_size.value() if hasattr(self, "dsp_skl_test_size") else None,
                 "cv_folds": self.sp_skl_screen_cv_folds.value() if hasattr(self, "sp_skl_screen_cv_folds") else None,
+                "cv_repeats": self.sp_skl_screen_cv_repeats.value() if hasattr(self, "sp_skl_screen_cv_repeats") else 1,
                 "split_method": self.cb_skl_split_method.currentText() if hasattr(self, "cb_skl_split_method") else "Random",
                 "random_state": self._get_skl_random_state(),
             },
@@ -23350,6 +23562,8 @@ class MainWindow(QMainWindow):
             self.dsp_skl_test_size.setValue(float(screening_settings["test_size"]))
         if hasattr(self, "sp_skl_screen_cv_folds") and screening_settings.get("cv_folds") is not None:
             self.sp_skl_screen_cv_folds.setValue(int(screening_settings["cv_folds"]))
+        if hasattr(self, "sp_skl_screen_cv_repeats"):
+            self.sp_skl_screen_cv_repeats.setValue(int(screening_settings.get("cv_repeats") or 1))
         if hasattr(self, "cb_skl_split_method"):
             # USIs anteriores ao split racional não têm a chave: foram divididas aleatoriamente.
             idx = self.cb_skl_split_method.findText(screening_settings.get("split_method") or "Random")
@@ -23477,6 +23691,30 @@ class MainWindow(QMainWindow):
             self._save_project_state({"step6_sklearn": {}})
             QMessageBox.information(self, title, i18n.t("s6_msg_remove_usi_done_none", idioma, usi=code))
 
+    def _set_skl_chart_items(self, charts):
+        """Preenche a lista do grupo Performance Charts: cada item mostra só a descrição (ex.:
+        "Cumulative Gains Curve") e guarda o identificador interno do gráfico (ex.: "gain") em
+        Qt.UserRole - é ele que escolhe o gráfico em _build_skl_plot_figure e compõe o nome do PNG
+        salvo (<modelo>_<id>_<USI>.png), que o relatório final procura."""
+        for kind, label in charts:
+            item = QListWidgetItem(label)
+            item.setData(Qt.UserRole, kind)
+            self.list_skl_charts.addItem(item)
+
+    def _fit_skl_model_list_width(self):
+        """Largura fixa da lista Models (Model Screening) = maior nome da lista atual + barra de
+        rolagem + margens do estilo - acompanha o tipo de tarefa (ex.: HistGradientBoostingClassifier
+        x HistGradientBoostingRegressor) e a fonte da máquina, sem cortar nem sobrar espaço."""
+        lst = getattr(self, "list_skl_models", None)
+        if lst is None:
+            return
+        fm = lst.fontMetrics()
+        names = [lst.item(i).text() for i in range(lst.count())]
+        text_w = max((fm.horizontalAdvance(n) for n in names), default=fm.horizontalAdvance("M" * 20))
+        scrollbar_w = lst.style().pixelMetric(QStyle.PM_ScrollBarExtent)
+        # padding do QListWidget no stylesheet (8 px de cada lado) + borda (1 px) + margem do item.
+        lst.setFixedWidth(text_w + scrollbar_w + 2 * 8 + 2 * 1 + 2 * 6 + 4)
+
     def _populate_skl_model_list(self):
         if not hasattr(self, "list_skl_models"):
             return
@@ -23484,6 +23722,7 @@ class MainWindow(QMainWindow):
 
         self.list_skl_models.clear()
         self.list_skl_models.addItems(sorted(registry.keys()))
+        self._fit_skl_model_list_width()
 
         self.cb_skl_metric.clear()
         if task == "regression":
@@ -23496,37 +23735,37 @@ class MainWindow(QMainWindow):
         if hasattr(self, "list_skl_charts"):
             self.list_skl_charts.clear()
             if task == "regression":
-                self.list_skl_charts.addItems([
-                    "predicted_vs_actual - Predicted vs Experimental",
-                    "residuals - Residuals Plot",
-                    "feature_importance - Feature Importance (Top 15)",
-                    "learning_curve - Learning Curve",
-                    "manifold - t-SNE Projection (colored by residual)",
-                    "tree - Decision Tree Diagram",
+                self._set_skl_chart_items([
+                    ("predicted_vs_actual", "Predicted vs Experimental"),
+                    ("residuals", "Residuals Plot"),
+                    ("feature_importance", "Feature Importance (Top 15)"),
+                    ("learning_curve", "Learning Curve"),
+                    ("manifold", "t-SNE Projection (colored by residual)"),
+                    ("tree", "Decision Tree Diagram"),
                 ])
             elif task == "classification":
-                self.list_skl_charts.addItems([
-                    "confusion_matrix - Confusion Matrix",
-                    "roc_auc - ROC Curve (AUC)",
-                    "class_report - Classification Report",
-                    "feature_importance - Feature Importance (Top 15)",
-                    "learning_curve - Learning Curve",
-                    "pr - Precision-Recall Curve",
-                    "threshold - Precision/Recall/F1 vs Threshold",
-                    "calibration - Calibration Curve",
-                    "lift - Lift Curve",
-                    "gain - Cumulative Gains Curve",
-                    "ks - Kolmogorov-Smirnov Statistic",
-                    "manifold - t-SNE Projection (colored by class)",
-                    "tree - Decision Tree Diagram",
+                self._set_skl_chart_items([
+                    ("confusion_matrix", "Confusion Matrix"),
+                    ("roc_auc", "ROC Curve (AUC)"),
+                    ("class_report", "Classification Report"),
+                    ("feature_importance", "Feature Importance (Top 15)"),
+                    ("learning_curve", "Learning Curve"),
+                    ("pr", "Precision-Recall Curve"),
+                    ("threshold", "Precision/Recall/F1 vs Threshold"),
+                    ("calibration", "Calibration Curve"),
+                    ("lift", "Lift Curve"),
+                    ("gain", "Cumulative Gains Curve"),
+                    ("ks", "Kolmogorov-Smirnov Statistic"),
+                    ("manifold", "t-SNE Projection (colored by class)"),
+                    ("tree", "Decision Tree Diagram"),
                 ])
             elif task == "clustering":
-                self.list_skl_charts.addItems([
-                    "pca_scatter - 2D PCA Scatter (colored by cluster)",
-                    "tsne - 2D t-SNE Scatter (colored by cluster)",
-                    "elbow - Elbow Method",
-                    "silhouette - Silhouette Plot",
-                    "distribution - Cluster Size Distribution",
+                self._set_skl_chart_items([
+                    ("pca_scatter", "2D PCA Scatter (colored by cluster)"),
+                    ("tsne", "2D t-SNE Scatter (colored by cluster)"),
+                    ("elbow", "Elbow Method"),
+                    ("silhouette", "Silhouette Plot"),
+                    ("distribution", "Cluster Size Distribution"),
                 ])
 
         is_clustering = (task == "clustering")
@@ -23647,6 +23886,8 @@ class MainWindow(QMainWindow):
                     self.cb_skl_tune_method.setCurrentIndex(idx)
             if tuning.get("folds") is not None and hasattr(self, "sp_skl_tune_folds"):
                 self.sp_skl_tune_folds.setValue(int(tuning["folds"]))
+            if hasattr(self, "sp_skl_tune_repeats"):
+                self.sp_skl_tune_repeats.setValue(int(tuning.get("repeats") or 1))
             if tuning.get("n_iter") is not None and hasattr(self, "sp_skl_tune_n_iter"):
                 self.sp_skl_tune_n_iter.setValue(int(tuning["n_iter"]))
 
@@ -23663,6 +23904,8 @@ class MainWindow(QMainWindow):
                 self.sp_skl_cv_folds.setValue(int(validation["folds"]))
             if validation.get("p") is not None and hasattr(self, "sp_skl_cv_p"):
                 self.sp_skl_cv_p.setValue(int(validation["p"]))
+            if hasattr(self, "sp_skl_cv_repeats"):
+                self.sp_skl_cv_repeats.setValue(int(validation.get("repeats") or 1))
         self._update_skl_cv_method_widgets()
 
     def _skl_get_param_values_from_table(self, parameter_name):
@@ -23712,6 +23955,15 @@ class MainWindow(QMainWindow):
         if hasattr(self, "sp_skl_cv_folds"):
             needs_folds = method not in ("Leave-One-Out (LOOCV)", "Leave-P-Out")
             self.sp_skl_cv_folds.setEnabled(group_enabled and needs_folds)
+        if hasattr(self, "sp_skl_cv_repeats"):
+            # Repetir só faz sentido em partições aleatórias; com repetições, embaralhar é obrigatório.
+            allows_repeats = method in ("KFold", "StratifiedKFold", "Nested CV")
+            self.sp_skl_cv_repeats.setEnabled(group_enabled and allows_repeats)
+            if hasattr(self, "chk_skl_cv_shuffle"):
+                forced = allows_repeats and self.sp_skl_cv_repeats.value() > 1
+                if forced:
+                    self.chk_skl_cv_shuffle.setChecked(True)
+                self.chk_skl_cv_shuffle.setEnabled(group_enabled and not forced)
 
     def _get_skl_xy(self):
         df = getattr(self, "df_int", None)
@@ -23808,7 +24060,7 @@ class MainWindow(QMainWindow):
             if task != "clustering" and n_train < cv_folds:
                 QMessageBox.warning(self, i18n.t("msg_title_screening", self._idioma),
                     f"The training set has only {n_train} rows - fewer than the {cv_folds} CV folds. "
-                    "Reduce 'CV Folds (train)' or the test size.")
+                    "Reduce 'Folds (train)' or the test size.")
                 return
             split_method = self.cb_skl_split_method.currentText() if hasattr(self, "cb_skl_split_method") else "Random"
             smiles = None
@@ -23822,7 +24074,9 @@ class MainWindow(QMainWindow):
                 smiles = self.df_int.loc[x.index, smiles_col].tolist()
             self._skl_screening_worker = SklScreeningWorker(task, model_specs, x, y, random_state,
                                                             test_size=test_size, cv_folds=cv_folds,
-                                                            split_method=split_method, smiles=smiles)
+                                                            split_method=split_method, smiles=smiles,
+                                                            cv_repeats=(self.sp_skl_screen_cv_repeats.value()
+                                                                        if hasattr(self, "sp_skl_screen_cv_repeats") else 1))
             self._skl_screening_worker.progress.connect(self._on_skl_screening_progress)
             self._skl_screening_worker.finished_all.connect(self._on_skl_screening_finished)
             self._skl_screening_worker.error.connect(self._on_skl_screening_error)
@@ -23966,9 +24220,11 @@ class MainWindow(QMainWindow):
             cls, base_kwargs = registry[base_name]
             random_state = self._get_skl_random_state()
             folds = self.sp_skl_tune_folds.value()
+            repeats = self.sp_skl_tune_repeats.value() if hasattr(self, "sp_skl_tune_repeats") else 1
             n_iter = self.sp_skl_tune_n_iter.value()
 
             self._skl_tune_task = task
+            self._skl_tune_repeats = repeats
             self._skl_tune_model_name = model_name
             self._skl_tune_base_name = base_name
             self._skl_tune_raw_grid_rows = raw_grid_rows
@@ -23980,7 +24236,7 @@ class MainWindow(QMainWindow):
             self._skl_tune_metric_label = metric_label if scoring is not None else ("R2" if task == "regression" else "Accuracy")
             self._skl_tune_worker = SklTuneWorker(
                 cls, base_kwargs, param_grid, method, folds, n_iter, random_state,
-                self.skl_x_train, self.skl_y_train, scoring=scoring, sign=sign
+                self.skl_x_train, self.skl_y_train, scoring=scoring, sign=sign, repeats=repeats
             )
             self._skl_tune_worker.finished_ok.connect(self._on_skl_tune_finished)
             self._skl_tune_worker.error.connect(self._on_skl_tune_error)
@@ -24035,6 +24291,7 @@ class MainWindow(QMainWindow):
         record = {
             "method": getattr(self, "_skl_tune_method", None),
             "folds": getattr(self, "_skl_tune_folds", None),
+            "repeats": getattr(self, "_skl_tune_repeats", 1),
             "n_iter": getattr(self, "_skl_tune_n_iter", None),
             "metric": getattr(self, "_skl_tune_metric_label", None),
         }
@@ -24058,12 +24315,14 @@ class MainWindow(QMainWindow):
         worker = self._skl_tune_worker
         score_label = getattr(self, "_skl_tune_metric_label", None) or ("R2" if task == "regression" else "Accuracy")
         folds = getattr(self, "_skl_tune_folds", None)
+        repeats = getattr(self, "_skl_tune_repeats", 1) or 1
+        cv_txt = f"{folds}-fold" + (f" x {repeats} repeats" if repeats > 1 else "")
         msg = f"New optimized model: {new_name}\n\nBest params: {best_params}\n"
         if worker is not None and worker.best_cv_score is not None:
             score_txt = f"{worker.best_cv_score:.4f}"
             if worker.best_cv_std is not None:
                 score_txt += f" ± {worker.best_cv_std:.4f}"
-            msg += f"Best CV score on the training set ({score_label}, {folds}-fold): {score_txt}\n"
+            msg += f"Best CV score on the training set ({score_label}, {cv_txt}): {score_txt}\n"
         msg += "\nThe test set was not used; it is reserved for the final evaluation."
         QMessageBox.information(self, i18n.t("msg_title_tuning_complete", self._idioma), msg)
 
@@ -24247,6 +24506,12 @@ class MainWindow(QMainWindow):
             folds = self.sp_skl_cv_folds.value()
             shuffle = self.chk_skl_cv_shuffle.isChecked()
             random_state = self._get_skl_random_state()
+            # Repetições: só KFold/StratifiedKFold/Nested CV (ver _update_skl_cv_method_widgets).
+            cv_repeats = (self.sp_skl_cv_repeats.value()
+                          if hasattr(self, "sp_skl_cv_repeats") and method in ("KFold", "StratifiedKFold", "Nested CV")
+                          else 1)
+            if cv_repeats > 1:
+                shuffle = True
 
             if method == "Nested CV":
                 registry, _task2 = self._get_skl_registry()
@@ -24278,6 +24543,7 @@ class MainWindow(QMainWindow):
                     cls=cls, base_kwargs=base_kwargs, param_grid=param_grid,
                     folds=folds, shuffle=shuffle, random_state=random_state,
                     inner_folds=self.sp_skl_tune_folds.value(), scoring=inner_scoring,
+                    repeats=cv_repeats,
                 )
             elif method == "Bootstrap":
                 mode = "bootstrap"
@@ -24286,7 +24552,7 @@ class MainWindow(QMainWindow):
                 mode = "standard"
                 worker_kwargs = dict(
                     method=method, folds=folds, shuffle=shuffle, random_state=random_state,
-                    p=self.sp_skl_cv_p.value(),
+                    p=self.sp_skl_cv_p.value(), repeats=cv_repeats,
                 )
 
             self._skl_evaluate_model_name = model_name
@@ -24294,6 +24560,7 @@ class MainWindow(QMainWindow):
             self._skl_evaluate_cv_folds = folds
             self._skl_evaluate_cv_shuffle = shuffle
             self._skl_evaluate_cv_p = self.sp_skl_cv_p.value()
+            self._skl_evaluate_cv_repeats = cv_repeats
             self._skl_evaluate_scope = scope
             self._skl_evaluate_n = len(x_reset)
             self._skl_evaluate_worker = SklEvaluateWorker(
@@ -24336,6 +24603,7 @@ class MainWindow(QMainWindow):
         self._skl_cv_oof = {
             "model": eval_model_name, "usi": getattr(self, "skl_usi_key", None), "task": cv_task,
             "method": getattr(self, "_skl_evaluate_cv_method", ""), "folds": getattr(self, "_skl_evaluate_cv_folds", None),
+            "repeats": getattr(self, "_skl_evaluate_cv_repeats", 1),
             "y_true": oof[0] if oof else None, "y_pred": oof[1] if oof else None,
             "scope": getattr(self, "_skl_evaluate_scope", "train"),
         }
@@ -24348,6 +24616,7 @@ class MainWindow(QMainWindow):
             "folds": getattr(self, "_skl_evaluate_cv_folds", None),
             "shuffle": getattr(self, "_skl_evaluate_cv_shuffle", None),
             "p": getattr(self, "_skl_evaluate_cv_p", None),
+            "repeats": getattr(self, "_skl_evaluate_cv_repeats", 1),
             # "train" (conjunto de treino) ou "full" (treino + teste, modelos "_refit") - lido pelo relatório.
             "data_scope": getattr(self, "_skl_evaluate_scope", "train"),
             "n_samples": getattr(self, "_skl_evaluate_n", None),
@@ -24383,6 +24652,9 @@ class MainWindow(QMainWindow):
             method, folds = oof.get("method", ""), oof.get("folds")
             # Ex.: "KFold (5 folds)", "Nested CV (3 folds)", "Leave-One-Out (LOOCV)".
             cv_desc = f"{method} ({folds} folds)" if folds and method in ("KFold", "StratifiedKFold", "Nested CV") else method
+            reps = int(oof.get("repeats") or 1)
+            if reps > 1:
+                cv_desc += f", repetition 1 of {reps}"
             if oof.get("task") == "regression":
                 kind = "cv_predicted_vs_actual"
                 fig, ax = plt.subplots(figsize=(6, 5))
@@ -25072,7 +25344,8 @@ class MainWindow(QMainWindow):
             saved_paths = []
             failed = []
             for item in selected:
-                kind = item.text().split(" - ")[0].strip()
+                kind = item.data(Qt.UserRole) or item.text().split(" - ")[0].strip()
+                label = item.text()
                 # Mensagem de espera (sem barra de progresso) por gráfico, fechada assim que ele
                 # termina de ser construído, logo antes de exibir/salvar o resultado (permite
                 # selecionar vários gráficos de uma vez, cada um com seu próprio ciclo). Um erro num
@@ -25082,7 +25355,7 @@ class MainWindow(QMainWindow):
                     fig = self._build_skl_plot_figure(kind, task, model=model, model_name=model_name)
                 except Exception as chart_error:
                     import traceback; traceback.print_exc()
-                    failed.append(f"{kind}: {chart_error}")
+                    failed.append(f"{label}: {chart_error}")
                     fig = None
                 finally:
                     dlg.close()
@@ -25096,7 +25369,7 @@ class MainWindow(QMainWindow):
                     finally:
                         plt.close(fig)
                 else:
-                    self._show_skl_plot_dialog(fig, kind, f"{model_name}_{kind}_{self.skl_usi_key}")
+                    self._show_skl_plot_dialog(fig, label, f"{model_name}_{kind}_{self.skl_usi_key}")
 
             if auto_save_only and saved_paths:
                 QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma),

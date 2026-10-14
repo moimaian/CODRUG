@@ -800,7 +800,7 @@ _TEXTOS = {
         "en": "'{model}' is a refit (final) model. To tune, select its source model '{source}' and refit again afterwards.",
         "pt": "'{model}' é um modelo refit (final). Para tunar, selecione o modelo de origem '{source}' e faça o refit de novo depois.",
     },
-    "s6_lbl_screening_cv_folds": {"en": "CV Folds (train):", "pt": "Folds da CV (treino):"},
+    "s6_lbl_screening_cv_folds": {"en": "Folds (train):", "pt": "Folds (treino):"},
     "s6_tooltip_screening_cv_folds": {
         "en": "Number of k-fold cross-validation folds used to rank the models. The cross-validation "
               "runs on the training set only; the test set is kept aside for the final evaluation.",
@@ -813,17 +813,34 @@ _TEXTOS = {
     "btn_select_all": {"en": "Select All", "pt": "Selecionar Tudo"},
     "s6_btn_view_train_test_freq": {"en": "View Split", "pt": "Ver Divisão"},
     "s6_btn_view_rank": {"en": "View Rank", "pt": "Ver Ranking"},
+    "s6_lbl_cv_repeats": {"en": "Repeats:", "pt": "Repetições:"},
+    "s6_tooltip_cv_repeats": {
+        "en": "Number of times the k-fold cross-validation is repeated, each time with a different random partition "
+              "of the folds (Random State + repetition). 1 = no repetition. With 2 or more, the result is the mean "
+              "across repetitions and its SD is the standard deviation BETWEEN repetitions - a more stable estimate "
+              "and a fairer comparison between models (Krstajic et al., J. Cheminform. 2014). Run time is multiplied "
+              "by the number of repetitions. Folds are always shuffled.",
+        "pt": "Quantas vezes a validação cruzada k-fold é repetida, cada vez com outra partição aleatória dos folds "
+              "(Random State + repetição). 1 = sem repetição. Com 2 ou mais, o resultado é a média entre repetições e "
+              "o seu SD é o desvio-padrão ENTRE repetições - estimativa mais estável e comparação mais justa entre "
+              "modelos (Krstajic et al., J. Cheminform. 2014). O tempo de execução é multiplicado pelo número de "
+              "repetições. Os folds são sempre embaralhados.",
+    },
     "s6_tooltip_cv_table": {
         "en": "n Val / R2 Val / Accuracy Val: the validation fold of each round (the compounds left out of it), "
               "never the Screening test set. R2/Accuracy Train: the same round's training folds. "
               "Pooled: metrics over all out-of-fold predictions together (for regression, R2 Val = Q² CV); "
               "Train columns are the mean between folds. Std Dev: standard deviation between folds. "
-              "Bootstrap: OOB = out-of-bag compounds of each iteration.",
+              "Bootstrap: OOB = out-of-bag compounds of each iteration.\n"
+              "With Repeats > 1: folds are labelled 'repetition-fold' (e.g. 2-3); Pooled = mean across repetitions of "
+              "each repetition's pooled value; Std Dev = standard deviation BETWEEN repetitions.",
         "pt": "n Val / R2 Val / Accuracy Val: o fold de validação de cada rodada (as moléculas deixadas de fora), "
               "nunca o conjunto teste do Screening. R2/Accuracy Train: os folds de treino da mesma rodada. "
               "Pooled: métricas sobre todas as predições out-of-fold juntas (em regressão, R2 Val = Q² CV); "
               "as colunas Train são a média entre folds. Std Dev: desvio-padrão entre folds. "
-              "Bootstrap: OOB = moléculas fora da reamostragem (out-of-bag) de cada iteração.",
+              "Bootstrap: OOB = moléculas fora da reamostragem (out-of-bag) de cada iteração.\n"
+              "Com Repetições > 1: os folds aparecem como 'repetição-fold' (ex.: 2-3); Pooled = média, entre repetições, "
+              "do valor agrupado de cada uma; Std Dev = desvio-padrão ENTRE repetições.",
     },
     "s6_scope_train": {"en": "training set (n={n})", "pt": "conjunto de treino (n={n})"},
     "s6_scope_full": {"en": "full dataset: training + test (n={n})", "pt": "conjunto completo: treino + teste (n={n})"},
@@ -841,8 +858,12 @@ _TEXTOS = {
     "s6_grp_hyperparameter_tuning": {"en": "Hyperparameter Tuning", "pt": "Ajuste de Hiperparâmetros"},
     "lbl_model": {"en": "Model:", "pt": "Modelo:"},
     "lbl_method": {"en": "Method:", "pt": "Método:"},
-    "s6_lbl_cv_folds": {"en": "CV folds:", "pt": "Folds de CV:"},
-    "s6_lbl_n_iter": {"en": "n_iter (Randomized/Bayesian):", "pt": "n_iter (Randomized/Bayesian):"},
+    "s6_lbl_cv_folds": {"en": "Folds:", "pt": "Folds:"},
+    "s6_lbl_n_iter": {"en": "n iter:", "pt": "n iter:"},
+    "s6_tooltip_n_iter": {
+        "en": "Number of hyperparameter combinations tried. Used only by RandomizedSearchCV and Bayesian Optimization (Optuna).",
+        "pt": "Número de combinações de hiperparâmetros testadas. Usado só pelo RandomizedSearchCV e pela Bayesian Optimization (Optuna).",
+    },
     "s6_col_hyperparameter": {"en": "Hyperparameter", "pt": "Hiperparâmetro"},
     "s6_col_values_to_test": {"en": "Values to test (comma-separated)", "pt": "Valores a testar (separados por vírgula)"},
     "s6_btn_run_tuning": {"en": "Run Tuning", "pt": "Executar Ajuste"},

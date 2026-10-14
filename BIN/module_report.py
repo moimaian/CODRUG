@@ -1534,14 +1534,20 @@ _STEP4_ML_TEXTS = {
     "scope_full_yrand_en": " As a refit model, the test was performed on the full internal set (training + test, {n} compounds).",
     "tuning_metric_pt": ", otimizando a métrica {metric} por validação cruzada no conjunto de treino",
     "tuning_metric_en": ", optimizing {metric} by cross-validation on the training set",
-    "ranked_by_cv_pt": " Os modelos foram ranqueados por validação cruzada {k}-fold realizada somente no conjunto de treino; o conjunto teste não participou da triagem. ",
-    "ranked_by_cv_en": " Models were ranked by {k}-fold cross-validation performed on the training set only; the test set took no part in the screening. ",
+    "ranked_by_cv_pt": " Os modelos foram ranqueados por validação cruzada {k}-fold{rep} realizada somente no conjunto de treino; o conjunto teste não participou da triagem. ",
+    "ranked_by_cv_en": " Models were ranked by {k}-fold cross-validation{rep} performed on the training set only; the test set took no part in the screening. ",
+    "rep_ranked_pt": " repetida {r} vezes com partições diferentes (média entre repetições)",
+    "rep_ranked_en": " repeated {r} times with different partitions (mean across repetitions)",
+    "rep_short_pt": " repetidos {r} vezes",
+    "rep_short_en": " repeated {r} times",
+    "cv_repeats_note_pt": "Com {r} repetições, cada uma com outra partição dos folds, a linha Pooled é a média, entre as repetições, do valor agrupado de cada uma, e a linha Std Dev é o desvio-padrão entre as repetições.",
+    "cv_repeats_note_en": "With {r} repetitions, each with a different fold partition, the Pooled row is the mean, across repetitions, of each repetition's pooled value, and the Std Dev row is the standard deviation between repetitions.",
     "best_model_pt": "O modelo de melhor performance foi ",
     "best_model_en": "The best performing model was ",
-    "tuning_pt": "Foi empregado o Hyperparameter Tuning sobre o modelo {model} usando {method} e {folds} Folds{metric}. Os hiperparâmetros e seus valores ótimos podem ser visualizados na tabela a seguir:",
-    "tuning_en": "Hyperparameter Tuning was applied to the {model} model using {method} with {folds} Folds{metric}. The hyperparameters and their optimal values can be seen in the table below:",
-    "cv_pt": "A validação cruzada do modelo {model} foi realizada através do método {method} com {folds} Folds, gerando a tabela a seguir:",
-    "cv_en": "Cross-validation of the {model} model was performed using the {method} method with {folds} Folds, generating the table below:",
+    "tuning_pt": "Foi empregado o Hyperparameter Tuning sobre o modelo {model} usando {method} e {folds} Folds{rep}{metric}. Os hiperparâmetros e seus valores ótimos podem ser visualizados na tabela a seguir:",
+    "tuning_en": "Hyperparameter Tuning was applied to the {model} model using {method} with {folds} Folds{rep}{metric}. The hyperparameters and their optimal values can be seen in the table below:",
+    "cv_pt": "A validação cruzada do modelo {model} foi realizada através do método {method} com {folds} Folds{rep}, gerando a tabela a seguir:",
+    "cv_en": "Cross-validation of the {model} model was performed using the {method} method with {folds} Folds{rep}, generating the table below:",
     "charts_pt": "Os gráficos gerados para o modelo {model} são apresentados a seguir:",
     "charts_en": "The charts generated for the {model} model are presented below:",
     "figure4_caption_pt": "Figura 4. Divisão dos conjuntos de treino e teste para o dataframe {df}.",
@@ -1827,7 +1833,9 @@ def _add_step5_section(document: Any, project_dir: str, state: dict[str, Any], i
                        texts["split_random_en"].format(rs=f" (random state = {rs})" if rs is not None else ""), False)
         if screening.get("cv_folds"):
             k = int(screening["cv_folds"])
-            add_bi(texts["ranked_by_cv_pt"].format(k=k), texts["ranked_by_cv_en"].format(k=k), False)
+            r = int(screening.get("cv_repeats") or 1)
+            add_bi(texts["ranked_by_cv_pt"].format(k=k, rep=texts["rep_ranked_pt"].format(r=r) if r > 1 else ""),
+                   texts["ranked_by_cv_en"].format(k=k, rep=texts["rep_ranked_en"].format(r=r) if r > 1 else ""), False)
         if best_model:
             add_bi(texts["best_model_pt"], texts["best_model_en"], False)
             add(str(best_model), True)
@@ -1869,9 +1877,11 @@ def _add_step5_section(document: Any, project_dir: str, state: dict[str, Any], i
             method = settings.get("method", "")
             folds = settings.get("folds", "")
             metric_txt = texts[f"tuning_metric_{lang}"].format(metric=settings["metric"]) if settings.get("metric") else ""
+            t_rep = int(settings.get("repeats") or 1)
             _para(document).add_run(
                 texts["tuning_pt" if lang == "pt" else "tuning_en"].format(
-                    model=model_name, method=method, folds=folds, metric=metric_txt)
+                    model=model_name, method=method, folds=folds, metric=metric_txt,
+                    rep=texts[f"rep_short_{'pt' if lang == 'pt' else 'en'}"].format(r=t_rep) if t_rep > 1 else "")
             )
             _add_skl_results_table(document, tune_df)
 
@@ -1882,7 +1892,10 @@ def _add_step5_section(document: Any, project_dir: str, state: dict[str, Any], i
             cv_csv = _find_skl_csv(data_dir, "skl_cv", usi, model_name)
             cv_df = _read_csv(cv_csv)
             if cv_df is not None:
-                cv_text = texts["cv_pt" if lang == "pt" else "cv_en"].format(model=model_name, method=method, folds=folds)
+                v_rep = int(settings.get("repeats") or 1)
+                cv_text = texts["cv_pt" if lang == "pt" else "cv_en"].format(
+                    model=model_name, method=method, folds=folds,
+                    rep=texts[f"rep_short_{'pt' if lang == 'pt' else 'en'}"].format(r=v_rep) if v_rep > 1 else "")
                 if settings.get("data_scope") == "full":
                     # Modelo "_refit": CV sobre treino + teste (CODRUG._skl_dev_data_for).
                     cv_text = texts[f"scope_full_cv_{'pt' if lang == 'pt' else 'en'}"].format(
@@ -1890,7 +1903,9 @@ def _add_step5_section(document: Any, project_dir: str, state: dict[str, Any], i
                 _para(document).add_run(cv_text)
                 fold_col = 0 if list(cv_df.columns)[:1] == ["Fold"] else None
                 if "R2 Val" in cv_df.columns or "Accuracy Val" in cv_df.columns:
-                    _para(document).add_run(texts[f"cv_columns_{'pt' if lang == 'pt' else 'en'}"])
+                    _para(document).add_run(texts[f"cv_columns_{'pt' if lang == 'pt' else 'en'}"]
+                                            + (" " + texts[f"cv_repeats_note_{'pt' if lang == 'pt' else 'en'}"].format(r=v_rep)
+                                               if v_rep > 1 else ""))
                 # "Pooled" (atual) ou "Mean" (CSVs de versões anteriores) + "Std Dev".
                 _add_skl_results_table(document, cv_df, highlight_col=fold_col, highlight_col_bold=True,
                                         overall_row_value=("Pooled", "Mean", "Std Dev"))

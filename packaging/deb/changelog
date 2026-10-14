@@ -43,6 +43,43 @@ codrug (1.2.0-1) unstable; urgency=low
     KS (antes esses usavam a segunda em ordem alfabética: com
     "active"/"inative", mediam os inativos). Um gráfico com erro não impede
     mais os demais; as falhas são listadas no fim (CODRUG.py).
+  * Validação cruzada repetida: novo campo "Repeats"/"Repetições" no Model
+    Screening (CV do ranking), no Hyperparameter Tuning e no grupo
+    Validation (KFold, StratifiedKFold e Nested CV). Cada repetição usa
+    outra partição dos folds (Random State + repetição; a 1ª é a mesma de
+    antes). Com 2+ repetições, "<métrica> CV" é a média entre repetições do
+    valor agrupado de cada uma e o SD passa a ser o desvio-padrão ENTRE
+    repetições; na tabela da Validation, os folds aparecem como
+    "repetição-fold". Valores salvos por USI e descritos no relatório
+    (CODRUG.py, BIN/i18n.py, BIN/module_report.py).
+  * Corrige o Tuning (e a busca interna do Nested CV), que usava folds
+    contíguos SEM embaralhar (cv=<nº de folds>): com dados ordenados (ex.:
+    ChEMBL agrupado por ensaio/série), cada fold ficava homogêneo. Agora os
+    folds são embaralhados com o Random State e estratificados em
+    classificação, como no Screening e na Validation (CODRUG.py).
+  * STEP 4: rótulos mais curtos - "CV Folds (train)" vira "Folds (train)"
+    (spinbox mais estreita), "CV folds" do Tuning vira "Folds" e "n_iter
+    (Randomized/Bayesian)" vira "n iter" (a explicação passa para a dica do
+    campo) (CODRUG.py, BIN/i18n.py).
+  * Tooltips com mais de 6 palavras passam a ser exibidos com quebra de
+    linha (até 60 caracteres por linha), para não ficarem mais largos que a
+    janela: filtro global de eventos aplicado no momento da exibição, que
+    vale para todos os widgets, tooltips de células de tabela e textos em
+    HTML (mantendo o tamanho de fonte), sem alterar os textos guardados
+    (CODRUG.py).
+  * STEP 4, Model Screening: a lista Models deixa de esticar na largura e
+    passa a ter a largura do maior nome de modelo da tarefa atual (+ barra
+    de rolagem e margens), recalculada ao trocar o tipo de tarefa; o espaço
+    liberado vai para a coluna Status (CODRUG.py).
+  * STEP 4, Performance Charts: a lista mostra só a descrição de cada
+    gráfico ("Cumulative Gains Curve", "Decision Tree Diagram"...), sem o
+    identificador interno na frente ("gain - ", "tree - "...), que passa a
+    ficar guardado no item. Os nomes dos arquivos salvos não mudam, e o
+    relatório continua encontrando os gráficos (CODRUG.py).
+  * STEP 4, Model Screening: espaço entre a spinbox de "Folds (train)" e o
+    rótulo "Repeats" (e entre a spinbox de Repeats e os botões ao lado), o
+    que também alarga a coluna do grid - antes o rótulo ficava colado na
+    caixa de Folds (CODRUG.py).
 
  -- Moisés Maia Neto <moimaian@gmail.com>  Tue, 13 Oct 2026 03:18:10 -0300
 
