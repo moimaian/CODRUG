@@ -24,6 +24,25 @@ codrug (1.2.0-1) unstable; urgency=low
     seguinte da lista (ou a anterior, se era a última); sem USI restante, a
     sessão da STEP 4 é esvaziada. Só remove pastas dentro de RESULTS/USI
     (CODRUG.py, BIN/i18n.py).
+  * STEP 4: escolha da USI sem deixar pastas órfãs. Run Screening (e o
+    carregamento do Internal DataFrame) usa a USI atual se ela ainda não
+    não tem nenhum resultado (pasta vazia ou só com o gráfico do View Split;
+    qualquer outro arquivo, inclusive resultados antigos do PyCaret, protege
+    a pasta) ou se é um código novo digitado no combobox; senão reaproveita uma pasta de
+    USI sem uso já existente no projeto (antes ela ficava órfã, invisível no
+    combobox - ex.: USI criada ao carregar um DataFrame e abandonada antes do
+    Screening), esvaziando-a; só então gera um código novo. Substitui o
+    marcador "USI pendente", que só cobria o primeiro Screening após o
+    carregamento (CODRUG.py).
+  * Performance Charts em classificação binária com rótulos de texto: a ROC
+    falhava ("pos_label is not specified") e, com vários gráficos
+    selecionados, o erro interrompia todos os seguintes. A classe positiva
+    passa a ser escolhida explicitamente - um rótulo de ativo ("active",
+    "ativo", 1, "yes"...) quando houver, senão a segunda classe - e aparece
+    no título de ROC, Precision-Recall, Threshold, Calibration, Lift, Gain e
+    KS (antes esses usavam a segunda em ordem alfabética: com
+    "active"/"inative", mediam os inativos). Um gráfico com erro não impede
+    mais os demais; as falhas são listadas no fim (CODRUG.py).
 
  -- Moisés Maia Neto <moimaian@gmail.com>  Tue, 13 Oct 2026 03:18:10 -0300
 

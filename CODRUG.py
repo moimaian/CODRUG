@@ -1516,6 +1516,59 @@ def _generate_new_usi_code(project_dir: str) -> str:
             return code
     return "".join(random.choices(alphabet, k=8))
 
+def _usi_is_unused(project_dir: str, code: str) -> bool:
+    """True se a pasta RESULTS/USI/<code> existe e ainda não recebeu nenhum resultado: o ÚNICO
+    conteúdo permitido são os gráficos do View Split gerados antes do Screening
+    (MIDIA/*_Train_Test_Plot_*.png) e subpastas vazias. Qualquer outro arquivo - de qualquer formato,
+    inclusive resultados antigos do PyCaret (df_pycaret_*.csv, pycaret_*.png) ou o layout antigo
+    SKLEARN/... - marca a USI como usada, e ela nunca é reaproveitada nem esvaziada."""
+    base = os.path.join(project_dir or "", "RESULTS", "USI", code or "")
+    if not code or not os.path.isdir(base):
+        return False
+    for dirpath, _dirs, files in os.walk(base):
+        rel_dir = os.path.relpath(dirpath, base)
+        for f in files:
+            if rel_dir == "MIDIA" and "_Train_Test_Plot_" in f and f.lower().endswith(".png"):
+                continue
+            return False
+    return True
+
+
+def _pick_usi_for_new_run(project_dir: str, current: str = None):
+    """USI em que um novo Run Screening (ou um novo Internal DataFrame) deve gravar, sem acumular
+    pastas sem uso:
+    1) a USI atual, se ainda não foi usada (pasta sem Screening) ou se é um código novo digitado no
+       combobox (pasta ainda inexistente);
+    2) senão, outra pasta de USI do projeto ainda não usada (ex.: criada ao carregar um Internal
+       DataFrame e abandonada antes do Screening) - reaproveitada em vez de virar órfã;
+    3) senão, um código novo.
+    Devolve (code, adopted): adopted=True no caso 2 (pasta de outra corrida, com conteúdo velho)."""
+    usi_root = os.path.join(project_dir or "", "RESULTS", "USI")
+    cur = (current or "").strip()
+    if cur and cur != "LOAD" and re.fullmatch(r"[A-Za-z0-9_-]+", cur):
+        if _usi_is_unused(project_dir, cur) or not os.path.exists(os.path.join(usi_root, cur)):
+            return cur, False
+    try:
+        candidates = [
+            d for d in os.listdir(usi_root)
+            if re.fullmatch(r"[A-Z0-9]{4}", d) and _usi_is_unused(project_dir, d)
+        ]
+    except OSError:
+        candidates = []
+    if candidates:
+        candidates.sort(key=lambda d: os.path.getmtime(os.path.join(usi_root, d)), reverse=True)
+        return candidates[0], True
+    return _generate_new_usi_code(project_dir), False
+
+
+def _reset_unused_usi_folder(project_dir: str, code: str) -> None:
+    """Esvazia a pasta de uma USI ainda não usada (ver _usi_is_unused) antes de reaproveitá-la para
+    outro DataFrame/corrida - ela só pode conter gráficos de antes do Screening, que ficariam
+    desatualizados. Nunca toca numa USI que já teve Screening."""
+    if _usi_is_unused(project_dir, code):
+        shutil.rmtree(os.path.join(project_dir, "RESULTS", "USI", code), ignore_errors=True)
+
+
 def _ui_bool_from_combo(cb):
     """Mapeia 'True'/'False'/'Auto' para bool/None."""
     if cb is None:
@@ -2979,6 +3032,27 @@ def _specificity_score(y_true, y_pred):
     if not specs:
         return float("nan")
     return float(np.average(specs, weights=weights))
+
+
+# Rótulos tratados como a classe POSITIVA (a de interesse - ex.: ativo) nos gráficos binários de
+# probabilidade (ROC, PR, Threshold, Calibration, Lift, Gain, KS). Comparação exata, sem caixa:
+# "inactive"/"inative" não casam com "active".
+_SKL_POSITIVE_CLASS_HINTS = ("active", "actives", "ativo", "ativa", "ativos", "positive", "positivo",
+                             "pos", "yes", "sim", "true", "1", "1.0")
+
+
+def _skl_positive_class(model, y_true):
+    """(rótulo, índice da coluna em predict_proba) da classe positiva de um classificador BINÁRIO:
+    um rótulo "de ativo" (ver _SKL_POSITIVE_CLASS_HINTS) quando houver; senão a segunda classe de
+    model.classes_ (convenção do scikit-learn). (None, None) se não houver exatamente 2 classes. O
+    índice segue model.classes_, que é a ordem das colunas de predict_proba."""
+    classes = list(getattr(model, "classes_", [])) or sorted(set(np.asarray(y_true).tolist()))
+    if len(classes) != 2:
+        return None, None
+    for i, c in enumerate(classes):
+        if str(c).strip().lower() in _SKL_POSITIVE_CLASS_HINTS:
+            return c, i
+    return classes[1], 1
 
 
 def _skl_curve_compute_metric(metric, y_true, y_pred, model=None, x=None):
@@ -17290,13 +17364,16 @@ class MainWindow(QMainWindow):
         self._df_int_path = self._to_project_relative_path(file_path)
 
         # Ao carregar manualmente (botão "Select Internal DataFrame", não a restauração de Previous
-        # Project), já gera a USI que será usada pela primeira execução de Run Screening — assim
-        # "View Split" clicado antes do Screening salva numa USI real (ligada a este DataFrame),
-        # em vez de cair numa USI "LOAD" vazia/genérica. A própria Run Screening consome essa USI
-        # pendente uma única vez; da segunda execução em diante volta a gerar uma nova a cada clique.
+        # Project), já define a USI que o próximo Run Screening vai usar - assim "View Split" clicado
+        # antes do Screening salva numa USI real (ligada a este DataFrame), em vez de cair numa USI
+        # "LOAD" genérica. Reaproveita a USI atual se ela ainda não teve Screening (ou outra pasta de
+        # USI sem uso do projeto) em vez de criar mais uma - ver _pick_usi_for_new_run. Como o
+        # DataFrame mudou, o conteúdo velho dessa pasta sem uso (ex.: View Split de outro arquivo) é
+        # descartado.
         if show_preview and hasattr(self, "ed_skl_USI"):
-            self._set_current_sklearn_usi_context(_generate_new_usi_code(self.project_dir))
-            self._skl_usi_pending_from_load = True
+            code, _adopted = _pick_usi_for_new_run(self.project_dir, self.ed_skl_USI.currentText())
+            _reset_unused_usi_folder(self.project_dir, code)
+            self._set_current_sklearn_usi_context(code)
 
         try:
             # Adiciona as colunas do DataFrame para seleção da label, já deixando a coluna de
@@ -23200,11 +23277,6 @@ class MainWindow(QMainWindow):
         if not code:
             return
 
-        # Usuário escolheu explicitamente uma USI existente — a USI pendente gerada ao carregar o
-        # Internal DataFrame (se ainda não consumida) deixa de fazer sentido; a próxima Run Screening
-        # volta a gerar uma nova USI normalmente, em vez de reaproveitar a antiga.
-        self._skl_usi_pending_from_load = False
-
         self._set_current_sklearn_usi_context(code)
         config_path = self._skl_session_config_path()
         if not config_path or not os.path.isfile(config_path):
@@ -23314,7 +23386,6 @@ class MainWindow(QMainWindow):
         self._skl_tuning_settings = {}
         self._skl_validation_settings = {}
         self._skl_refit_settings = {}
-        self._skl_usi_pending_from_load = False
         self._refresh_skl_model_combo()
         if hasattr(self, "tbl_skl_cv"):
             self.tbl_skl_cv.setRowCount(0)
@@ -23710,15 +23781,14 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, i18n.t("msg_title_screening", self._idioma), str(e))
                 return
 
-            # Cada execução de Run Screening grava em uma pasta USI nova, para não misturar/sobrescrever
-            # os resultados de tentativas anteriores (ranking, modelos treinados, tuning, etc.) — exceto
-            # a primeira execução após carregar o Internal DataFrame, que reaproveita a USI já gerada
-            # nesse momento (ver _load_internal_dataframe) em vez de descartá-la e gerar outra.
-            if getattr(self, "_skl_usi_pending_from_load", False):
-                self._set_current_sklearn_usi_context()
-                self._skl_usi_pending_from_load = False
-            else:
-                self._set_current_sklearn_usi_context(_generate_new_usi_code(self.project_dir))
+            # Run Screening nunca grava por cima de um Screening anterior (ranking, modelos, tuning...):
+            # usa a USI atual se ela ainda não teve Screening (ex.: a definida ao carregar o Internal
+            # DataFrame, com o View Split dele); senão reaproveita outra pasta de USI sem uso do projeto
+            # (esvaziada antes) ou gera um código novo - ver _pick_usi_for_new_run.
+            code, adopted = _pick_usi_for_new_run(self.project_dir, self.ed_skl_USI.currentText())
+            if adopted:
+                _reset_unused_usi_folder(self.project_dir, code)
+            self._set_current_sklearn_usi_context(code)
             random_state = self._get_skl_random_state()
 
             model_specs = []
@@ -25000,14 +25070,20 @@ class MainWindow(QMainWindow):
             # ocorre ao gerar um único gráfico por vez.
             auto_save_only = len(selected) > 1
             saved_paths = []
+            failed = []
             for item in selected:
                 kind = item.text().split(" - ")[0].strip()
                 # Mensagem de espera (sem barra de progresso) por gráfico, fechada assim que ele
                 # termina de ser construído, logo antes de exibir/salvar o resultado (permite
-                # selecionar vários gráficos de uma vez, cada um com seu próprio ciclo).
+                # selecionar vários gráficos de uma vez, cada um com seu próprio ciclo). Um erro num
+                # gráfico não interrompe os demais: é listado no fim.
                 dlg = self.show_wait_message_dialog("Plot", "Building chart... Please wait for it to finish!")
                 try:
                     fig = self._build_skl_plot_figure(kind, task, model=model, model_name=model_name)
+                except Exception as chart_error:
+                    import traceback; traceback.print_exc()
+                    failed.append(f"{kind}: {chart_error}")
+                    fig = None
                 finally:
                     dlg.close()
                 if fig is None:
@@ -25026,6 +25102,9 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma),
                     f"{len(saved_paths)} chart(s) saved to:\n" + "\n".join(saved_paths)
                 )
+            if failed:
+                QMessageBox.warning(self, i18n.t("msg_title_plot_error", self._idioma),
+                    f"{len(failed)} chart(s) could not be generated:\n" + "\n".join(failed))
         except Exception as e:
             import traceback; traceback.print_exc()
             QMessageBox.critical(self, i18n.t("msg_title_plot_error", self._idioma), str(e))
@@ -25492,8 +25571,9 @@ class MainWindow(QMainWindow):
             classes = sorted(set(self.skl_y_test))
             y_score = model.predict_proba(self.skl_x_test)
             fig, ax = plt.subplots(figsize=(6, 5))
-            if len(classes) == 2:
-                fpr, tpr, _ = roc_curve(self.skl_y_test, y_score[:, 1])
+            pos_label, pos_idx = _skl_positive_class(model, self.skl_y_test)
+            if len(classes) == 2 and pos_label is not None:
+                fpr, tpr, _ = roc_curve(self.skl_y_test, y_score[:, pos_idx], pos_label=pos_label)
                 roc_auc_val = auc(fpr, tpr)
                 ax.plot(fpr, tpr, label=f"ROC (AUC = {roc_auc_val:.2f})", color="tomato")
             else:
@@ -25503,7 +25583,8 @@ class MainWindow(QMainWindow):
                 ax.plot(fpr, tpr, label=f"Micro-average ROC (AUC = {roc_auc_val:.2f})", color="tomato")
             ax.plot([0, 1], [0, 1], "k--")
             ax.set_xlabel("False Positive Rate"); ax.set_ylabel("True Positive Rate")
-            ax.set_title(f"{model_name}: ROC Curve")
+            ax.set_title(f"{model_name}: ROC Curve"
+                         + (f"\npositive class: {pos_label}" if len(classes) == 2 and pos_label is not None else ""))
             ax.legend(loc="lower right")
             return fig
 
@@ -25515,12 +25596,13 @@ class MainWindow(QMainWindow):
             if len(classes) != 2:
                 QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma), "The Precision-Recall Curve is only available for binary classification.")
                 return None
-            y_score = model.predict_proba(self.skl_x_test)[:, 1]
-            precision, recall, _ = precision_recall_curve(self.skl_y_test, y_score, pos_label=classes[1])
+            pos_label, pos_idx = _skl_positive_class(model, self.skl_y_test)
+            y_score = model.predict_proba(self.skl_x_test)[:, pos_idx]
+            precision, recall, _ = precision_recall_curve(self.skl_y_test, y_score, pos_label=pos_label)
             fig, ax = plt.subplots(figsize=(6, 5))
             ax.plot(recall, precision, color="tomato")
             ax.set_xlabel("Recall"); ax.set_ylabel("Precision")
-            ax.set_title(f"{model_name}: Precision-Recall Curve")
+            ax.set_title(f"{model_name}: Precision-Recall Curve\npositive class: {pos_label}")
             return fig
 
         if kind == "threshold" and task == "classification":
@@ -25531,15 +25613,16 @@ class MainWindow(QMainWindow):
             if len(classes) != 2:
                 QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma), "The Threshold plot is only available for binary classification.")
                 return None
-            y_score = model.predict_proba(self.skl_x_test)[:, 1]
-            precision, recall, thresholds = precision_recall_curve(self.skl_y_test, y_score, pos_label=classes[1])
+            pos_label, pos_idx = _skl_positive_class(model, self.skl_y_test)
+            y_score = model.predict_proba(self.skl_x_test)[:, pos_idx]
+            precision, recall, thresholds = precision_recall_curve(self.skl_y_test, y_score, pos_label=pos_label)
             f1_scores = np.where((precision + recall) > 0, 2 * precision * recall / (precision + recall + 1e-12), 0.0)
             fig, ax = plt.subplots(figsize=(7, 5))
             ax.plot(thresholds, precision[:-1], label="Precision", color="steelblue")
             ax.plot(thresholds, recall[:-1], label="Recall", color="tomato")
             ax.plot(thresholds, f1_scores[:-1], label="F1", color="seagreen")
             ax.set_xlabel("Threshold"); ax.set_ylabel("Score")
-            ax.set_title(f"{model_name}: Precision / Recall / F1 vs Threshold")
+            ax.set_title(f"{model_name}: Precision / Recall / F1 vs Threshold\npositive class: {pos_label}")
             ax.legend()
             return fig
 
@@ -25551,14 +25634,15 @@ class MainWindow(QMainWindow):
             if len(classes) != 2:
                 QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma), "The Calibration Curve is only available for binary classification.")
                 return None
-            y_score = model.predict_proba(self.skl_x_test)[:, 1]
-            y_true_bin = np.asarray(self.skl_y_test == classes[1]).astype(int)
+            pos_label, pos_idx = _skl_positive_class(model, self.skl_y_test)
+            y_score = model.predict_proba(self.skl_x_test)[:, pos_idx]
+            y_true_bin = np.asarray(self.skl_y_test == pos_label).astype(int)
             frac_pos, mean_pred = calibration_curve(y_true_bin, y_score, n_bins=10)
             fig, ax = plt.subplots(figsize=(6, 5))
             ax.plot(mean_pred, frac_pos, marker="o", color="tomato", label=model_name)
             ax.plot([0, 1], [0, 1], "k--", label="Perfectly calibrated")
             ax.set_xlabel("Mean Predicted Probability"); ax.set_ylabel("Fraction of Positives")
-            ax.set_title(f"{model_name}: Calibration Curve")
+            ax.set_title(f"{model_name}: Calibration Curve\npositive class: {pos_label}")
             ax.legend()
             return fig
 
@@ -25570,8 +25654,9 @@ class MainWindow(QMainWindow):
             if len(classes) != 2:
                 QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma), "The Lift Curve is only available for binary classification.")
                 return None
-            y_score = model.predict_proba(self.skl_x_test)[:, 1]
-            y_true_bin = np.asarray(self.skl_y_test == classes[1]).astype(int)
+            pos_label, pos_idx = _skl_positive_class(model, self.skl_y_test)
+            y_score = model.predict_proba(self.skl_x_test)[:, pos_idx]
+            y_true_bin = np.asarray(self.skl_y_test == pos_label).astype(int)
             order = np.argsort(-y_score)
             y_sorted = y_true_bin[order]
             overall_rate = y_sorted.mean()
@@ -25585,7 +25670,7 @@ class MainWindow(QMainWindow):
             ax.plot(deciles * 100, lift_values, marker="o", color="tomato", label=model_name)
             ax.axhline(1.0, linestyle="--", color="gray", label="Baseline")
             ax.set_xlabel("% of Population (sorted by predicted probability)"); ax.set_ylabel("Lift")
-            ax.set_title(f"{model_name}: Lift Curve")
+            ax.set_title(f"{model_name}: Lift Curve\npositive class: {pos_label}")
             ax.legend()
             return fig
 
@@ -25597,8 +25682,9 @@ class MainWindow(QMainWindow):
             if len(classes) != 2:
                 QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma), "The Cumulative Gains Curve is only available for binary classification.")
                 return None
-            y_score = model.predict_proba(self.skl_x_test)[:, 1]
-            y_true_bin = np.asarray(self.skl_y_test == classes[1]).astype(int)
+            pos_label, pos_idx = _skl_positive_class(model, self.skl_y_test)
+            y_score = model.predict_proba(self.skl_x_test)[:, pos_idx]
+            y_true_bin = np.asarray(self.skl_y_test == pos_label).astype(int)
             order = np.argsort(-y_score)
             y_sorted = y_true_bin[order]
             n = len(y_sorted)
@@ -25609,7 +25695,7 @@ class MainWindow(QMainWindow):
             ax.plot(pop_frac * 100, cum_gains * 100, color="tomato", label=model_name)
             ax.plot([0, 100], [0, 100], "k--", label="Baseline")
             ax.set_xlabel("% of Population (sorted by predicted probability)"); ax.set_ylabel("% of Positives Captured")
-            ax.set_title(f"{model_name}: Cumulative Gains Curve")
+            ax.set_title(f"{model_name}: Cumulative Gains Curve\npositive class: {pos_label}")
             ax.legend()
             return fig
 
@@ -25621,8 +25707,9 @@ class MainWindow(QMainWindow):
             if len(classes) != 2:
                 QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma), "The KS plot is only available for binary classification.")
                 return None
-            y_score = model.predict_proba(self.skl_x_test)[:, 1]
-            fpr, tpr, thresholds = roc_curve(self.skl_y_test, y_score, pos_label=classes[1])
+            pos_label, pos_idx = _skl_positive_class(model, self.skl_y_test)
+            y_score = model.predict_proba(self.skl_x_test)[:, pos_idx]
+            fpr, tpr, thresholds = roc_curve(self.skl_y_test, y_score, pos_label=pos_label)
             finite_mask = np.isfinite(thresholds)
             thresholds, fpr, tpr = thresholds[finite_mask], fpr[finite_mask], tpr[finite_mask]
             ks_diff = tpr - fpr
@@ -25633,7 +25720,7 @@ class MainWindow(QMainWindow):
             ax.plot(thresholds, fpr, label="FPR", color="steelblue")
             ax.axvline(thresholds[ks_idx], linestyle="--", color="gray", label=f"KS = {ks_stat:.3f} @ {thresholds[ks_idx]:.3f}")
             ax.set_xlabel("Threshold"); ax.set_ylabel("Rate")
-            ax.set_title(f"{model_name}: Kolmogorov-Smirnov Statistic")
+            ax.set_title(f"{model_name}: Kolmogorov-Smirnov Statistic\npositive class: {pos_label}")
             ax.legend()
             return fig
 
