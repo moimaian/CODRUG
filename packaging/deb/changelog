@@ -129,6 +129,32 @@ codrug (1.2.0-1) unstable; urgency=low
     como texto, o único que o CatBoost aceita via set_params). A grade de nu
     do NuSVC passa a 0.1,0.3,0.5 - 0.7 é inviável quando a menor classe tem
     menos de 35% dos dados (CODRUG.py).
+  * NuSVC não falha mais com classes desbalanceadas ("specified nu is
+    infeasible", ex.: no Screening com 25% de inativos, em que o nu padrão
+    0.5 passa do limite 2·min(n_i,n_j)/(n_i+n_j)): quando o nu pedido é
+    inviável para os dados do ajuste, usa 99% do maior valor viável
+    (registrado em nu_used_); um nu viável é usado como está. Vale para
+    Screening, Tuning, validação e Predict (CODRUG.py).
+  * "Repeats" da validação cruzada começa em 5 (antes 1) no Model Screening,
+    no Tuning e na Internal Validation, e volta a 5 ao criar um projeto;
+    USIs salvas sem esse campo continuam sendo restauradas com 1, como
+    rodaram (CODRUG.py).
+  * Nova análise de divisões repetidas (grupo External Validation, Refit and
+    Prediction: "Splits (n)", padrão 10, e botão "Run Repeated Splits"), no
+    formato da Tabela 4 do PoseidonQ: o Internal DataFrame inteiro (treino +
+    teste) é dividido n vezes com o Test Size e o Split Method do Model
+    Screening (Random ou Scaffold; a divisão 1 é a da própria USI); em cada
+    divisão, cada modelo MARCADO na lista do grupo (mesmos hiperparâmetros)
+    passa pela CV k-fold x r no treino (CV Folds/Repeats da Internal
+    Validation; colunas CV, média ± DP) e é avaliado na parte separada
+    (colunas Ext), com as métricas da validação interna/externa. Fica na
+    validação externa porque consome o conjunto teste (rodar uma vez, com o
+    modelo final). Um CSV skl_repsplit_* por modelo, tabela-resumo com a
+    média ± DP entre divisões e seção no relatório (validação externa)
+    (CODRUG.py, BIN/i18n.py, BIN/module_report.py).
+  * "shuffle" da Internal Validation desabilitado nos métodos em que não tem
+    efeito (LOOCV, Leave-P-Out, Time Series, Bootstrap), além de travado
+    marcado com Repeats > 1 (CODRUG.py).
 
  -- Moisés Maia Neto <moimaian@gmail.com>  Tue, 13 Oct 2026 03:18:10 -0300
 

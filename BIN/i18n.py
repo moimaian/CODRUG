@@ -821,6 +821,46 @@ _TEXTOS = {
     "s6_btn_view_train_test_freq": {"en": "View Split", "pt": "Ver Divisão"},
     "s6_btn_view_rank": {"en": "View Rank", "pt": "Ver Ranking"},
     "s6_lbl_cv_repeats": {"en": "Repeats:", "pt": "Repetições:"},
+    "s6_lbl_repsplit_n": {"en": "Splits (n):", "pt": "Divisões (n):"},
+    "s6_btn_repsplit": {"en": "Run Repeated Splits", "pt": "Executar Divisões Repetidas"},
+    "msg_title_repsplit": {"en": "Repeated Splits", "pt": "Divisões Repetidas"},
+    "s6_tooltip_repsplit_n": {
+        "en": "Number of different train/external splits of the analysis (Random State, Random State + 1...). "
+              "10 is the usual value.",
+        "pt": "Número de divisões treino/externo diferentes da análise (Random State, Random State + 1...). "
+              "10 é o valor usual.",
+    },
+    "s6_tooltip_repsplit": {
+        "en": "Stability of the models CHECKED in this group's list (same algorithm and hyperparameters, not "
+              "retuned) with respect to how the data are split: the whole Internal DataFrame (training + test) is "
+              "split n times with the Model Screening Test Size and Split Method (split 1 = this USI's own split); "
+              "in each split, k-fold cross-validation repeated r times on the training part (CV columns, mean ± SD) "
+              "and evaluation on the held-out part (Ext columns). The CV uses 'CV Folds' and 'Repeats' of the "
+              "Internal Validation group. Because it re-splits the test set too, run it once, with the final "
+              "model(s), like 'Validate on Test Set'. Random or Scaffold split only.",
+        "pt": "Estabilidade dos modelos MARCADOS na lista deste grupo (mesmo algoritmo e hiperparâmetros, sem "
+              "retunar) em relação à divisão dos dados: o Internal DataFrame inteiro (treino + teste) é dividido n "
+              "vezes com o Test Size e o Split Method do Model Screening (divisão 1 = a da própria USI); em cada "
+              "divisão, validação cruzada k-fold repetida r vezes na parte de treino (colunas CV, média ± DP) e "
+              "avaliação na parte separada (colunas Ext). A CV usa 'CV Folds' e 'Repetições' do grupo Validação "
+              "Interna. Como redivide também o conjunto teste, rode uma vez, com o(s) modelo(s) final(is), como o "
+              "'Validar no Teste'. Só divisão Random ou Scaffold.",
+    },
+    "s6_msg_repsplit_no_model": {
+        "en": "Check at least one model in the list of the External Validation, Refit and Prediction group.",
+        "pt": "Marque ao menos um modelo na lista do grupo Validação Externa, Retreino e Predição.",
+    },
+    "s6_msg_repsplit_no_test_size": {
+        "en": "Repeated splits need a held-out part in each split: set a Test Size greater than 0 in Model Screening.",
+        "pt": "As divisões repetidas precisam de uma parte separada em cada divisão: defina um Tamanho do Teste maior "
+              "que 0 em Model Screening.",
+    },
+    "s6_msg_repsplit_deterministic": {
+        "en": "The {method} split is deterministic: every split would be identical. Select Random or Scaffold in "
+              "Model Screening's Split Method.",
+        "pt": "A divisão {method} é determinística: todas as divisões seriam idênticas. Selecione Random ou Scaffold "
+              "no Método de Divisão do Model Screening.",
+    },
     "s6_tooltip_cv_repeats": {
         "en": "Number of times the k-fold cross-validation is repeated, each time with a different random partition "
               "of the folds (Random State + repetition). 1 = no repetition. With 2 or more, the result is the mean "
@@ -901,12 +941,14 @@ _TEXTOS = {
     "s6_grp_remove_model_predict": {"en": "External Validation, Refit and Prediction", "pt": "Validação Externa, Retreino e Predição"},
     "s6_tooltip_grp_external_validation": {
         "en": "EXTERNAL validation (OECD Principle 4: predictivity), on compounds that took no part in model "
-              "development: 'Validate on Test Set' (the test set held out in Screening) and Predict with 'With Y' "
-              "(the External DataFrame). Also Refit (final model on training + test), Predict without Y (virtual "
+              "development: 'Validate on Test Set' (the test set held out in Screening), Predict with 'With Y' "
+              "(the External DataFrame) and 'Run Repeated Splits' (stability across n re-splits of the internal "
+              "set). Also Refit (final model on training + test), Predict without Y (virtual "
               "screening) and Remove Model.",
         "pt": "Validação EXTERNA (Princípio 4 da OECD: predictivity), em compostos que não participaram do "
-              "desenvolvimento do modelo: 'Validar no Teste' (o conjunto teste separado no Screening) e Predict com "
-              "'Com Y' (o External DataFrame). Também Refit (modelo final em treino + teste), Predict sem Y "
+              "desenvolvimento do modelo: 'Validar no Teste' (o conjunto teste separado no Screening), Predict com "
+              "'Com Y' (o External DataFrame) e 'Executar Divisões Repetidas' (estabilidade em n redivisões do "
+              "conjunto interno). Também Refit (modelo final em treino + teste), Predict sem Y "
               "(triagem virtual) e Remove Model.",
     },
     "s6_tooltip_predict": {

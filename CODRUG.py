@@ -336,6 +336,30 @@ try:
                                 AdaBoostClassifier)
     from sklearn.tree import DecisionTreeClassifier
     from sklearn.svm import SVC, NuSVC
+
+    class _FeasibleNuSVC(NuSVC):
+        """NuSVC que não falha com "specified nu is infeasible". No libsvm, para cada par de classes
+        i, j: nu <= 2·min(n_i, n_j)/(n_i + n_j) - com classes desbalanceadas o nu padrão (0.5) já
+        passa do limite (ex.: 25% de inativos -> limite ~0.50). Quando o nu pedido é inviável para os
+        dados do fit, usa 99% do maior valor viável (guardado em nu_used_); um nu viável é usado como
+        está. get_params continua devolvendo o nu pedido (exigido por clone/Tuning)."""
+
+        def fit(self, X, y, sample_weight=None):
+            counts = pd.Series(np.asarray(y)).value_counts().to_numpy()
+            limit = min(
+                (2.0 * min(a, b) / (a + b) for i, a in enumerate(counts) for b in counts[i + 1:]),
+                default=1.0,
+            )
+            requested = self.nu
+            self.nu_used_ = requested if requested <= limit else 0.99 * limit
+            if self.nu_used_ == requested:
+                return super().fit(X, y, sample_weight=sample_weight)
+            self.nu = self.nu_used_
+            try:
+                return super().fit(X, y, sample_weight=sample_weight)
+            finally:
+                self.nu = requested
+
     from sklearn.neighbors import KNeighborsClassifier
     from sklearn.linear_model import LogisticRegression, RidgeClassifier, SGDClassifier, PassiveAggressiveClassifier
     from sklearn.naive_bayes import GaussianNB
@@ -425,7 +449,7 @@ try:
         "HistGradientBoostingClassifier": (HistGradientBoostingClassifier, {"max_iter": 100, "learning_rate": 0.1, "max_depth": None}),
         "LGBMClassifier": (lgb.LGBMClassifier, {"force_col_wise": True, "num_leaves": 31, "learning_rate": 0.1, "n_estimators": 100, "max_depth": -1, "feature_fraction": 1.0}),
         "BaggingClassifier": (BaggingClassifier, {"estimator": DecisionTreeClassifier(max_depth=None, min_samples_split=2, min_samples_leaf=1), "n_estimators": 100, "n_jobs": -1}),
-        "NuSVC": (NuSVC, {"kernel": "rbf", "nu": 0.5, "gamma": "scale"}),
+        "NuSVC": (_FeasibleNuSVC, {"kernel": "rbf", "nu": 0.5, "gamma": "scale"}),
         "SVC": (SVC, {"kernel": "rbf", "C": 1.0, "probability": True, "gamma": "scale"}),
         "GradientBoostingClassifier": (GradientBoostingClassifier, {"n_estimators": 100, "learning_rate": 0.1, "max_depth": 3, "subsample": 1.0, "max_features": None}),
         "ExtraTreesClassifier": (ExtraTreesClassifier, {"n_estimators": 100, "max_depth": None, "min_samples_split": 2, "min_samples_leaf": 1, "max_features": None}),
@@ -457,6 +481,11 @@ try:
 except NameError:
     # sklearn/xgboost/lightgbm não disponíveis — o screening da STEP 6 ficará indisponível.
     SKL_REGRESSORS, SKL_CLASSIFIERS, SKL_CLUSTERERS = {}, {}, {}
+
+# Valor inicial de "Repeats" (repetições da validação cruzada) no Model Screening, no Tuning e na
+# Internal Validation da STEP 4. USIs salvas antes desse campo existir são restauradas com 1, que
+# foi como rodaram.
+SKL_DEFAULT_CV_REPEATS = 5
 
 # Grades de hiperparâmetros padrão (editáveis na UI) para o Tuning da STEP 6:
 # Cada valor é uma string CSV que o usuário pode editar diretamente na tabela de hiperparâmetros.
@@ -5914,6 +5943,10 @@ class MainWindow(QMainWindow):
         if hasattr(self, "skl_usi_key"):
             self.skl_usi_key = None
         self._refresh_skl_view_rank_enabled()
+        # "Repeats" volta ao valor inicial (uma USI carregada antes pode tê-lo deixado em outro valor).
+        for _attr in ("sp_skl_screen_cv_repeats", "sp_skl_tune_repeats", "sp_skl_cv_repeats"):
+            if getattr(self, _attr, None) is not None:
+                getattr(self, _attr).setValue(SKL_DEFAULT_CV_REPEATS)
 
         # STEP8 (Consensus) and EDIT already have their own correct reset routines (reused by
         # each tab's own "Clear" button) - reused here instead of duplicating their logic.
@@ -20895,7 +20928,7 @@ class MainWindow(QMainWindow):
             # Repetições da CV do ranking, na mesma linha dos folds.
             self.sp_skl_screen_cv_repeats = QSpinBox()
             self.sp_skl_screen_cv_repeats.setRange(1, 20)
-            self.sp_skl_screen_cv_repeats.setValue(1)
+            self.sp_skl_screen_cv_repeats.setValue(SKL_DEFAULT_CV_REPEATS)
             self.sp_skl_screen_cv_repeats.setFixedWidth(60)
             self._tr("s6_tooltip_cv_repeats", self.sp_skl_screen_cv_repeats.setToolTip)
             cv_row_skl = QHBoxLayout()
@@ -20993,7 +21026,7 @@ class MainWindow(QMainWindow):
             tune_row2.addWidget(self.sp_skl_tune_folds)
             # Repetições da CV do Tuning (cada uma com outra partição dos folds; 1 = sem repetição).
             tune_row2.addWidget(self._trL("s6_lbl_cv_repeats"))
-            self.sp_skl_tune_repeats = QSpinBox(); self.sp_skl_tune_repeats.setRange(1, 20); self.sp_skl_tune_repeats.setValue(1)
+            self.sp_skl_tune_repeats = QSpinBox(); self.sp_skl_tune_repeats.setRange(1, 20); self.sp_skl_tune_repeats.setValue(SKL_DEFAULT_CV_REPEATS)
             self._tr("s6_tooltip_cv_repeats", self.sp_skl_tune_repeats.setToolTip)
             tune_row2.addWidget(self.sp_skl_tune_repeats)
             tune_row2.addWidget(self._trL("s6_lbl_n_iter"))
@@ -21079,7 +21112,7 @@ class MainWindow(QMainWindow):
             eval_row2.addStretch()
             # Repetições da validação cruzada (KFold/StratifiedKFold/Nested CV; 1 = sem repetição).
             eval_row2.addWidget(self._trL("s6_lbl_cv_repeats"))
-            self.sp_skl_cv_repeats = QSpinBox(); self.sp_skl_cv_repeats.setRange(1, 50); self.sp_skl_cv_repeats.setValue(1)
+            self.sp_skl_cv_repeats = QSpinBox(); self.sp_skl_cv_repeats.setRange(1, 50); self.sp_skl_cv_repeats.setValue(SKL_DEFAULT_CV_REPEATS)
             self._tr("s6_tooltip_cv_repeats", self.sp_skl_cv_repeats.setToolTip)
             self.sp_skl_cv_repeats.valueChanged.connect(lambda _v: self._update_skl_cv_method_widgets())
             eval_row2.addWidget(self.sp_skl_cv_repeats)
@@ -21132,6 +21165,7 @@ class MainWindow(QMainWindow):
             eval_btn_row.addWidget(self.btn_skl_cv_plot)
             eval_btn_row.addStretch()
             lay_skl_eval.addLayout(eval_btn_row)
+
 
             self.lbl_skl_yrand_summary = QLabel("")
             self.lbl_skl_yrand_summary.setStyleSheet("color: #C9D1D9; font-size: 9pt;")
@@ -21231,6 +21265,25 @@ class MainWindow(QMainWindow):
             last_row_skl.addWidget(self.btn_skl_remove_model)
             last_row_skl.addStretch()
             right_col_skl_save_pred.addLayout(last_row_skl)
+
+            # Linha 4: análise de divisões repetidas (estabilidade frente à divisão treino/externo - ver
+            # run_skl_repeated_splits). Fica na validação externa porque redivide o Internal DataFrame
+            # inteiro (treino + teste), consumindo o conjunto teste como o "Validate on Test Set".
+            repsplit_row = QHBoxLayout()
+            repsplit_row.addStretch()
+            repsplit_row.addWidget(self._trL("s6_lbl_repsplit_n"))
+            self.sp_skl_repsplit_n = QSpinBox(); self.sp_skl_repsplit_n.setRange(2, 100); self.sp_skl_repsplit_n.setValue(10)
+            self._tr("s6_tooltip_repsplit_n", self.sp_skl_repsplit_n.setToolTip)
+            repsplit_row.addWidget(self.sp_skl_repsplit_n)
+            repsplit_row.addSpacing(8)
+            self.btn_skl_repsplit = QPushButton(); self._tr("s6_btn_repsplit", self.btn_skl_repsplit.setText)
+            self.btn_skl_repsplit.setProperty("role", "secondary")
+            self.btn_skl_repsplit.setFixedWidth(220)
+            self._tr("s6_tooltip_repsplit", self.btn_skl_repsplit.setToolTip)
+            self.btn_skl_repsplit.clicked.connect(self.run_skl_repeated_splits)
+            repsplit_row.addWidget(self.btn_skl_repsplit)
+            repsplit_row.addStretch()
+            right_col_skl_save_pred.addLayout(repsplit_row)
 
             # Stretch 0: a coluna de controles fica só com a largura que seus botões/campos precisam e
             # toda a sobra do grupo vai para a lista de modelos (list_skl_saved_models, stretch 1).
@@ -23478,6 +23531,7 @@ class MainWindow(QMainWindow):
             "tuning_settings": getattr(self, "_skl_tuning_settings", {}) or {},
             "validation_settings": getattr(self, "_skl_validation_settings", {}) or {},
             "refit_settings": getattr(self, "_skl_refit_settings", {}) or {},
+            "repeated_splits_settings": getattr(self, "_skl_repsplit_settings", {}) or {},
             "screening_settings": {
                 "sort_metric": self.cb_skl_metric.currentText() if hasattr(self, "cb_skl_metric") else "",
                 "x_first_col": self.ed_skl_x_first_col.text() if hasattr(self, "ed_skl_x_first_col") else "",
@@ -23560,6 +23614,7 @@ class MainWindow(QMainWindow):
         self._skl_tuning_settings = config.get("tuning_settings", {}) or {}
         self._skl_validation_settings = config.get("validation_settings", {}) or {}
         self._skl_refit_settings = config.get("refit_settings", {}) or {}
+        self._skl_repsplit_settings = config.get("repeated_splits_settings", {}) or {}
 
         # Campos de configuração do Screening (Sort metric, X range, Y column, Test Size) — não são
         # por modelo, valem para a USI inteira.
@@ -23619,6 +23674,7 @@ class MainWindow(QMainWindow):
         self._skl_tuning_settings = {}
         self._skl_validation_settings = {}
         self._skl_refit_settings = {}
+        self._skl_repsplit_settings = {}
         self._refresh_skl_model_combo()
         if hasattr(self, "tbl_skl_cv"):
             self.tbl_skl_cv.setRowCount(0)
@@ -23797,6 +23853,7 @@ class MainWindow(QMainWindow):
             getattr(self, "cb_skl_cv_method", None), getattr(self, "sp_skl_cv_folds", None),
             getattr(self, "sp_skl_cv_p", None), getattr(self, "chk_skl_cv_shuffle", None),
             getattr(self, "btn_skl_run_eval", None),
+            getattr(self, "sp_skl_repsplit_n", None), getattr(self, "btn_skl_repsplit", None),
         ]
         for w in tune_eval_widgets:
             if w is not None:
@@ -23979,10 +24036,13 @@ class MainWindow(QMainWindow):
             allows_repeats = method in ("KFold", "StratifiedKFold", "Nested CV")
             self.sp_skl_cv_repeats.setEnabled(group_enabled and allows_repeats)
             if hasattr(self, "chk_skl_cv_shuffle"):
+                # "shuffle" só tem efeito em KFold/StratifiedKFold/Nested CV (LOOCV e Leave-P-Out testam
+                # todas as combinações, Time Series precisa da ordem original e o Bootstrap sorteia por
+                # conta própria) - nos demais métodos fica desabilitado. Com Repeats > 1 é obrigatório.
                 forced = allows_repeats and self.sp_skl_cv_repeats.value() > 1
                 if forced:
                     self.chk_skl_cv_shuffle.setChecked(True)
-                self.chk_skl_cv_shuffle.setEnabled(group_enabled and not forced)
+                self.chk_skl_cv_shuffle.setEnabled(group_enabled and allows_repeats and not forced)
 
     def _get_skl_xy(self):
         df = getattr(self, "df_int", None)
@@ -24138,6 +24198,7 @@ class MainWindow(QMainWindow):
         self._skl_tuning_settings = {}
         self._skl_validation_settings = {}
         self._skl_refit_settings = {}
+        self._skl_repsplit_settings = {}
 
         # Combobox "Model" único (grupo Hyperparameter Tuning), na ordem do ranking (melhor primeiro) —
         # usado como referência por Tuning, Validation, External Validation, Refit and Prediction e Performance Charts.
@@ -25412,6 +25473,179 @@ class MainWindow(QMainWindow):
         except Exception as e:
             import traceback; traceback.print_exc()
             QMessageBox.critical(self, i18n.t("msg_title_plot_error", self._idioma), str(e))
+
+    # Métricas exibidas na tabela-resumo da análise de divisões repetidas (o CSV guarda todas).
+    _SKL_REPSPLIT_DISPLAY = {
+        "classification": ["Accuracy", "Balanced Accuracy", "Recall (Sensitivity)", "Specificity", "MCC"],
+        "regression": ["Q2", "RMSE", "MAE", "CCC"],
+    }
+
+    @staticmethod
+    def _skl_repsplit_display_table(df, task):
+        """Tabela-resumo (formato da Tabela 4 do PoseidonQ) a partir do CSV completo da análise: uma
+        linha por divisão, "CV <métrica>" como "média ± DP" e "Ext <métrica>"; as linhas Mean/Std Dev
+        finais viram uma única linha "Mean ± SD"."""
+        metrics = [m for m in MainWindow._SKL_REPSPLIT_DISPLAY.get(task, []) if f"Ext {m}" in df.columns]
+        split_rows = df[pd.to_numeric(df["Split"], errors="coerce").notna()]
+        mean_row = df[df["Split"].astype(str) == "Mean"]
+        sd_row = df[df["Split"].astype(str) == "Std Dev"]
+
+        def _f(v, digits=2):
+            try:
+                v = float(v)
+            except (TypeError, ValueError):
+                return ""
+            return "" if v != v else f"{v:.{digits}f}"
+
+        out = []
+        for _, r in split_rows.iterrows():
+            row = {"Split": int(float(r["Split"])), "n Train": int(float(r["n Train"])), "n Ext": int(float(r["n Ext"]))}
+            for m in metrics:
+                row[f"CV {m}"] = f"{_f(r.get(f'CV {m}'))} ± {_f(r.get(f'CV {m} SD'))}"
+            for m in metrics:
+                row[f"Ext {m}"] = _f(r.get(f"Ext {m}"))
+            out.append(row)
+        if not mean_row.empty and not sd_row.empty:
+            mr, sr = mean_row.iloc[0], sd_row.iloc[0]
+            row = {"Split": "Mean ± SD", "n Train": "", "n Ext": ""}
+            for m in metrics:
+                row[f"CV {m}"] = f"{_f(mr.get(f'CV {m}'))} ± {_f(sr.get(f'CV {m}'))}"
+            for m in metrics:
+                row[f"Ext {m}"] = f"{_f(mr.get(f'Ext {m}'))} ± {_f(sr.get(f'Ext {m}'))}"
+            out.append(row)
+        return pd.DataFrame(out)
+
+    def run_skl_repeated_splits(self):
+        """Botão "Run Repeated Splits" (grupo External Validation, Refit and Prediction): estabilidade
+        dos modelos MARCADOS na lista do grupo (mesma receita de cada um - algoritmo e hiperparâmetros -,
+        sem retunar) frente à divisão dos dados, como a Tabela 4 do PoseidonQ. Para cada uma das n
+        divisões ("Splits (n)"):
+        1) divide o Internal DataFrame da USI (treino + teste, na ordem original) com o Test Size e o
+           Split Method do Model Screening e Random State + i - a divisão 1 reproduz a da própria USI;
+        2) roda no treino a validação cruzada k-fold (CV Folds) repetida r vezes (Repeats) do grupo
+           Internal Validation - colunas "CV <métrica>" (linha Pooled) e "CV <métrica> SD" (Std Dev);
+        3) treina a receita no treino inteiro e avalia no conjunto separado - colunas "Ext <métrica>".
+        Por redividir o Internal DataFrame inteiro, consome o conjunto teste: deve ser feita uma vez,
+        com o(s) modelo(s) final(is). Um CSV por modelo (DATA/skl_repsplit_<modelo>_<USI>_<data>.csv),
+        com todas as métricas e as linhas Mean e Std Dev entre divisões."""
+        idioma = self._idioma
+        title = i18n.t("msg_title_repsplit", idioma)
+        selected = [it.text() for it in self.list_skl_saved_models.selectedItems()] \
+            if hasattr(self, "list_skl_saved_models") else []
+        models = {name: (getattr(self, "skl_trained_models", {}) or {}).get(name) for name in selected}
+        models = {name: m for name, m in models.items() if m is not None}
+        if not models:
+            QMessageBox.warning(self, title, i18n.t("s6_msg_repsplit_no_model", idioma))
+            return
+        _registry, task = self._get_skl_registry()
+        if task not in ("regression", "classification"):
+            QMessageBox.information(self, title, "Repeated splits apply to regression/classification models only.")
+            return
+        test_size = self.dsp_skl_test_size.value() if hasattr(self, "dsp_skl_test_size") else 0.2
+        if test_size <= 0:
+            QMessageBox.warning(self, title, i18n.t("s6_msg_repsplit_no_test_size", idioma))
+            return
+        split_method = self.cb_skl_split_method.currentText() if hasattr(self, "cb_skl_split_method") else "Random"
+        if split_method in ("Kennard-Stone", "Sphere Exclusion"):
+            QMessageBox.warning(self, title, i18n.t("s6_msg_repsplit_deterministic", idioma, method=split_method))
+            return
+        x_full, y_full = self._skl_train_plus_test()
+        if x_full is None:
+            x_full, y_full = getattr(self, "skl_x_train", None), getattr(self, "skl_y_train", None)
+        if x_full is None or y_full is None:
+            QMessageBox.warning(self, title, "Run Screening first.")
+            return
+        # Ordem original do Internal DataFrame: com o mesmo Random State, a divisão 1 é a da USI.
+        order = np.argsort(np.asarray(x_full.index))
+        x_full = x_full.iloc[order]
+        y_full = pd.Series(np.asarray(y_full)[order], index=x_full.index)
+        smiles = None
+        if split_method == "Scaffold":
+            df_int = getattr(self, "df_int", None)
+            smiles_col = _chembl_col(df_int.columns, "canonical_smiles") if df_int is not None else None
+            if smiles_col is None:
+                QMessageBox.warning(self, title, i18n.t("s4_msg_split_no_smiles", idioma))
+                return
+            smiles = df_int.loc[x_full.index, smiles_col].tolist()
+
+        n_splits = self.sp_skl_repsplit_n.value() if hasattr(self, "sp_skl_repsplit_n") else 10
+        folds = self.sp_skl_cv_folds.value()
+        repeats = self.sp_skl_cv_repeats.value() if hasattr(self, "sp_skl_cv_repeats") else 1
+        cv_method = "StratifiedKFold" if task == "classification" else "KFold"
+        random_state = self._get_skl_random_state()
+        self._set_current_sklearn_usi_context()
+
+        # As divisões são as mesmas para todos os modelos (mesmas sementes), para a comparação ser justa.
+        splits = []
+        for i in range(n_splits):
+            seed = _skl_repetition_seed(random_state, i)
+            if rational_split is not None:
+                x_tr, x_te, y_tr, y_te = rational_split.split(
+                    x_full, y_full, test_size, split_method, task, random_state=seed, smiles=smiles)
+            else:
+                x_tr, x_te, y_tr, y_te = train_test_split(x_full, y_full, test_size=test_size, random_state=seed)
+            splits.append((seed, x_tr, x_te, y_tr, y_te))
+
+        dlg = self.show_wait_message_dialog(
+            "Repeated Splits", f"{len(models)} model(s) x {n_splits} splits x {folds}-fold CV x {repeats} repeats... "
+                               "Please wait!")
+        results = {}
+        try:
+            for model_name, model in models.items():
+                rows = []
+                for i, (seed, x_tr, x_te, y_tr, y_te) in enumerate(splits):
+                    cv_worker = SklEvaluateWorker(
+                        "standard", task, model, x_tr.reset_index(drop=True), pd.Series(np.asarray(y_tr)),
+                        method=cv_method, folds=folds, shuffle=True, random_state=seed, p=2, repeats=repeats)
+                    cv_df = cv_worker._run_standard()
+                    first_col = cv_df.columns[0]
+                    pooled = cv_df[cv_df[first_col].astype(str) == "Pooled"].iloc[0]
+                    spread = cv_df[cv_df[first_col].astype(str) == "Std Dev"].iloc[0]
+                    ext_model = clone(model)
+                    ext_model.fit(x_tr, y_tr)
+                    y_pred = ext_model.predict(x_te)
+                    ext = _skl_cv_metrics(task, np.asarray(y_te), y_pred, ext_model, x_te)
+                    row = {"Split": i + 1, "Random State": seed, "n Train": len(x_tr), "n Ext": len(x_te)}
+                    for m in ext:
+                        row[f"CV {m}"] = pooled.get(m)
+                        row[f"CV {m} SD"] = spread.get(m)
+                    for m, v in ext.items():
+                        row[f"Ext {m}"] = v
+                    rows.append(row)
+                df = pd.DataFrame(rows)
+                numeric = [c for c in df.columns if c not in ("Split", "Random State", "n Train", "n Ext")]
+                mean_row = {"Split": "Mean", **{c: float(pd.to_numeric(df[c], errors="coerce").mean()) for c in numeric}}
+                sd_row = {"Split": "Std Dev", **{c: float(pd.to_numeric(df[c], errors="coerce").std(ddof=1)) for c in numeric}}
+                results[model_name] = pd.concat([df, pd.DataFrame([mean_row, sd_row])], ignore_index=True)
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            QMessageBox.critical(self, title, str(e))
+            return
+        finally:
+            dlg.close()
+
+        if not hasattr(self, "_skl_repsplit_settings") or self._skl_repsplit_settings is None:
+            self._skl_repsplit_settings = {}
+        stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        display_tables = []
+        out_path = None
+        for model_name, df in results.items():
+            out_path = os.path.join(self.skl_out_data, f"skl_repsplit_{model_name}_{self.skl_usi_key}_{stamp}.csv")
+            try:
+                df.to_csv(out_path, index=False)
+            except Exception:
+                pass
+            self._skl_repsplit_settings[model_name] = {
+                "n_splits": n_splits, "test_size": test_size, "split_method": split_method,
+                "folds": folds, "repeats": repeats, "cv_method": cv_method, "random_state": random_state,
+            }
+            table = self._skl_repsplit_display_table(df, task)
+            if len(results) > 1:
+                table.insert(0, "Model", [model_name] + [""] * (len(table) - 1))
+            display_tables.append(table)
+        self._save_skl_session_config()
+        self._next_dataframe_save_path = out_path if len(results) == 1 else None
+        self.show_dataframe(pd.concat(display_tables, ignore_index=True))
 
     def run_skl_yrandomization(self):
         """STEP 4 'Internal Validation' group, 'Run Y-Scrambling' button:

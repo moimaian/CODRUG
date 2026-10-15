@@ -1554,6 +1554,8 @@ _STEP4_ML_TEXTS = {
     "charts_en": "The performance charts of the {model} model (test set; Feature Importance uses the model itself) are presented below:",
     "cv_charts_pt": "As predições out-of-fold da validação cruzada do modelo {model} (conjunto de treino) são apresentadas a seguir:",
     "cv_charts_en": "The out-of-fold predictions from the cross-validation of the {model} model (training set) are presented below:",
+    "repsplit_pt": "Para avaliar a estabilidade do modelo {model} em relação à divisão dos dados, foi realizada uma análise de divisões repetidas: o conjunto interno foi dividido {n} vezes ({method}, com {pct}% dos compostos separados como conjunto externo em cada divisão; a divisão 1 é a mesma usada no desenvolvimento do modelo). Em cada divisão, o modelo, com os mesmos hiperparâmetros, foi submetido à validação cruzada {folds}-fold repetida {repeats} vez(es) na parte de treino (colunas CV, média ± desvio-padrão) e avaliado na parte separada (colunas Ext). A última linha traz a média ± desvio-padrão entre as divisões.",
+    "repsplit_en": "To assess the stability of the {model} model with respect to how the data are split, a repeated-splits analysis was performed: the internal set was split {n} times ({method}, holding out {pct}% of the compounds as an external set in each split; split 1 is the one used to develop the model). In each split, the model, with the same hyperparameters, underwent {folds}-fold cross-validation repeated {repeats} time(s) on the training part (CV columns, mean ± standard deviation) and was evaluated on the held-out part (Ext columns). The last row gives the mean ± standard deviation across splits.",
     "heading_internal_pt": "Validação interna (Princípio 4 da OECD: ajuste e robustez - somente o conjunto de treino)",
     "heading_internal_en": "Internal validation (OECD Principle 4: goodness-of-fit and robustness - training set only)",
     "heading_external_pt": "Validação externa (Princípio 4 da OECD: predictividade - compostos que não participaram do desenvolvimento do modelo)",
@@ -1600,6 +1602,48 @@ _STEP4_ML_TEXTS = {
 # highlighted first column = light blue, Cross-Validation's "Pooled" (formerly "Mean"/"OVERALL") and "Std Dev" rows = yellow.
 _STEP4_COLOR_HIGHLIGHT = "DEEBF6"
 _STEP4_COLOR_OVERALL = "FEF2CC"
+
+# Métricas da tabela-resumo da análise de divisões repetidas (mesma escolha de
+# CODRUG.MainWindow._SKL_REPSPLIT_DISPLAY; o CSV guarda todas).
+_REPSPLIT_DISPLAY = {
+    "classification": ["Accuracy", "Balanced Accuracy", "Recall (Sensitivity)", "Specificity", "MCC"],
+    "regression": ["Q2", "RMSE", "MAE", "CCC"],
+}
+
+
+def _repsplit_display_table(df: "pd.DataFrame", task: str) -> "pd.DataFrame":
+    """Tabela-resumo do CSV skl_repsplit_*: uma linha por divisão ("CV <métrica>" = média ± DP,
+    "Ext <métrica>") e uma linha final "Mean ± SD" entre as divisões."""
+    import pandas as pd
+    metrics = [m for m in _REPSPLIT_DISPLAY.get(task, []) if f"Ext {m}" in df.columns]
+
+    def _f(v):
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            return ""
+        return "" if v != v else f"{v:.2f}"
+
+    out = []
+    for _, r in df[pd.to_numeric(df["Split"], errors="coerce").notna()].iterrows():
+        row = {"Split": str(int(float(r["Split"]))), "n Train": str(int(float(r["n Train"]))), "n Ext": str(int(float(r["n Ext"])))}
+        for m in metrics:
+            row[f"CV {m}"] = f"{_f(r.get(f'CV {m}'))} ± {_f(r.get(f'CV {m} SD'))}"
+        for m in metrics:
+            row[f"Ext {m}"] = _f(r.get(f"Ext {m}"))
+        out.append(row)
+    mean_row = df[df["Split"].astype(str) == "Mean"]
+    sd_row = df[df["Split"].astype(str) == "Std Dev"]
+    if not mean_row.empty and not sd_row.empty:
+        mr, sr = mean_row.iloc[0], sd_row.iloc[0]
+        row = {"Split": "Mean ± SD", "n Train": "", "n Ext": ""}
+        for m in metrics:
+            row[f"CV {m}"] = f"{_f(mr.get(f'CV {m}'))} ± {_f(sr.get(f'CV {m}'))}"
+        for m in metrics:
+            row[f"Ext {m}"] = f"{_f(mr.get(f'Ext {m}'))} ± {_f(sr.get(f'Ext {m}'))}"
+        out.append(row)
+    return pd.DataFrame(out)
+
 
 _STEP4_CHART_KINDS = ["predicted_vs_actual", "residuals", "manifold", "feature_importance",
                       "cv_predicted_vs_actual", "cv_confusion_matrix"]
@@ -2024,6 +2068,20 @@ def _add_step5_section(document: Any, project_dir: str, state: dict[str, Any], i
             for col in eval_df.columns[2:]:
                 eval_df[col] = [_fmt(v) for v in eval_df[col]]
             _add_skl_results_table(document, eval_df, highlight_col=0)
+
+        # Análise de divisões repetidas (CODRUG.run_skl_repeated_splits): estabilidade frente à
+        # divisão treino/externo - uma linha por divisão (CV média ± DP e Ext), dentro da validação externa.
+        for model_name, rs_settings in (session.get("repeated_splits_settings") or {}).items():
+            rs_df = _read_csv(_find_skl_csv(data_dir, "skl_repsplit", usi, model_name))
+            if rs_df is None or rs_df.empty or "Split" not in rs_df.columns:
+                continue
+            _section("external")
+            _para(document).add_run(texts[f"repsplit_{'pt' if lang == 'pt' else 'en'}"].format(
+                model=model_name, n=rs_settings.get("n_splits", "?"), method=rs_settings.get("split_method", "Random"),
+                pct=int(round(100 * float(rs_settings.get("test_size") or 0))), folds=rs_settings.get("folds", "?"),
+                repeats=rs_settings.get("repeats", 1)))
+            _add_skl_results_table(document, _repsplit_display_table(rs_df, session.get("task", "")),
+                                    highlight_col=0, highlight_col_bold=True, overall_row_value="Mean ± SD")
 
         # Gráficos de desempenho (conjunto teste) e subestruturas do Feature Importance de cada modelo
         # validado: parte da validação externa.
