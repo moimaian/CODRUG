@@ -23988,18 +23988,72 @@ class MainWindow(QMainWindow):
         for r in rows:
             t.removeRow(r)
 
+    def _skl_legacy_variant_grid(self, model_name):
+        """Grade de uma variante tunada (ex.: "LGBMClassifier_1") gravada antes de as grades serem
+        guardadas também sob o nome da variante: o Tuning só as gravava sob o modelo de origem. Usa a
+        grade do modelo base apenas se ela for compatível com o CSV do tuning da variante
+        (skl_tune_<variante>_<USI>_*.csv): mesmos parâmetros e todos os valores testados presentes na
+        grade - assim uma grade de um Tuning posterior do mesmo modelo base não é atribuída por engano.
+        Retorna None se não der para confirmar."""
+        settings = (getattr(self, "_skl_tuning_settings", None) or {}).get(model_name)
+        if not (isinstance(settings, dict) and settings.get("variant")):
+            return None
+        tuned_grids = getattr(self, "_skl_tuned_param_grids", None) or {}
+        base_name = self._skl_resolve_base_model_name(model_name) or ""
+        candidate = tuned_grids.get(base_name)
+        data_dir, usi = getattr(self, "skl_out_data", None), getattr(self, "skl_usi_key", None)
+        if not candidate or not data_dir or not usi or not os.path.isdir(data_dir):
+            return None
+        pattern = re.compile(rf"^skl_tune_{re.escape(model_name)}_{re.escape(usi)}_\d{{8}}_\d{{6}}\.csv$")
+        matches = [os.path.join(data_dir, f) for f in os.listdir(data_dir) if pattern.match(f)]
+        if not matches:
+            return None
+        try:
+            tune_df = pd.read_csv(max(matches, key=os.path.getmtime), dtype=str, keep_default_na=False)
+        except Exception:
+            return None
+
+        def _norm(v):
+            v = "" if v is None else str(v).strip()
+            if v in ("", "None", "nan"):
+                return ""
+            try:
+                return repr(float(v))
+            except ValueError:
+                return v
+
+        csv_params = {c[len("param_"):] for c in tune_df.columns if c.startswith("param_")}
+        grid = {str(p): {_norm(_skl_parse_grid_value(x)) for x in _skl_split_grid_values(str(vals))}
+                for p, vals in candidate}
+        if not csv_params or csv_params != set(grid):
+            return None
+        for p in csv_params:
+            if not {_norm(x) for x in tune_df[f"param_{p}"]} <= grid[p]:
+                return None
+        return candidate
+
+    def _skl_grid_for_model(self, model_name):
+        """Grade "Values to test" de um modelo: a que foi usada no Tuning que o produziu (ou no último
+        Tuning feito a partir dele), se houver - nesta sessão ou numa USI recarregada -, senão a padrão
+        de SKL_PARAM_GRIDS."""
+        model_name = (model_name or "").strip()
+        tuned_grids = getattr(self, "_skl_tuned_param_grids", None)
+        if tuned_grids and model_name in tuned_grids:
+            return tuned_grids[model_name]
+        legacy = self._skl_legacy_variant_grid(model_name)
+        if legacy is not None:
+            # Fica registrada sob o nome da variante (gravada no skl_session.json no próximo salvamento).
+            self._skl_tuned_param_grids[model_name] = legacy
+            return legacy
+        base_name = self._skl_resolve_base_model_name(model_name) or model_name
+        return SKL_PARAM_GRIDS.get(base_name, [])
+
     def _refresh_skl_hyperparam_table(self, model_name):
         if not hasattr(self, "tbl_skl_hyperparams"):
             return
-        model_name = (model_name or "").strip()
         # Se esse modelo já passou por Tuning (nesta sessão ou numa USI recarregada), restaura a
         # grade de hiperparâmetros que o usuário efetivamente usou/editou, em vez do padrão genérico.
-        tuned_grids = getattr(self, "_skl_tuned_param_grids", None) or {}
-        if model_name in tuned_grids:
-            grid = tuned_grids[model_name]
-        else:
-            base_name = self._skl_resolve_base_model_name(model_name) or model_name
-            grid = SKL_PARAM_GRIDS.get(base_name, [])
+        grid = self._skl_grid_for_model(model_name)
         self.tbl_skl_hyperparams.setRowCount(len(grid))
         for i, (param, values) in enumerate(grid):
             self.tbl_skl_hyperparams.setItem(i, 0, QTableWidgetItem(param))
@@ -24009,13 +24063,7 @@ class MainWindow(QMainWindow):
     def _refresh_skl_tune_param_options(self, model_name):
         if not hasattr(self, "cb_skl_tune_param"):
             return
-        model_name = (model_name or "").strip()
-        tuned_grids = getattr(self, "_skl_tuned_param_grids", None) or {}
-        if model_name in tuned_grids:
-            grid = tuned_grids[model_name]
-        else:
-            base_name = self._skl_resolve_base_model_name(model_name) or model_name
-            grid = SKL_PARAM_GRIDS.get(base_name, [])
+        grid = self._skl_grid_for_model(model_name)
         current = self.cb_skl_tune_param.currentText()
         self.cb_skl_tune_param.blockSignals(True)
         self.cb_skl_tune_param.clear()
@@ -24095,7 +24143,7 @@ class MainWindow(QMainWindow):
             "Leave-One-Out (LOOCV)": "Trains one model per sample (n_samples folds) — can be slow for larger datasets.",
             "Leave-P-Out": "Trains one model per combination of p held-out samples — extremely slow for p > 1 or larger datasets.",
             "Time Series Split (Walk-Forward Validation)": "Assumes rows are already ordered chronologically.",
-            "Nested CV": "Inner search (GridSearchCV) in each outer fold uses the Tuning group's grid, CV Folds and Repeats as currently set.",
+            "Nested CV": "Inner search (GridSearchCV) uses the Tuning group's grid, CV Folds and Repeats.",
             "Bootstrap": "Trains on a bootstrap resample and evaluates on the out-of-bag samples, repeated 'Folds' times.",
         }
         if hasattr(self, "lbl_skl_cv_note"):
@@ -24171,6 +24219,40 @@ class MainWindow(QMainWindow):
         if x.empty:
             raise ValueError("No numeric feature columns available in the selected X range.")
         return x, y
+
+    def _fill_skl_cv_table(self, cv_df):
+        """Tabela da Internal Validation, TRANSPOSTA em relação ao CSV skl_cv_* (que não muda): a 1ª célula
+        do cabeçalho é o nome da coluna de identificação ("Fold", "Outer Fold" ou "Iteration"), seguida
+        de um fold/iteração por coluna (ex.: "1-1", "1-2"... e as de resumo Pooled/Mean/Std Dev); cada
+        linha é uma métrica. "Best Params" (Nested CV) fica só no CSV - longa demais para a tabela, e
+        resumida à parte (skl_nested_params_*). Células vazias (NaN, ex.: "n Val" na linha Std Dev)
+        ficam em branco; "n Val"/"n OOB" sem casas decimais."""
+        t = self.tbl_skl_cv
+        df = cv_df.drop(columns=["Best Params"], errors="ignore")
+        t.setRowCount(0)
+        if df.empty:
+            t.setColumnCount(0)
+            return
+        id_col = df.columns[0]
+        fold_labels = [str(v) for v in df[id_col]]
+        metrics = [c for c in df.columns[1:]]
+        t.setColumnCount(1 + len(fold_labels))
+        t.setHorizontalHeaderLabels([str(id_col)] + fold_labels)
+        t.setRowCount(len(metrics))
+        for i, metric in enumerate(metrics):
+            t.setItem(i, 0, QTableWidgetItem(str(metric)))
+            for j, val in enumerate(df[metric].tolist(), start=1):
+                if val is None or (isinstance(val, float) and np.isnan(val)):
+                    text = ""
+                elif metric in ("n Val", "n OOB") and isinstance(val, (int, float, np.integer, np.floating)):
+                    text = f"{val:.0f}" if float(val).is_integer() else f"{val:.1f}"
+                elif isinstance(val, (float, np.floating)):
+                    text = f"{val:.4f}"
+                else:
+                    text = str(val)
+                t.setItem(i, j, QTableWidgetItem(text))
+        t.verticalHeader().setVisible(False)
+        t.resizeColumnsToContents()
 
     def _fill_table_from_df(self, table, df):
         table.setRowCount(0)
@@ -24450,9 +24532,20 @@ class MainWindow(QMainWindow):
         # SKL_PARAM_GRIDS quando o usuário já havia customizado os valores testados.
         if not hasattr(self, "_skl_tuned_param_grids") or self._skl_tuned_param_grids is None:
             self._skl_tuned_param_grids = {}
-        self._skl_tuned_param_grids[self._skl_tune_model_name] = getattr(self, "_skl_tune_raw_grid_rows", [])
-        # Reflete eventuais linhas adicionadas à grade (ex.: min_samples_leaf) no combo "Parameter:"
-        # do gráfico de tuning, sem precisar alternar o modelo selecionado.
+        grid_rows = getattr(self, "_skl_tune_raw_grid_rows", [])
+        # Também sob o nome da variante gerada (ex.: "LGBMClassifier_1"): é a grade que a PRODUZIU, e a
+        # que a tabela "Values to test" deve mostrar ao selecioná-la (e que o Nested CV usa como busca
+        # interna). Mesmo critério de _skl_tuning_settings abaixo: se o modelo de origem já é uma
+        # variante, a grade que o produziu não é sobrescrita pela do Tuning seguinte.
+        source_settings = (getattr(self, "_skl_tuning_settings", None) or {}).get(self._skl_tune_model_name)
+        if not (isinstance(source_settings, dict) and source_settings.get("variant")):
+            self._skl_tuned_param_grids[self._skl_tune_model_name] = grid_rows
+        self._skl_tuned_param_grids[new_name] = grid_rows
+        # O modelo novo já foi selecionado acima (antes de a grade ser gravada), o que carregou a grade
+        # padrão na tabela "Values to test": recarrega agora a grade que o produziu. Reflete também
+        # eventuais linhas adicionadas à grade (ex.: min_samples_leaf) no combo "Parameter:" do gráfico
+        # de tuning, sem precisar alternar o modelo selecionado.
+        self._refresh_skl_hyperparam_table(self.cb_skl_tune_model.currentText())
         self._refresh_skl_tune_param_options(self.cb_skl_tune_model.currentText())
 
         # Lembra também Method/CV folds/n_iter usados para esse modelo, pelo mesmo motivo.
@@ -24773,7 +24866,7 @@ class MainWindow(QMainWindow):
             dlg.close()
             self._skl_evaluate_progress_dlg = None
         self.btn_skl_run_eval.setEnabled(True)
-        self._fill_table_from_df(self.tbl_skl_cv, cv_df)
+        self._fill_skl_cv_table(cv_df)
 
         eval_model_name = getattr(self, "_skl_evaluate_model_name", "model")
         # Predições out-of-fold desta validação (só treino), para o gráfico "Plot CV Predictions" -

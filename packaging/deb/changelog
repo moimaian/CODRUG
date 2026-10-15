@@ -179,6 +179,17 @@ codrug (1.2.0-1) unstable; urgency=low
     e incluído no relatório (seção do Nested CV, com a ressalva de que o
     modelo final vem do Tuning sobre todo o treino) (CODRUG.py,
     BIN/i18n.py, BIN/module_report.py).
+  * Correção: a grade "Values to test" usada no Tuning passa a ser gravada
+    também sob o nome do modelo gerado (ex.: LGBMClassifier_1), e não só sob
+    o de origem; ao selecioná-lo, a tabela mostra a grade que o produziu (e
+    é ela que o Nested CV usa na busca interna), inclusive logo após o
+    Tuning. USIs antigas: a grade do modelo base é atribuída à variante
+    quando confere com o CSV do tuning dela (skl_tune_*) (CODRUG.py).
+  * Tabela da Internal Validation transposta: cada coluna é um fold
+    (cabeçalho "Fold"/"Outer Fold"/"Iteration", depois "1-1", "1-2"... e as
+    colunas de resumo) e cada linha uma métrica. "Best Params" do Nested CV
+    fica só no CSV skl_cv_* (que mantém o formato de antes, uma linha por
+    fold) (CODRUG.py, BIN/i18n.py).
 
  -- Moisés Maia Neto <moimaian@gmail.com>  Tue, 13 Oct 2026 03:18:10 -0300
 

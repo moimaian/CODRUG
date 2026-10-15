@@ -900,31 +900,30 @@ _TEXTOS = {
               "Series, e para o 'Run Repeated Splits' (colunas CV).",
     },
     "s6_tooltip_cv_table": {
-        "en": "Each row is one fold. R2/Accuracy Train: fit of the model copy on that round's training folds. The "
-              "other columns: the compounds left out (n Val), never the Screening test set - the same metrics as "
-              "the external validation (without Q²F1/Q²F3 and Golbraikh-Tropsha, specific to an external set). "
-              "Pooled: metrics over all out-of-fold predictions together (for regression, Q2 = Q² CV); Train "
-              "columns and AUC are means over folds. Std Dev: standard deviation between folds. "
-              "Bootstrap: OOB = out-of-bag compounds of each iteration.\n"
-              "With Repeats > 1: folds are labelled 'repetition-fold' (e.g. 2-3); Pooled = mean across repetitions of "
-              "each repetition's pooled value; Std Dev = standard deviation BETWEEN repetitions.\n"
-              "With 'All Folds' checked: Mean and Std Dev over ALL folds of the table (k x Repeats) instead. "
-              "Nested CV: one row per outer fold, with the hyperparameters chosen by its inner search (Best Params); "
-              "a separate table (window, CSV skl_nested_params_* and report) counts how often each combination was "
-              "chosen. "
-              "Bootstrap: Mean and Std Dev over the iterations.",
-        "pt": "Cada linha é um fold. R2/Accuracy Train: ajuste da cópia do modelo nos folds de treino da rodada. As "
-              "demais colunas: os compostos deixados de fora (n Val), nunca o conjunto teste do Screening - as "
-              "mesmas métricas da validação externa (sem Q²F1/Q²F3 e Golbraikh-Tropsha, próprios de um conjunto "
-              "externo). Pooled: métricas sobre todas as predições out-of-fold juntas (em regressão, Q2 = Q² CV); "
-              "as colunas Train e a AUC são médias dos folds. Std Dev: desvio-padrão entre folds. "
-              "Bootstrap: OOB = moléculas fora da reamostragem (out-of-bag) de cada iteração.\n"
-              "Com Repetições > 1: os folds aparecem como 'repetição-fold' (ex.: 2-3); Pooled = média, entre repetições, "
-              "do valor agrupado de cada uma; Std Dev = desvio-padrão ENTRE repetições.\n"
-              "Com 'All Folds' marcado: Mean e Std Dev sobre TODOS os folds da tabela (k x Repetições). "
-              "Nested CV: uma linha por fold externo, com os hiperparâmetros escolhidos pela sua busca interna "
-              "(Best Params); uma tabela à parte (janela, CSV skl_nested_params_* e relatório) conta quantas vezes "
-              "cada combinação foi escolhida. Bootstrap: Mean e Std Dev entre as iterações.",
+        "en": "Each column is one fold (header: 'repetition-fold' with Repeats > 1, e.g. 2-3; the last columns are the "
+              "summary) and each row is one metric. R2/Accuracy Train: fit of the model copy on that round's "
+              "training folds. The other rows: the compounds left out (n Val), never the Screening test set - the "
+              "same metrics as the external validation (without Q²F1/Q²F3 and Golbraikh-Tropsha, specific to an "
+              "external set). Pooled: metrics over all out-of-fold predictions together (for regression, Q2 = Q² CV); "
+              "Train and AUC are means over folds; with Repeats > 1, the mean across repetitions of each repetition's "
+              "pooled value. Std Dev: standard deviation between folds (Repeats = 1) or BETWEEN repetitions.\n"
+              "With 'All Folds' checked: Mean and Std Dev over ALL folds (k x Repeats) instead.\n"
+              "Nested CV: one column per outer fold; the hyperparameters chosen by each inner search (Best Params) "
+              "are only in the saved CSV (skl_cv_*), and a separate table (window, CSV skl_nested_params_* and "
+              "report) counts how often each combination was chosen. "
+              "Bootstrap: one column per iteration (OOB = out-of-bag compounds), with Mean and Std Dev.",
+        "pt": "Cada coluna é um fold (cabeçalho: 'repetição-fold' com Repetições > 1, ex.: 2-3; as últimas colunas são o "
+              "resumo) e cada linha é uma métrica. R2/Accuracy Train: ajuste da cópia do modelo nos folds de treino "
+              "da rodada. As demais linhas: os compostos deixados de fora (n Val), nunca o conjunto teste do "
+              "Screening - as mesmas métricas da validação externa (sem Q²F1/Q²F3 e Golbraikh-Tropsha, próprios de "
+              "um conjunto externo). Pooled: métricas sobre todas as predições out-of-fold juntas (em regressão, "
+              "Q2 = Q² CV); Train e AUC são médias dos folds; com Repetições > 1, a média, entre repetições, do valor "
+              "agrupado de cada uma. Std Dev: desvio-padrão entre folds (Repetições = 1) ou ENTRE repetições.\n"
+              "Com 'All Folds' marcado: Mean e Std Dev sobre TODOS os folds (k x Repetições).\n"
+              "Nested CV: uma coluna por fold externo; os hiperparâmetros escolhidos por cada busca interna (Best "
+              "Params) ficam só no CSV salvo (skl_cv_*), e uma tabela à parte (janela, CSV skl_nested_params_* e "
+              "relatório) conta quantas vezes cada combinação foi escolhida. "
+              "Bootstrap: uma coluna por iteração (OOB = moléculas fora da reamostragem), com Mean e Std Dev.",
     },
     "s6_scope_train": {"en": "training set (n={n})", "pt": "conjunto de treino (n={n})"},
     "s6_scope_full": {"en": "full dataset: training + test (n={n})", "pt": "conjunto completo: treino + teste (n={n})"},
