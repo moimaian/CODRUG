@@ -835,15 +835,15 @@ _TEXTOS = {
               "retuned) with respect to how the data are split: the whole Internal DataFrame (training + test) is "
               "split n times with the Model Screening Test Size and Split Method (split 1 = this USI's own split); "
               "in each split, k-fold cross-validation repeated r times on the training part (CV columns, mean ± SD) "
-              "and evaluation on the held-out part (Ext columns). The CV uses 'CV Folds' and 'Repeats' of the "
-              "Internal Validation group. Because it re-splits the test set too, run it once, with the final "
+              "and evaluation on the held-out part (Ext columns). The CV uses 'CV Folds', 'Repeats' and 'All Folds' "
+              "of the Internal Validation group. Because it re-splits the test set too, run it once, with the final "
               "model(s), like 'Validate on Test Set'. Random or Scaffold split only.",
         "pt": "Estabilidade dos modelos MARCADOS na lista deste grupo (mesmo algoritmo e hiperparâmetros, sem "
               "retunar) em relação à divisão dos dados: o Internal DataFrame inteiro (treino + teste) é dividido n "
               "vezes com o Test Size e o Split Method do Model Screening (divisão 1 = a da própria USI); em cada "
               "divisão, validação cruzada k-fold repetida r vezes na parte de treino (colunas CV, média ± DP) e "
-              "avaliação na parte separada (colunas Ext). A CV usa 'CV Folds' e 'Repetições' do grupo Validação "
-              "Interna. Como redivide também o conjunto teste, rode uma vez, com o(s) modelo(s) final(is), como o "
+              "avaliação na parte separada (colunas Ext). A CV usa 'CV Folds', 'Repetições' e 'All Folds' do "
+              "grupo Validação Interna. Como redivide também o conjunto teste, rode uma vez, com o(s) modelo(s) final(is), como o "
               "'Validar no Teste'. Só divisão Random ou Scaffold.",
     },
     "s6_msg_repsplit_no_model": {
@@ -885,6 +885,20 @@ _TEXTOS = {
               "busca interna do 'Nested CV' (Internal Validation), sempre com os valores da tela no momento em que ele "
               "roda - selecionar um modelo apenas restaura os valores usados no tuning dele.",
     },
+    "s6_tooltip_cv_all_folds": {
+        "en": "How the summary rows at the end of the cross-validation table are calculated (displayed and saved). "
+              "Checked: 'Mean' and 'Std Dev' are the mean and the standard deviation of the metrics of ALL folds in "
+              "the table - with Repeats > 1, the k x Repeats folds together (e.g. 5 x 10 = 50 folds). Unchecked: 'Pooled' = metrics over the out-of-fold predictions of each "
+              "repetition together (for regression, Q2 = Q² CV), averaged across repetitions, and 'Std Dev' = "
+              "standard deviation BETWEEN repetitions (between folds with Repeats = 1). Applies to KFold, "
+              "StratifiedKFold, Nested CV and Time Series, and to 'Run Repeated Splits' (CV columns).",
+        "pt": "Como são calculadas as linhas de resumo no fim da tabela da validação cruzada (exibida e salva). "
+              "Marcado: 'Mean' e 'Std Dev' são a média e o desvio-padrão das métricas de TODOS os folds da tabela - "
+              "com Repetições > 1, os k x Repetições folds juntos (ex.: 5 x 10 = 50 folds). Desmarcado: 'Pooled' = métricas sobre as predições out-of-fold de cada repetição "
+              "juntas (em regressão, Q2 = Q² CV), em média entre as repetições, e 'Std Dev' = desvio-padrão ENTRE "
+              "repetições (entre folds com Repetições = 1). Vale para KFold, StratifiedKFold, Nested CV e Time "
+              "Series, e para o 'Run Repeated Splits' (colunas CV).",
+    },
     "s6_tooltip_cv_table": {
         "en": "Each row is one fold. R2/Accuracy Train: fit of the model copy on that round's training folds. The "
               "other columns: the compounds left out (n Val), never the Screening test set - the same metrics as "
@@ -893,7 +907,12 @@ _TEXTOS = {
               "columns and AUC are means over folds. Std Dev: standard deviation between folds. "
               "Bootstrap: OOB = out-of-bag compounds of each iteration.\n"
               "With Repeats > 1: folds are labelled 'repetition-fold' (e.g. 2-3); Pooled = mean across repetitions of "
-              "each repetition's pooled value; Std Dev = standard deviation BETWEEN repetitions.",
+              "each repetition's pooled value; Std Dev = standard deviation BETWEEN repetitions.\n"
+              "With 'All Folds' checked: Mean and Std Dev over ALL folds of the table (k x Repeats) instead. "
+              "Nested CV: one row per outer fold, with the hyperparameters chosen by its inner search (Best Params); "
+              "a separate table (window, CSV skl_nested_params_* and report) counts how often each combination was "
+              "chosen. "
+              "Bootstrap: Mean and Std Dev over the iterations.",
         "pt": "Cada linha é um fold. R2/Accuracy Train: ajuste da cópia do modelo nos folds de treino da rodada. As "
               "demais colunas: os compostos deixados de fora (n Val), nunca o conjunto teste do Screening - as "
               "mesmas métricas da validação externa (sem Q²F1/Q²F3 e Golbraikh-Tropsha, próprios de um conjunto "
@@ -901,7 +920,11 @@ _TEXTOS = {
               "as colunas Train e a AUC são médias dos folds. Std Dev: desvio-padrão entre folds. "
               "Bootstrap: OOB = moléculas fora da reamostragem (out-of-bag) de cada iteração.\n"
               "Com Repetições > 1: os folds aparecem como 'repetição-fold' (ex.: 2-3); Pooled = média, entre repetições, "
-              "do valor agrupado de cada uma; Std Dev = desvio-padrão ENTRE repetições.",
+              "do valor agrupado de cada uma; Std Dev = desvio-padrão ENTRE repetições.\n"
+              "Com 'All Folds' marcado: Mean e Std Dev sobre TODOS os folds da tabela (k x Repetições). "
+              "Nested CV: uma linha por fold externo, com os hiperparâmetros escolhidos pela sua busca interna "
+              "(Best Params); uma tabela à parte (janela, CSV skl_nested_params_* e relatório) conta quantas vezes "
+              "cada combinação foi escolhida. Bootstrap: Mean e Std Dev entre as iterações.",
     },
     "s6_scope_train": {"en": "training set (n={n})", "pt": "conjunto de treino (n={n})"},
     "s6_scope_full": {"en": "full dataset: training + test (n={n})", "pt": "conjunto completo: treino + teste (n={n})"},

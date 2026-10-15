@@ -3104,6 +3104,65 @@ def _skl_make_cv(classification, folds, repeats=1, random_state=None):
     return cls(n_splits=folds, shuffle=True, random_state=random_state)
 
 
+def _skl_cv_summary_rows(fold_df, id_col, summaries, all_folds, n_val=None):
+    """Linhas de resumo de uma validação cruzada (Cross-Validation, Nested CV), no fim da tabela:
+    - all_folds (checkbox "All Folds" da Internal Validation): "Mean" e "Std Dev" calculados sobre
+      TODOS os folds da tabela (k x Repeats linhas; ddof=1);
+    - senão (procedimento original): "Pooled" = valor agrupado das predições out-of-fold (summaries:
+      um resumo por repetição; com várias, a média entre elas) e "Std Dev" = desvio-padrão entre os
+      folds (1 repetição) ou ENTRE AS REPETIÇÕES (várias).
+    Colunas não numéricas (ex.: "Best Params" do Nested CV) e "n Val" ficam fora das estatísticas;
+    "n Val" das linhas de resumo = predições por repetição (n do conjunto avaliado)."""
+    skip = {id_col, "n Val", "Best Params"}
+    if n_val is None:
+        n_val = int(summaries[0]["n Val"]) if summaries else int(pd.to_numeric(fold_df["n Val"]).sum())
+
+    def _stats(frame, how):
+        out = {}
+        for col in frame.columns:
+            if col in skip:
+                continue
+            vals = pd.to_numeric(frame[col], errors="coerce")
+            if vals.notna().any():
+                out[col] = float(vals.mean()) if how == "mean" else float(vals.std(ddof=1))
+        return out
+
+    if all_folds:
+        mean_row = {id_col: "Mean", "n Val": n_val, **_stats(fold_df, "mean")}
+        std_row = {id_col: "Std Dev", **_stats(fold_df, "std")}
+        return [mean_row, std_row]
+    if len(summaries) == 1:
+        pooled = dict(summaries[0]); pooled[id_col] = "Pooled"
+        std_row = {id_col: "Std Dev", **_stats(fold_df, "std")}
+        return [pooled, std_row]
+    summ = pd.DataFrame(summaries)
+    pooled = {id_col: "Pooled", "n Val": n_val, **_stats(summ, "mean")}
+    std_row = {id_col: "Std Dev", **_stats(summ, "std")}
+    return [pooled, std_row]
+
+
+def _skl_nested_params_summary(cv_df):
+    """Resumo da coluna "Best Params" do Nested CV: quantas vezes cada combinação de hiperparâmetros
+    foi escolhida pela busca interna dos folds externos (linhas de resumo Mean/Pooled/Std Dev fora),
+    da mais para a menos frequente - mostra se a escolha é estável entre as partições. None se a
+    tabela não tiver essa coluna."""
+    if cv_df is None or "Best Params" not in cv_df.columns:
+        return None
+    id_col = cv_df.columns[0]
+    folds = cv_df[~cv_df[id_col].astype(str).isin(["Mean", "Pooled", "Std Dev"])]
+    params = folds["Best Params"].dropna().astype(str)
+    if params.empty:
+        return None
+    counts = params.value_counts(sort=True)
+    total = int(counts.sum())
+    return pd.DataFrame({
+        "Best Params": counts.index,
+        "Chosen (folds)": counts.values.astype(int),
+        "Total Folds": total,
+        "%": [round(100.0 * c / total, 1) for c in counts.values],
+    })
+
+
 def _skl_fix_grid_values(param_grid):
     """Ajustes de valores da grade que o leitor da tabela (_skl_parse_grid_value) não consegue
     representar: o CatBoost recusa auto_class_weights=None aplicado via set_params (como fazem
@@ -3125,9 +3184,8 @@ def _skl_repetition_seed(random_state, repetition):
 
 
 def _specificity_score(y_true, y_pred):
-    """Specificity / True Negative Rate = TN/(TN+FP) (o equivalente do CODRUG à 'Specificity'
-    reportada pelo POSEIDON; Sensitivity/Recall e Accuracy já são a mesma métrica sob outro nome,
-    e MCC já existe com a mesma fórmula).
+    """Specificity / True Negative Rate = TN/(TN+FP) - completa Sensitivity/Recall, Accuracy e MCC
+    nas métricas de classificação.
     - Binária: TN/(TN+FP), tomando a segunda classe em ordem (rótulos ordenados) como positiva.
     - 3+ classes: não há uma única "classe negativa", então calcula a especificidade de cada classe
       contra as demais (one-vs-rest) e faz a média ponderada pelo nº de amostras reais de cada classe
@@ -3442,28 +3500,25 @@ class SklEvaluateWorker(QThread): # type: ignore
         if method not in ("KFold", "StratifiedKFold"):
             repeats = 1
 
+        # "All Folds": Mean/Std Dev sobre todos os folds em vez de Pooled (ver _skl_cv_summary_rows).
+        all_folds = bool(self.kwargs.get("all_folds", False))
+
         if repeats == 1:
             split_iter, small_test_folds = self._standard_splits(method, folds, shuffle, random_state)
             cv_df, summary, oof = self._standard_pass(split_iter, small_test_folds)
             if not (method == "Leave-P-Out" and self.kwargs.get("p", 1) > 1):
                 self.oof = oof
-            # Linha extra "Std Dev" (em inglês, mesmo critério de "Pooled" acima): desvio padrão ENTRE
-            # folds de cada coluna numérica (ddof=1, padrão do pandas) - complementa a linha "Pooled",
-            # que sozinha não comunica o quanto o desempenho variou de fold para fold.
-            std_row = {"Fold": "Std Dev"}
-            for col in cv_df.columns:
-                if col in ("Fold", "n Val"):
-                    continue
-                try:
-                    std_row[col] = float(cv_df[col].astype(float).std())
-                except (TypeError, ValueError):
-                    continue
-            return pd.concat([cv_df, pd.DataFrame([summary]), pd.DataFrame([std_row])], ignore_index=True)
+            # Folds de 1 composto (LOOCV, Leave-P-Out p=1) não têm métricas por fold: sempre Pooled.
+            # "Std Dev": desvio padrão ENTRE folds (ddof=1) - complementa a linha "Pooled", que
+            # sozinha não comunica o quanto o desempenho variou de fold para fold.
+            extra = _skl_cv_summary_rows(cv_df, "Fold", [summary], all_folds and not small_test_folds)
+            return pd.concat([cv_df, pd.DataFrame(extra)], ignore_index=True)
 
         # Várias repetições: os folds de todas as repetições (numerados "repetição-fold"), depois
         # "Pooled" = média, entre repetições, do resumo agrupado de cada uma e "Std Dev" = desvio
-        # padrão ENTRE REPETIÇÕES (a variação devida à partição). "Plot CV Predictions" usa as
-        # predições out-of-fold da 1ª repetição (uma predição por composto).
+        # padrão ENTRE REPETIÇÕES (a variação devida à partição) - ou, com "All Folds", Mean/Std Dev
+        # sobre todos os k x Repeats folds. "Plot CV Predictions" usa as predições out-of-fold da 1ª
+        # repetição (uma predição por composto).
         fold_tables, summaries = [], []
         for r in range(repeats):
             split_iter, small_test_folds = self._standard_splits(
@@ -3473,16 +3528,9 @@ class SklEvaluateWorker(QThread): # type: ignore
             summaries.append(summary)
             if r == 0:
                 self.oof = oof
-        summ = pd.DataFrame(summaries)
-        pooled = {"Fold": "Pooled", "n Val": int(summ["n Val"].iloc[0])}
-        std_row = {"Fold": "Std Dev"}
-        for col in summ.columns:
-            if col in ("Fold", "n Val"):
-                continue
-            vals = pd.to_numeric(summ[col], errors="coerce")
-            pooled[col] = float(vals.mean())
-            std_row[col] = float(vals.std(ddof=1))
-        return pd.concat(fold_tables + [pd.DataFrame([pooled]), pd.DataFrame([std_row])], ignore_index=True)
+        all_df = pd.concat(fold_tables, ignore_index=True)
+        extra = _skl_cv_summary_rows(all_df, "Fold", summaries, all_folds)
+        return pd.concat([all_df, pd.DataFrame(extra)], ignore_index=True)
 
     def _run_nested(self):
         """Nested CV: busca interna (GridSearchCV, folds embaralhados - ver _skl_make_cv) dentro de cada
@@ -3502,10 +3550,12 @@ class SklEvaluateWorker(QThread): # type: ignore
         inner_repeats = max(1, int(self.kwargs.get("inner_repeats", 1) or 1))
         repeats = max(1, int(self.kwargs.get("repeats", 1) or 1))
 
-        rows = []
+        all_folds = bool(self.kwargs.get("all_folds", False))
+        rows, summaries = [], []
         for r in range(repeats):
             seed = _skl_repetition_seed(random_state, r)
             use_shuffle = shuffle or repeats > 1
+            rep_aucs = []
             if task == "classification":
                 outer_splitter = StratifiedKFold(n_splits=folds, shuffle=use_shuffle, random_state=seed if use_shuffle else None)
                 outer_split_iter = outer_splitter.split(x_reset, y_reset)
@@ -3528,9 +3578,19 @@ class SklEvaluateWorker(QThread): # type: ignore
                 row = {"Outer Fold": label, "n Val": len(y_te), "Best Params": str(inner_search.best_params_)}
                 row.update(_skl_cv_metrics(task, y_te, y_pred, inner_search.best_estimator_, x_te))
                 rows.append(row)
+                rep_aucs.append(row.get("AUC", float("nan")))
             if r == 0:
                 self.oof = (oof_true, oof_pred)
-        return pd.DataFrame(rows)
+            # Resumo agrupado desta repetição (mesmo critério do _standard_pass: métricas sobre as
+            # predições out-of-fold juntas; AUC = média dos folds).
+            summary = {"Outer Fold": "Pooled", "n Val": len(oof_true)}
+            summary.update(_skl_cv_metrics(task, oof_true, oof_pred))
+            if task != "regression":
+                summary["AUC"] = float(pd.to_numeric(pd.Series(rep_aucs), errors="coerce").mean())
+            summaries.append(summary)
+        fold_df = pd.DataFrame(rows)
+        extra = _skl_cv_summary_rows(fold_df, "Outer Fold", summaries, all_folds)
+        return pd.concat([fold_df, pd.DataFrame(extra)], ignore_index=True)
 
     def _run_bootstrap(self):
         x_reset, y_reset, task = self.x_reset, self.y_reset, self.task
@@ -3557,7 +3617,16 @@ class SklEvaluateWorker(QThread): # type: ignore
 
         if not rows:
             raise ValueError("No out-of-bag samples were produced — dataset may be too small for Bootstrap.")
-        return pd.DataFrame(rows)
+        # Estimativa OOB: média e desvio-padrão (ddof=1) entre as iterações - cada iteração já é uma
+        # reamostragem independente (não há repetições a agrupar, nem predições out-of-fold únicas).
+        boot_df = pd.DataFrame(rows)
+        stats = [c for c in boot_df.columns if c not in ("Iteration", "n OOB")]
+        mean_row = {"Iteration": "Mean", "n OOB": float(boot_df["n OOB"].mean())}
+        std_row = {"Iteration": "Std Dev"}
+        for c in stats:
+            vals = pd.to_numeric(boot_df[c], errors="coerce")
+            mean_row[c] = float(vals.mean()); std_row[c] = float(vals.std(ddof=1))
+        return pd.concat([boot_df, pd.DataFrame([mean_row, std_row])], ignore_index=True)
 
 
 class _WaitMessageProcessHandle:
@@ -5950,6 +6019,8 @@ class MainWindow(QMainWindow):
         for _attr in ("sp_skl_screen_cv_repeats", "sp_skl_tune_repeats", "sp_skl_cv_repeats"):
             if getattr(self, _attr, None) is not None:
                 getattr(self, _attr).setValue(SKL_DEFAULT_CV_REPEATS)
+        if getattr(self, "chk_skl_cv_all_folds", None) is not None:
+            self.chk_skl_cv_all_folds.setChecked(False)
 
         # STEP8 (Consensus) and EDIT already have their own correct reset routines (reused by
         # each tab's own "Clear" button) - reused here instead of duplicating their logic.
@@ -21107,6 +21178,12 @@ class MainWindow(QMainWindow):
             self.sp_skl_cv_folds = QSpinBox(); self.sp_skl_cv_folds.setRange(2, 50); self.sp_skl_cv_folds.setValue(10)
             eval_row1.addWidget(self.sp_skl_cv_folds)
             eval_row1.addSpacing(12)
+            # "All Folds": linhas de resumo Mean/Std Dev sobre todos os folds (k x Repeats) em vez de
+            # Pooled/Std Dev entre repetições (ver _skl_cv_summary_rows). Desmarcado = procedimento original.
+            self.chk_skl_cv_all_folds = QCheckBox("All Folds"); self.chk_skl_cv_all_folds.setChecked(False)
+            self._tr("s6_tooltip_cv_all_folds", self.chk_skl_cv_all_folds.setToolTip)
+            eval_row1.addWidget(self.chk_skl_cv_all_folds)
+            eval_row1.addSpacing(12)
             self.chk_skl_cv_shuffle = QCheckBox("shuffle"); self.chk_skl_cv_shuffle.setChecked(True)
             eval_row1.addWidget(self.chk_skl_cv_shuffle)
             lay_skl_eval.addLayout(eval_row1)
@@ -23855,6 +23932,7 @@ class MainWindow(QMainWindow):
             getattr(self, "cb_skl_tune_param", None), getattr(self, "btn_skl_tune_plot", None),
             getattr(self, "cb_skl_cv_method", None), getattr(self, "sp_skl_cv_folds", None),
             getattr(self, "sp_skl_cv_p", None), getattr(self, "chk_skl_cv_shuffle", None),
+            getattr(self, "chk_skl_cv_all_folds", None),
             getattr(self, "btn_skl_run_eval", None),
             getattr(self, "sp_skl_repsplit_n", None), getattr(self, "btn_skl_repsplit", None),
         ]
@@ -23985,6 +24063,9 @@ class MainWindow(QMainWindow):
                 self.sp_skl_cv_p.setValue(int(validation["p"]))
             if hasattr(self, "sp_skl_cv_repeats"):
                 self.sp_skl_cv_repeats.setValue(int(validation.get("repeats") or 1))
+            if hasattr(self, "chk_skl_cv_all_folds"):
+                # Validações gravadas antes do "All Folds" usaram o procedimento original (desmarcado).
+                self.chk_skl_cv_all_folds.setChecked(bool(validation.get("all_folds", False)))
         self._update_skl_cv_method_widgets()
 
     def _skl_get_param_values_from_table(self, parameter_name):
@@ -24034,6 +24115,12 @@ class MainWindow(QMainWindow):
         if hasattr(self, "sp_skl_cv_folds"):
             needs_folds = method not in ("Leave-One-Out (LOOCV)", "Leave-P-Out")
             self.sp_skl_cv_folds.setEnabled(group_enabled and needs_folds)
+        if hasattr(self, "chk_skl_cv_all_folds"):
+            # Métodos com métricas por fold: KFold/StratifiedKFold/Nested CV (com ou sem Repeats) e Time
+            # Series. LOOCV/Leave-P-Out têm folds de 1-p compostos (sem métricas por fold) e o Bootstrap
+            # já resume as iterações por Mean/Std Dev.
+            self.chk_skl_cv_all_folds.setEnabled(group_enabled and method in (
+                "KFold", "StratifiedKFold", "Nested CV", "Time Series Split (Walk-Forward Validation)"))
         if hasattr(self, "sp_skl_cv_repeats"):
             # Repetir só faz sentido em partições aleatórias; com repetições, embaralhar é obrigatório.
             allows_repeats = method in ("KFold", "StratifiedKFold", "Nested CV")
@@ -24595,6 +24682,8 @@ class MainWindow(QMainWindow):
                           else 1)
             if cv_repeats > 1:
                 shuffle = True
+            all_folds = bool(getattr(self, "chk_skl_cv_all_folds", None) and self.chk_skl_cv_all_folds.isEnabled()
+                             and self.chk_skl_cv_all_folds.isChecked())
 
             if method == "Nested CV":
                 registry, _task2 = self._get_skl_registry()
@@ -24631,7 +24720,7 @@ class MainWindow(QMainWindow):
                     inner_folds=self.sp_skl_tune_folds.value(),
                     inner_repeats=self.sp_skl_tune_repeats.value() if hasattr(self, "sp_skl_tune_repeats") else 1,
                     scoring=inner_scoring,
-                    repeats=cv_repeats,
+                    repeats=cv_repeats, all_folds=all_folds,
                 )
             elif method == "Bootstrap":
                 mode = "bootstrap"
@@ -24640,7 +24729,7 @@ class MainWindow(QMainWindow):
                 mode = "standard"
                 worker_kwargs = dict(
                     method=method, folds=folds, shuffle=shuffle, random_state=random_state,
-                    p=self.sp_skl_cv_p.value(), repeats=cv_repeats,
+                    p=self.sp_skl_cv_p.value(), repeats=cv_repeats, all_folds=all_folds,
                 )
 
             self._skl_evaluate_model_name = model_name
@@ -24649,6 +24738,7 @@ class MainWindow(QMainWindow):
             self._skl_evaluate_cv_shuffle = shuffle
             self._skl_evaluate_cv_p = self.sp_skl_cv_p.value()
             self._skl_evaluate_cv_repeats = cv_repeats
+            self._skl_evaluate_cv_all_folds = all_folds
             # Busca interna do Nested CV (None nos demais métodos) - lida pelo relatório.
             self._skl_evaluate_inner_folds = worker_kwargs.get("inner_folds") if mode == "nested" else None
             self._skl_evaluate_inner_repeats = worker_kwargs.get("inner_repeats") if mode == "nested" else None
@@ -24708,6 +24798,8 @@ class MainWindow(QMainWindow):
             "shuffle": getattr(self, "_skl_evaluate_cv_shuffle", None),
             "p": getattr(self, "_skl_evaluate_cv_p", None),
             "repeats": getattr(self, "_skl_evaluate_cv_repeats", 1),
+            # "All Folds": linhas Mean/Std Dev sobre todos os folds (senão Pooled/Std Dev) - lido pelo relatório.
+            "all_folds": getattr(self, "_skl_evaluate_cv_all_folds", False),
             # Nested CV: CV Folds/Repeats da busca interna (grupo Hyperparameter Tuning) - lido pelo relatório.
             "inner_folds": getattr(self, "_skl_evaluate_inner_folds", None),
             "inner_repeats": getattr(self, "_skl_evaluate_inner_repeats", None),
@@ -24718,11 +24810,27 @@ class MainWindow(QMainWindow):
         self._save_skl_session_config()
         self._save_step6_sklearn_state()
 
+        stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         try:
-            out_path = os.path.join(self.skl_out_data, f"skl_cv_{eval_model_name}_{self.skl_usi_key}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+            out_path = os.path.join(self.skl_out_data, f"skl_cv_{eval_model_name}_{self.skl_usi_key}_{stamp}.csv")
             cv_df.to_csv(out_path, index=False)
         except Exception:
             pass
+
+        # Nested CV: resumo dos hiperparâmetros escolhidos pela busca interna de cada fold externo
+        # (estabilidade da escolha) - CSV skl_nested_params_* em DATA (lido pelo relatório) e janela
+        # de tabela, como no Run Repeated Splits.
+        if getattr(self, "_skl_evaluate_cv_method", None) == "Nested CV":
+            params_df = _skl_nested_params_summary(cv_df)
+            if params_df is not None:
+                params_path = os.path.join(
+                    self.skl_out_data, f"skl_nested_params_{eval_model_name}_{self.skl_usi_key}_{stamp}.csv")
+                try:
+                    params_df.to_csv(params_path, index=False)
+                    self._next_dataframe_save_path = params_path
+                except Exception:
+                    pass
+                self.show_dataframe(params_df)
 
     def run_skl_cv_plot(self):
         """Botão "Plot CV Predictions" (grupo Internal Validation): Predicted vs Experimental
@@ -25496,7 +25604,7 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _skl_repsplit_display_table(df, task):
-        """Tabela-resumo (formato da Tabela 4 do PoseidonQ) a partir do CSV completo da análise: uma
+        """Tabela-resumo a partir do CSV completo da análise: uma
         linha por divisão, "CV <métrica>" como "média ± DP" e "Ext <métrica>"; as linhas Mean/Std Dev
         finais viram uma única linha "Mean ± SD"."""
         metrics = [m for m in MainWindow._SKL_REPSPLIT_DISPLAY.get(task, []) if f"Ext {m}" in df.columns]
@@ -25532,12 +25640,12 @@ class MainWindow(QMainWindow):
     def run_skl_repeated_splits(self):
         """Botão "Run Repeated Splits" (grupo External Validation, Refit and Prediction): estabilidade
         dos modelos MARCADOS na lista do grupo (mesma receita de cada um - algoritmo e hiperparâmetros -,
-        sem retunar) frente à divisão dos dados, como a Tabela 4 do PoseidonQ. Para cada uma das n
+        sem retunar) frente à divisão dos dados. Para cada uma das n
         divisões ("Splits (n)"):
         1) divide o Internal DataFrame da USI (treino + teste, na ordem original) com o Test Size e o
            Split Method do Model Screening e Random State + i - a divisão 1 reproduz a da própria USI;
         2) roda no treino a validação cruzada k-fold (CV Folds) repetida r vezes (Repeats) do grupo
-           Internal Validation - colunas "CV <métrica>" (linha Pooled) e "CV <métrica> SD" (Std Dev);
+           Internal Validation - colunas "CV <métrica>" (linha Pooled, ou Mean com "All Folds") e "CV <métrica> SD" (Std Dev);
         3) treina a receita no treino inteiro e avalia no conjunto separado - colunas "Ext <métrica>".
         Por redividir o Internal DataFrame inteiro, consome o conjunto teste: deve ser feita uma vez,
         com o(s) modelo(s) final(is). Um CSV por modelo (DATA/skl_repsplit_<modelo>_<USI>_<data>.csv),
@@ -25585,6 +25693,9 @@ class MainWindow(QMainWindow):
         n_splits = self.sp_skl_repsplit_n.value() if hasattr(self, "sp_skl_repsplit_n") else 10
         folds = self.sp_skl_cv_folds.value()
         repeats = self.sp_skl_cv_repeats.value() if hasattr(self, "sp_skl_cv_repeats") else 1
+        # Resumo da CV de cada divisão: segue o "All Folds" da Internal Validation (esta análise usa
+        # sempre k-fold, então vale o estado marcado mesmo com outro Method selecionado lá).
+        all_folds = bool(getattr(self, "chk_skl_cv_all_folds", None) and self.chk_skl_cv_all_folds.isChecked())
         cv_method = "StratifiedKFold" if task == "classification" else "KFold"
         random_state = self._get_skl_random_state()
         self._set_current_sklearn_usi_context()
@@ -25610,10 +25721,12 @@ class MainWindow(QMainWindow):
                 for i, (seed, x_tr, x_te, y_tr, y_te) in enumerate(splits):
                     cv_worker = SklEvaluateWorker(
                         "standard", task, model, x_tr.reset_index(drop=True), pd.Series(np.asarray(y_tr)),
-                        method=cv_method, folds=folds, shuffle=True, random_state=seed, p=2, repeats=repeats)
+                        method=cv_method, folds=folds, shuffle=True, random_state=seed, p=2, repeats=repeats,
+                        all_folds=all_folds)
                     cv_df = cv_worker._run_standard()
                     first_col = cv_df.columns[0]
-                    pooled = cv_df[cv_df[first_col].astype(str) == "Pooled"].iloc[0]
+                    # "All Folds" marcado: Mean/Std Dev sobre todos os folds; senão Pooled/Std Dev.
+                    pooled = cv_df[cv_df[first_col].astype(str) == ("Mean" if all_folds else "Pooled")].iloc[0]
                     spread = cv_df[cv_df[first_col].astype(str) == "Std Dev"].iloc[0]
                     ext_model = clone(model)
                     ext_model.fit(x_tr, y_tr)
@@ -25652,6 +25765,7 @@ class MainWindow(QMainWindow):
             self._skl_repsplit_settings[model_name] = {
                 "n_splits": n_splits, "test_size": test_size, "split_method": split_method,
                 "folds": folds, "repeats": repeats, "cv_method": cv_method, "random_state": random_state,
+                "all_folds": all_folds,
             }
             table = self._skl_repsplit_display_table(df, task)
             if len(results) > 1:

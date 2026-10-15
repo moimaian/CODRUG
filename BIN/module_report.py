@@ -1556,6 +1556,16 @@ _STEP4_ML_TEXTS = {
     "nested_inner_en": " In each outer fold, the hyperparameters were chosen by an inner search (GridSearchCV) restricted to that fold's training folds, with {k} folds{rep}; the compounds of the outer fold never took part in that choice.",
     "cv_table_follows_pt": "Os resultados estão na tabela a seguir:",
     "cv_table_follows_en": "The results are shown in the table below:",
+    "cv_columns_all_folds_pt": "Na tabela, cada fold mostra, nos compostos deixados de fora, as mesmas métricas usadas na validação externa (exceto Q²F1/Q²F3 e os critérios de Golbraikh-Tropsha, próprios de um conjunto externo), além do ajuste da cópia do modelo nos seus folds de treino (R2 Train ou Accuracy Train) quando disponível; as linhas de resumo foram calculadas sobre todos os {n} folds da tabela: Mean é a média das métricas de todos os folds e Std Dev, o desvio-padrão entre eles.",
+    "cv_columns_all_folds_en": "In the table, each fold shows, on the compounds left out, the same metrics used in the external validation (except Q²F1/Q²F3 and the Golbraikh-Tropsha criteria, which are specific to an external set), plus the fit of the model copy on its training folds (R2 Train or Accuracy Train) when available; the summary rows were calculated over all {n} folds of the table: Mean is the mean of the metrics of all folds and Std Dev is the standard deviation between them.",
+    "repsplit_cv_all_folds_pt": " Nas colunas CV, o valor de cada divisão é a média ± desvio-padrão das métricas de todos os {n} folds da sua validação cruzada.",
+    "repsplit_cv_all_folds_en": " In the CV columns, each split's value is the mean ± standard deviation of the metrics of all {n} folds of its cross-validation.",
+    "repsplit_cv_pooled_pt": " Nas colunas CV, o valor de cada divisão é a métrica das predições out-of-fold agrupadas (média entre as repetições) ± o desvio-padrão {between}.",
+    "repsplit_cv_pooled_en": " In the CV columns, each split's value is the metric of the pooled out-of-fold predictions (mean across repetitions) ± the standard deviation {between}.",
+    "between_reps_pt": "entre as repetições", "between_reps_en": "between repetitions",
+    "between_folds_pt": "entre os folds", "between_folds_en": "between folds",
+    "nested_params_pt": "A tabela a seguir resume os hiperparâmetros escolhidos pela busca interna nos {total} folds externos do Nested CV do modelo {model}, com o número e a porcentagem de folds em que cada combinação foi escolhida. Uma combinação predominante indica uma escolha estável; combinações muito variadas indicam que várias delas têm desempenho semelhante ou que a escolha é sensível à partição dos dados. O modelo final não é nenhum destes: ele resulta do Tuning, com a mesma busca, sobre todo o conjunto de treino.",
+    "nested_params_en": "The table below summarizes the hyperparameters chosen by the inner search in the {total} outer folds of the Nested CV of the {model} model, with the number and percentage of folds in which each combination was chosen. A predominant combination indicates a stable choice; widely varying combinations indicate that several of them perform similarly or that the choice is sensitive to how the data are partitioned. The final model is none of these: it results from the Tuning, with the same search, on the whole training set.",
     "cv_charts_pt": "As predições out-of-fold da validação cruzada do modelo {model} (conjunto de treino) são apresentadas a seguir:",
     "cv_charts_en": "The out-of-fold predictions from the cross-validation of the {model} model (training set) are presented below:",
     "repsplit_pt": "Para avaliar a estabilidade do modelo {model} em relação à divisão dos dados, foi realizada uma análise de divisões repetidas: o conjunto interno foi dividido {n} vezes ({method}, com {pct}% dos compostos separados como conjunto externo em cada divisão; a divisão 1 é a mesma usada no desenvolvimento do modelo). Em cada divisão, o modelo, com os mesmos hiperparâmetros, foi submetido à validação cruzada {folds}-fold repetida {repeats} vez(es) na parte de treino (colunas CV, média ± desvio-padrão) e avaliado na parte separada (colunas Ext). A última linha traz a média ± desvio-padrão entre as divisões.",
@@ -1613,6 +1623,21 @@ _REPSPLIT_DISPLAY = {
     "classification": ["Accuracy", "Balanced Accuracy", "Recall (Sensitivity)", "Specificity", "MCC"],
     "regression": ["Q2", "RMSE", "MAE", "CCC"],
 }
+
+
+def _repsplit_cv_note(rs_settings: dict, texts: dict, lang: str) -> str:
+    """Frase sobre o resumo das colunas CV do Repeated Splits ("All Folds" marcado: média ± DP de todos
+    os k x r folds; senão Pooled ± DP entre repetições/folds). Vazia em sessões gravadas antes do
+    "All Folds" (sem a chave), cujo texto original já descreve o resultado."""
+    if "all_folds" not in rs_settings:
+        return ""
+    sfx = "pt" if lang == "pt" else "en"
+    folds = int(rs_settings.get("folds") or 0)
+    reps = int(rs_settings.get("repeats") or 1)
+    if rs_settings.get("all_folds"):
+        return texts[f"repsplit_cv_all_folds_{sfx}"].format(n=folds * reps)
+    return texts[f"repsplit_cv_pooled_{sfx}"].format(
+        between=texts[f"between_reps_{sfx}" if reps > 1 else f"between_folds_{sfx}"])
 
 
 def _repsplit_display_table(df: "pd.DataFrame", task: str) -> "pd.DataFrame":
@@ -1989,13 +2014,28 @@ def _add_step5_section(document: Any, project_dir: str, state: dict[str, Any], i
                 cv_cols_key = ("cv_columns_new" if ("Q2" in cv_df.columns or "Balanced Accuracy" in cv_df.columns)
                                else "cv_columns" if ("R2 Val" in cv_df.columns or "Accuracy Val" in cv_df.columns)
                                else None)
-                if cv_cols_key:
+                if cv_cols_key and settings.get("all_folds"):
+                    # "All Folds": Mean/Std Dev sobre todos os folds (CODRUG._skl_cv_summary_rows).
+                    n_fold_rows = int((~cv_df.iloc[:, 0].astype(str).isin(["Mean", "Std Dev", "Pooled"])).sum())
+                    _para(document).add_run(texts[f"cv_columns_all_folds_{'pt' if lang == 'pt' else 'en'}"].format(n=n_fold_rows))
+                elif cv_cols_key:
                     _para(document).add_run(texts[f"{cv_cols_key}_{'pt' if lang == 'pt' else 'en'}"]
                                             + (" " + texts[f"cv_repeats_note_{'pt' if lang == 'pt' else 'en'}"].format(r=v_rep)
                                                if v_rep > 1 else ""))
                 # "Pooled" (atual) ou "Mean" (CSVs de versões anteriores) + "Std Dev".
                 _add_skl_results_table(document, cv_df, highlight_col=fold_col, highlight_col_bold=True,
                                         overall_row_value=("Pooled", "Mean", "Std Dev"))
+
+                # Nested CV: resumo dos hiperparâmetros escolhidos nos folds externos (CSV
+                # skl_nested_params_*, gravado por CODRUG._on_skl_evaluate_finished). Só quando a última
+                # validação desse modelo foi Nested CV - um CSV de uma rodada anterior não é usado.
+                if method == "Nested CV":
+                    np_df = _read_csv(_find_skl_csv(data_dir, "skl_nested_params", usi, model_name))
+                    if np_df is not None and not np_df.empty and "Best Params" in np_df.columns:
+                        total = np_df["Total Folds"].iloc[0] if "Total Folds" in np_df.columns else int(np_df.iloc[:, 1].sum())
+                        _para(document).add_run(texts[f"nested_params_{'pt' if lang == 'pt' else 'en'}"].format(
+                            total=total, model=model_name))
+                        _add_skl_results_table(document, np_df.drop(columns=["Total Folds"], errors="ignore"))
 
             # Gráficos da validação cruzada (predições out-of-fold, conjunto de treino): validação interna.
             cv_chart_paths = [
@@ -2093,7 +2133,8 @@ def _add_step5_section(document: Any, project_dir: str, state: dict[str, Any], i
             _para(document).add_run(texts[f"repsplit_{'pt' if lang == 'pt' else 'en'}"].format(
                 model=model_name, n=rs_settings.get("n_splits", "?"), method=rs_settings.get("split_method", "Random"),
                 pct=int(round(100 * float(rs_settings.get("test_size") or 0))), folds=rs_settings.get("folds", "?"),
-                repeats=rs_settings.get("repeats", 1)))
+                repeats=rs_settings.get("repeats", 1))
+                + _repsplit_cv_note(rs_settings, texts, lang))
             _add_skl_results_table(document, _repsplit_display_table(rs_df, session.get("task", "")),
                                     highlight_col=0, highlight_col_bold=True, overall_row_value="Mean ± SD")
 

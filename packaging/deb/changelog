@@ -140,8 +140,8 @@ codrug (1.2.0-1) unstable; urgency=low
     USIs salvas sem esse campo continuam sendo restauradas com 1, como
     rodaram (CODRUG.py).
   * Nova análise de divisões repetidas (grupo External Validation, Refit and
-    Prediction: "Splits (n)", padrão 10, e botão "Run Repeated Splits"), no
-    formato da Tabela 4 do PoseidonQ: o Internal DataFrame inteiro (treino +
+    Prediction: "Splits (n)", padrão 10, e botão "Run Repeated Splits"): o
+    Internal DataFrame inteiro (treino +
     teste) é dividido n vezes com o Test Size e o Split Method do Model
     Screening (Random ou Scaffold; a divisão 1 é a da própria USI); em cada
     divisão, cada modelo MARCADO na lista do grupo (mesmos hiperparâmetros)
@@ -161,6 +161,23 @@ codrug (1.2.0-1) unstable; urgency=low
     validação (selecionar o modelo só restaura os do tuning dele). Folds e
     Repeats da busca interna ficam gravados na sessão e descritos no
     relatório; tooltip próprio para o Repeats do Tuning (CODRUG.py,
+    BIN/i18n.py, BIN/module_report.py).
+  * Internal Validation: novo checkbox "All Folds" (entre CV Folds e
+    shuffle; KFold, StratifiedKFold, Nested CV e Time Series). Marcado, as
+    linhas de resumo da tabela exibida e do CSV passam a ser "Mean" e "Std
+    Dev" sobre todos os folds (k x Repeats, ex.: 50 em 5 x 10);
+    desmarcado (padrão), mantém "Pooled" e "Std Dev" entre
+    repetições (entre folds com Repeats = 1). Gravado por modelo na sessão,
+    restaurado ao selecioná-lo, descrito no relatório e seguido também pelo
+    "Run Repeated Splits" (colunas CV). Nested CV ganhou as linhas de resumo
+    (antes só os folds) e Bootstrap, Mean e Std Dev entre as iterações
+    (CODRUG.py, BIN/i18n.py, BIN/module_report.py).
+  * Nested CV: resumo da coluna Best Params - quantas vezes (e %) cada
+    combinação de hiperparâmetros foi escolhida pela busca interna nos folds
+    externos, indicando a estabilidade da escolha. Exibido em janela ao fim
+    da validação, salvo em DATA/skl_nested_params_<modelo>_<USI>_<data>.csv
+    e incluído no relatório (seção do Nested CV, com a ressalva de que o
+    modelo final vem do Tuning sobre todo o treino) (CODRUG.py,
     BIN/i18n.py, BIN/module_report.py).
 
  -- Moisés Maia Neto <moimaian@gmail.com>  Tue, 13 Oct 2026 03:18:10 -0300
