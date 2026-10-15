@@ -483,25 +483,26 @@ SKL_PARAM_GRIDS = {
     "SGDRegressor": [("alpha", "0.0001,0.001,0.01"), ("penalty", "l2,l1,elasticnet"), ("max_iter", "1000,2000")],
     "CatBoostRegressor": [("iterations", "100,200,300"), ("learning_rate", "0.01,0.05,0.1"), ("depth", "4,6,8"), ("l2_leaf_reg", "1,3,5")],
 
-    "RandomForestClassifier": [("n_estimators", "100,200,300"), ("max_depth", "None,10,20,30"), ("min_samples_split", "2,5,10"), ("min_samples_leaf", "1,2,4"), ("criterion", "gini,entropy")],
+    "RandomForestClassifier": [("n_estimators", "100,200,300"), ("max_depth", "None,10,20,30"), ("min_samples_split", "2,5,10"), ("min_samples_leaf", "1,2,4"), ("criterion", "gini,entropy"), ("class_weight", "None,balanced")],
     "XGBClassifier": [("n_estimators", "100,200,300"), ("learning_rate", "0.01,0.05,0.1,0.2"), ("max_depth", "3,6,10"), ("subsample", "0.8,1.0")],
-    "HistGradientBoostingClassifier": [("max_iter", "100,200,300"), ("learning_rate", "0.01,0.05,0.1,0.2"), ("max_depth", "None,10,20")],
-    "LGBMClassifier": [("n_estimators", "50,100,200"), ("learning_rate", "0.05,0.1,0.2"), ("num_leaves", "31,50,100"), ("max_depth", "-1,10,20")],
+    "HistGradientBoostingClassifier": [("max_iter", "100,200,300"), ("learning_rate", "0.01,0.05,0.1,0.2"), ("max_depth", "None,10,20"), ("class_weight", "None,balanced")],
+    "LGBMClassifier": [("n_estimators", "50,100,200"), ("learning_rate", "0.05,0.1,0.2"), ("num_leaves", "31,50,100"), ("max_depth", "-1,10,20"), ("class_weight", "None,balanced")],
     "BaggingClassifier": [("n_estimators", "50,100,200"), ("max_samples", "0.5,0.8,1.0"), ("max_features", "0.5,0.8,1.0")],
-    "NuSVC": [("nu", "0.3,0.5,0.7"), ("gamma", "scale,auto")],
-    "SVC": [("C", "0.1,1.0,10.0"), ("gamma", "scale,auto"), ("kernel", "rbf,linear,poly")],
+    # nu <= 2 x fração da menor classe (senão "specified nu is infeasible"): 0.5 cobre até 3:1.
+    "NuSVC": [("nu", "0.1,0.3,0.5"), ("gamma", "scale,auto"), ("class_weight", "None,balanced")],
+    "SVC": [("C", "0.1,1.0,10.0"), ("gamma", "scale,auto"), ("kernel", "rbf,linear,poly"), ("class_weight", "None,balanced")],
     "GradientBoostingClassifier": [("n_estimators", "100,200,300"), ("learning_rate", "0.01,0.05,0.1"), ("max_depth", "3,5,7"), ("subsample", "0.8,1.0")],
-    "ExtraTreesClassifier": [("n_estimators", "100,200,300"), ("max_depth", "None,10,20"), ("min_samples_split", "2,5,10"), ("min_samples_leaf", "1,2,4")],
+    "ExtraTreesClassifier": [("n_estimators", "100,200,300"), ("max_depth", "None,10,20"), ("min_samples_split", "2,5,10"), ("min_samples_leaf", "1,2,4"), ("class_weight", "None,balanced")],
     "AdaBoostClassifier": [("n_estimators", "50,100,200"), ("learning_rate", "0.01,0.1,1.0")],
     "KNeighborsClassifier": [("n_neighbors", "3,5,7,10"), ("weights", "uniform,distance"), ("metric", "minkowski,jaccard"), ("algorithm", "auto,ball_tree,brute")],
-    "LogisticRegression": [("C", "0.01,0.1,1.0,10.0"), ("solver", "lbfgs,liblinear")],
-    "RidgeClassifier": [("alpha", "0.1,1.0,10.0")],
-    "SGDClassifier": [("alpha", "0.0001,0.001,0.01"), ("penalty", "l2,l1,elasticnet")],
+    "LogisticRegression": [("C", "0.01,0.1,1.0,10.0"), ("solver", "lbfgs,liblinear"), ("class_weight", "None,balanced")],
+    "RidgeClassifier": [("alpha", "0.1,1.0,10.0"), ("class_weight", "None,balanced")],
+    "SGDClassifier": [("alpha", "0.0001,0.001,0.01"), ("penalty", "l2,l1,elasticnet"), ("class_weight", "None,balanced")],
     "GaussianNB": [("var_smoothing", "1e-9,1e-8,1e-7")],
     "MLPClassifier": [("hidden_layer_sizes", "(50,),(100,),(100,50)"), ("alpha", "0.0001,0.001,0.01"), ("max_iter", "500,1000")],
-    "PassiveAggressiveClassifier": [("C", "0.1,1.0,10.0"), ("max_iter", "1000,2000")],
+    "PassiveAggressiveClassifier": [("C", "0.1,1.0,10.0"), ("max_iter", "1000,2000"), ("class_weight", "None,balanced")],
     "LinearDiscriminantAnalysis": [("solver", "svd,lsqr,eigen")],
-    "CatBoostClassifier": [("iterations", "100,200,300"), ("learning_rate", "0.01,0.05,0.1"), ("depth", "4,6,8"), ("l2_leaf_reg", "1,3,5")],
+    "CatBoostClassifier": [("iterations", "100,200,300"), ("learning_rate", "0.01,0.05,0.1"), ("depth", "4,6,8"), ("l2_leaf_reg", "1,3,5"), ("auto_class_weights", "None,Balanced")],
 
     "KMeans": [("n_clusters", "2,3,4,5,6"), ("init", "k-means++,random")],
     "AgglomerativeClustering": [("n_clusters", "2,3,4,5,6"), ("linkage", "ward,complete,average")],
@@ -2856,6 +2857,31 @@ def _skl_external_classification_metrics(y_obs, y_pred, model=None, x=None):
     ]
 
 
+def _skl_cv_metrics(task, y_true, y_pred, model=None, x=None):
+    """Métricas da validação INTERNA (cada fold e a linha Pooled da Cross-Validation, Nested CV e
+    Bootstrap), com os mesmos nomes e fórmulas da validação externa (_skl_external_*_metrics):
+    - classificação: Accuracy, Balanced Accuracy, Precision, Recall (Sensitivity), Specificity, F1,
+      MCC, Cohen's Kappa e AUC (AUC só com model/x - predict_proba);
+    - regressão: Q2 (R² das predições do fold / out-of-fold - na linha Pooled, o Q² CV), RMSE, MAE,
+      CCC, r2 (Pearson), rm2 (average) e delta rm2. Q²F1/Q²F3 e os critérios de Golbraikh-Tropsha
+      ficam só na validação externa: foram desenhados para um conjunto externo."""
+    if task == "regression":
+        ext = {name: value for name, _crit, value in _skl_external_regression_metrics(y_true, y_pred)}
+        y = np.asarray(y_true, dtype=float)
+        p = np.asarray(y_pred, dtype=float)
+        return {
+            "Q2": float(r2_score(y, p)) if len(y) > 1 else float("nan"),
+            "RMSE": ext["RMSEP"],
+            "MAE": ext["MAE"],
+            "CCC": ext["CCC"],
+            "r2 (Pearson)": ext["r2 (Pearson)"],
+            "rm2 (average)": ext["rm2 (average)"],
+            "delta rm2": ext["delta rm2"],
+        }
+    return {name: value for name, _crit, value in _skl_external_classification_metrics(y_true, y_pred, model, x)
+            if name != "n"}
+
+
 def _skl_external_metrics_table(task, models, x, y, y_train=None):
     """Tabela de métricas externas (uma coluna por modelo) usada pela avaliação final no conjunto de
     teste e pelo Predict com Y. Colunas: Metric, Acceptance, <modelo 1>, <modelo 2>, ...
@@ -2905,7 +2931,7 @@ class SklTuneWorker(QThread): # type: ignore
         self.cls = cls
         self.repeats = max(1, int(repeats or 1))
         self.base_kwargs = base_kwargs
-        self.param_grid = param_grid
+        self.param_grid = _skl_fix_grid_values(param_grid)
         self.method = method
         self.folds = folds
         self.n_iter = n_iter
@@ -3047,6 +3073,17 @@ def _skl_make_cv(classification, folds, repeats=1, random_state=None):
         return cls(n_splits=folds, n_repeats=repeats, random_state=random_state)
     cls = StratifiedKFold if classification else KFold
     return cls(n_splits=folds, shuffle=True, random_state=random_state)
+
+
+def _skl_fix_grid_values(param_grid):
+    """Ajustes de valores da grade que o leitor da tabela (_skl_parse_grid_value) não consegue
+    representar: o CatBoost recusa auto_class_weights=None aplicado via set_params (como fazem
+    GridSearchCV/RandomizedSearchCV), mas aceita a string "None" - que o leitor converte em None."""
+    if not param_grid or "auto_class_weights" not in param_grid:
+        return param_grid
+    fixed = dict(param_grid)
+    fixed["auto_class_weights"] = ["None" if v is None else v for v in param_grid["auto_class_weights"]]
+    return fixed
 
 
 def _skl_repetition_seed(random_state, repetition):
@@ -3330,51 +3367,37 @@ class SklEvaluateWorker(QThread): # type: ignore
             y_pred = fold_model.predict(x_te)
             all_y_true.extend(list(y_te)); all_y_pred.extend(list(y_pred))
 
-            # "n Val"/"R2 Val"/"Accuracy Val": o fold de VALIDAÇÃO (as moléculas deixadas de fora
-            # nesta rodada) - não o conjunto teste do Screening, que nunca entra na validação cruzada.
+            # "n Val" e as métricas do fold de VALIDAÇÃO (as moléculas deixadas de fora nesta rodada) -
+            # não o conjunto teste do Screening, que nunca entra na validação cruzada. Mesmos nomes da
+            # validação externa (ver _skl_cv_metrics); "R2/Accuracy Train" = ajuste da cópia do modelo
+            # nos folds de treino da rodada (goodness-of-fit).
             row = {"Fold": f"{label_prefix}{fold_num}" if label_prefix else fold_num, "n Val": len(y_te)}
-            if task == "regression":
-                if not small_test_folds:
+            if not small_test_folds:
+                if task == "regression":
                     row["R2 Train"] = float(fold_model.score(x_tr, y_tr))
-                    row["R2 Val"] = float(r2_score(y_te, y_pred))
-                    m = float(mse(y_te, y_pred))
-                    row["MSE"] = m
-                    row["RMSE"] = m ** 0.5
-                    row["MAE"] = float(mae(y_te, y_pred))
                 else:
-                    row["Abs Error"] = float(np.mean(np.abs(np.asarray(y_te) - np.asarray(y_pred))))
-            else:
-                if not small_test_folds:
                     row["Accuracy Train"] = float(fold_model.score(x_tr, y_tr))
-                    row["Accuracy Val"] = float(accuracy_score(y_te, y_pred))
-                    row["F1"] = float(f1_score(y_te, y_pred, average="weighted"))
-                    row["MCC"] = float(matthews_corrcoef(y_te, y_pred))
-                else:
-                    row["Correct"] = bool(np.mean(np.asarray(y_te) == np.asarray(y_pred)) >= 0.5)
+                row.update(_skl_cv_metrics(task, y_te, y_pred, fold_model, x_te))
+            elif task == "regression":
+                row["Abs Error"] = float(np.mean(np.abs(np.asarray(y_te) - np.asarray(y_pred))))
+            else:
+                row["Correct"] = bool(np.mean(np.asarray(y_te) == np.asarray(y_pred)) >= 0.5)
             rows.append(row)
 
         cv_df = pd.DataFrame(rows)
-        # Linha de resumo "Pooled" (antes "Mean"/"OVERALL"): para as colunas de validação (R2 Val,
-        # Accuracy Val, F1, MCC, MSE/RMSE/MAE) é a métrica global sobre as predições out-of-fold de
-        # todos os folds agrupadas - em regressão, o R2 Val dessa linha é o Q² CV (1 - PRESS/SS); as
-        # colunas de treino (R2/Accuracy Train) são a média entre folds; "n Val" é o total de
-        # predições. Em inglês de propósito - mesmo critério já usado para nomes de hiperparâmetros:
-        # valor salvo no CSV e exibido na interface, não um rótulo traduzido via i18n.
+        # Linha de resumo "Pooled" (antes "Mean"/"OVERALL"): as métricas de validação calculadas sobre
+        # as predições out-of-fold de todos os folds agrupadas - em regressão, o Q2 dessa linha é o
+        # Q² CV (1 - PRESS/SS). Exceções: R2/Accuracy Train = média entre folds; AUC = média entre
+        # folds (probabilidades de modelos de folds diferentes não formam uma única curva ROC).
+        # "n Val" é o total de predições. Em inglês de propósito - valor salvo no CSV e exibido na
+        # interface, não um rótulo traduzido via i18n.
         summary = {"Fold": "Pooled", "n Val": len(all_y_true)}
-        if task == "regression":
-            if not small_test_folds:
-                summary["R2 Train"] = float(cv_df["R2 Train"].mean())
-            summary["R2 Val"] = float(r2_score(all_y_true, all_y_pred))
-            m = float(mse(all_y_true, all_y_pred))
-            summary["MSE"] = m
-            summary["RMSE"] = m ** 0.5
-            summary["MAE"] = float(mae(all_y_true, all_y_pred))
-        else:
-            if not small_test_folds:
-                summary["Accuracy Train"] = float(cv_df["Accuracy Train"].mean())
-            summary["Accuracy Val"] = float(accuracy_score(all_y_true, all_y_pred))
-            summary["F1"] = float(f1_score(all_y_true, all_y_pred, average="weighted"))
-            summary["MCC"] = float(matthews_corrcoef(all_y_true, all_y_pred))
+        train_col = "R2 Train" if task == "regression" else "Accuracy Train"
+        if not small_test_folds and train_col in cv_df.columns:
+            summary[train_col] = float(cv_df[train_col].mean())
+        summary.update(_skl_cv_metrics(task, all_y_true, all_y_pred))
+        if task != "regression":
+            summary["AUC"] = float(pd.to_numeric(cv_df["AUC"], errors="coerce").mean()) if "AUC" in cv_df.columns else float("nan")
 
         return cv_df, summary, (list(all_y_true), list(all_y_pred))
 
@@ -3440,7 +3463,7 @@ class SklEvaluateWorker(QThread): # type: ignore
         x_reset, y_reset, task = self.x_reset, self.y_reset, self.task
         cls = self.kwargs["cls"]
         base_kwargs = self.kwargs["base_kwargs"]
-        param_grid = self.kwargs["param_grid"]
+        param_grid = _skl_fix_grid_values(self.kwargs["param_grid"])
         folds = self.kwargs["folds"]
         shuffle = self.kwargs["shuffle"]
         random_state = self.kwargs["random_state"]
@@ -3471,16 +3494,7 @@ class SklEvaluateWorker(QThread): # type: ignore
                 oof_true.extend(list(y_te)); oof_pred.extend(list(y_pred))
                 label = f"{r + 1}-{fold_num}" if repeats > 1 else fold_num
                 row = {"Outer Fold": label, "n Val": len(y_te), "Best Params": str(inner_search.best_params_)}
-                if task == "regression":
-                    row["R2 Val"] = float(r2_score(y_te, y_pred))
-                    m = float(mse(y_te, y_pred))
-                    row["MSE"] = m
-                    row["RMSE"] = m ** 0.5
-                    row["MAE"] = float(mae(y_te, y_pred))
-                else:
-                    row["Accuracy Val"] = float(accuracy_score(y_te, y_pred))
-                    row["F1"] = float(f1_score(y_te, y_pred, average="weighted"))
-                    row["MCC"] = float(matthews_corrcoef(y_te, y_pred))
+                row.update(_skl_cv_metrics(task, y_te, y_pred, inner_search.best_estimator_, x_te))
                 rows.append(row)
             if r == 0:
                 self.oof = (oof_true, oof_pred)
@@ -3506,16 +3520,7 @@ class SklEvaluateWorker(QThread): # type: ignore
             y_pred = fold_model.predict(x_te)
             # "OOB": out-of-bag - as moléculas que não entraram na reamostragem desta iteração.
             row = {"Iteration": it, "n OOB": len(oob_idx)}
-            if task == "regression":
-                row["R2 OOB"] = float(r2_score(y_te, y_pred))
-                m = float(mse(y_te, y_pred))
-                row["MSE"] = m
-                row["RMSE"] = m ** 0.5
-                row["MAE"] = float(mae(y_te, y_pred))
-            else:
-                row["Accuracy OOB"] = float(accuracy_score(y_te, y_pred))
-                row["F1"] = float(f1_score(y_te, y_pred, average="weighted"))
-                row["MCC"] = float(matthews_corrcoef(y_te, y_pred))
+            row.update(_skl_cv_metrics(task, y_te, y_pred, fold_model, x_te))
             rows.append(row)
 
         if not rows:
@@ -11104,8 +11109,8 @@ class MainWindow(QMainWindow):
 
         Originally built for STEP 4's "Feature Columns Range" (applied to self.df_selecionado,
         the default when 'df' is omitted); also reused for STEP 6's "X range" (Model
-        Screening, over the Internal DataFrame) and "Descriptors Columns Range" (Remove Model and
-        Predict, over the External DataFrame) by passing the relevant dataframe explicitly."""
+        Screening, over the Internal DataFrame) and "X range (external df)" (External Validation,
+        Refit and Prediction, over the External DataFrame) by passing the relevant dataframe explicitly."""
         if df is None:
             df = getattr(self, "df_selecionado", None)
         if df is None or df.empty:
@@ -17612,7 +17617,7 @@ class MainWindow(QMainWindow):
         self._df_ext_path = self._to_project_relative_path(file_path)
 
         self._update_predict_descriptor_range_inputs(getattr(self, "df_ext", None) if getattr(self, "chk_pd_external", None) and self.chk_pd_external.isChecked() else None)
-        # STEP 6 "Remove Model and Predict" group's "Descriptors Columns Range" — mesma heurística de
+        # STEP 6 "External Validation, Refit and Prediction" group's "X range (external df)" — mesma heurística de
         # detecção de descritores usada em STEP 4, aplicada ao External Dataframe (usado por Predict).
         self._apply_detected_feature_range(getattr(self, "df_ext", None), "ed_skl_pd_first_col", "ed_skl_pd_last_col")
         self._skl_auto_set_with_y()
@@ -17767,7 +17772,7 @@ class MainWindow(QMainWindow):
         first_text = self.ed_pd_descriptor_first_column.text().strip() if hasattr(self, "ed_pd_descriptor_first_column") else ""
         last_text = self.ed_pd_descriptor_last_column.text().strip() if hasattr(self, "ed_pd_descriptor_last_column") else ""
         if not first_text or not last_text:
-            raise ValueError("Define both descriptor column indices in 'Descriptors Columns Range'.")
+            raise ValueError("Define both descriptor column indices in 'X range (external df)'.")
 
         first_idx = int(first_text)
         last_idx = int(last_text)
@@ -20799,7 +20804,7 @@ class MainWindow(QMainWindow):
 
             # Grade de 3 colunas (proporções 2:1:3), com a linha de botões alinhada às colunas de cima:
             #   linha 0: Models | Sort metric/X range/Y column/Test Size/Split Method | Status + progresso
-            #   linha 1: Select All | Folds (train) | View Split, View Rank ... Run Screening
+            #   linha 1: Select All | CV Folds (train) | View Split, View Rank ... Run Screening
             screen_grid = QGridLayout()
             # Coluna Models sem stretch: a lista tem a largura do maior nome de modelo (ver
             # _fit_skl_model_list_width) e o espaço restante vai para os campos e o Status.
@@ -20821,7 +20826,7 @@ class MainWindow(QMainWindow):
             screen_grid.addLayout(models_col_skl, 0, 0)
 
             # Coluna 2: Sort metric, X range, Y column, Test Size, Split Method (rótulo ao lado do
-            # campo, alinhado à direita, colado na caixa) e, na linha dos botões, Folds (train).
+            # campo, alinhado à direita, colado na caixa) e, na linha dos botões, CV Folds (train).
             # Rótulo ao lado (não em cima) mantém baixa a altura mínima da coluna, para Models/Status
             # poderem encolher junto com a janela principal. A coluna ocupa as duas linhas da grade
             # para que CV Folds use as mesmas colunas de rótulo/campo dos itens de cima.
@@ -21044,6 +21049,7 @@ class MainWindow(QMainWindow):
 
             # ---------- GROUP: VALIDATION (CROSS-VALIDATION) ----------
             gb_skl_eval = QGroupBox(); self._tr("s6_grp_validation", gb_skl_eval.setTitle)
+            self._tr("s6_tooltip_grp_internal_validation", gb_skl_eval.setToolTip)
             gb_skl_eval.setStyleSheet("QGroupBox { font-weight: bold; }")
             lay_skl_eval = QVBoxLayout(gb_skl_eval)
 
@@ -21054,16 +21060,23 @@ class MainWindow(QMainWindow):
                 "KFold", "StratifiedKFold", "Leave-One-Out (LOOCV)", "Leave-P-Out",
                 "Time Series Split (Walk-Forward Validation)", "Nested CV", "Bootstrap"
             ])
-            eval_row1.addWidget(self.cb_skl_cv_method, 1)
+            # Combobox mais estreito, para "CV Folds" caber na mesma linha (entre ele e o "shuffle"); a
+            # lista aberta continua larga o bastante para os nomes longos (ex.: Time Series Split).
+            self.cb_skl_cv_method.setFixedWidth(190)
+            self.cb_skl_cv_method.view().setMinimumWidth(self.cb_skl_cv_method.fontMetrics().horizontalAdvance(
+                "Time Series Split (Walk-Forward Validation)") + 40)
+            eval_row1.addWidget(self.cb_skl_cv_method)
+            eval_row1.addStretch()
+            eval_row1.addWidget(self._trL("s6_lbl_folds"))
+            self.sp_skl_cv_folds = QSpinBox(); self.sp_skl_cv_folds.setRange(2, 50); self.sp_skl_cv_folds.setValue(10)
+            eval_row1.addWidget(self.sp_skl_cv_folds)
+            eval_row1.addSpacing(12)
             self.chk_skl_cv_shuffle = QCheckBox("shuffle"); self.chk_skl_cv_shuffle.setChecked(True)
             eval_row1.addWidget(self.chk_skl_cv_shuffle)
             lay_skl_eval.addLayout(eval_row1)
 
             eval_row2 = QHBoxLayout()
             eval_row2.addStretch()
-            eval_row2.addWidget(self._trL("s6_lbl_folds"))
-            self.sp_skl_cv_folds = QSpinBox(); self.sp_skl_cv_folds.setRange(2, 50); self.sp_skl_cv_folds.setValue(10)
-            eval_row2.addWidget(self.sp_skl_cv_folds)
             # Repetições da validação cruzada (KFold/StratifiedKFold/Nested CV; 1 = sem repetição).
             eval_row2.addWidget(self._trL("s6_lbl_cv_repeats"))
             self.sp_skl_cv_repeats = QSpinBox(); self.sp_skl_cv_repeats.setRange(1, 50); self.sp_skl_cv_repeats.setValue(1)
@@ -21097,6 +21110,7 @@ class MainWindow(QMainWindow):
             eval_btn_row = QHBoxLayout()
             eval_btn_row.addStretch()
             self.btn_skl_run_eval = QPushButton(); self._tr("s6_btn_run_cross_validation", self.btn_skl_run_eval.setText)
+            self._tr("s6_tooltip_run_cv", self.btn_skl_run_eval.setToolTip)
             self.btn_skl_run_eval.setProperty("role", "primary")
             self.btn_skl_run_eval.setFixedWidth(180)
             eval_btn_row.addWidget(self.btn_skl_run_eval)
@@ -21133,6 +21147,7 @@ class MainWindow(QMainWindow):
 
             # ---------- GROUP: SAVE MODEL AND PREDICT ----------
             gb_skl_save_pred = QGroupBox(); self._tr("s6_grp_remove_model_predict", gb_skl_save_pred.setTitle)
+            self._tr("s6_tooltip_grp_external_validation", gb_skl_save_pred.setToolTip)
             gb_skl_save_pred.setStyleSheet("QGroupBox { font-weight: bold; }")
             lay_skl_save_pred = QHBoxLayout(gb_skl_save_pred)
 
@@ -21141,78 +21156,80 @@ class MainWindow(QMainWindow):
             # Hyperparameter Tuning) é repovoado, para as duas listas ficarem sempre sincronizadas.
             self.list_skl_saved_models = QListWidget()
             self.list_skl_saved_models.setSelectionMode(QAbstractItemView.MultiSelection)
+            self.list_skl_saved_models.itemSelectionChanged.connect(lambda: self._refresh_skl_validate_test_enabled())
             lay_skl_save_pred.addWidget(self.list_skl_saved_models, 1)
 
-            # Coluna direita: config do Predict + Remove Model (todos os modelos gerados já são salvos
-            # automaticamente em disco — ver _save_skl_model_to_models_dir — então o antigo botão
-            # "Save Model" deixou de ser necessário e foi substituído por "Remove Model"). Predict
-            # sempre roda sobre o External Dataframe (não há mais opção de Internal Dataframe).
+            # Coluna direita (validação externa, retreino e predição), em três linhas:
+            #   1) "X range (external df):" - colunas de descritores do External DataFrame;
+            #   2) "Remove Descriptors", "With Y" e o botão Predict;
+            #   3) Refit, "Validate on Test Set" e Remove Model, nesta ordem.
+            # (Todos os modelos gerados já são salvos em disco - ver _save_skl_model_to_models_dir -, por
+            # isso não há botão "Save Model". Predict sempre roda sobre o External DataFrame.)
             right_col_skl_save_pred = QVBoxLayout()
 
-            # Rótulo "Descriptors Columns:" e o intervalo (primeira "To" última coluna) na mesma linha.
             col_range_row_skl = QHBoxLayout()
             col_range_row_skl.addStretch()
-            col_range_row_skl.addWidget(self._trL("lbl_descriptors_columns_range"))
+            col_range_row_skl.addWidget(self._trL("s6_lbl_x_range_external"))
             self.ed_skl_pd_first_col = QLineEdit(); self.ed_skl_pd_first_col.setToolTip("First Column Index"); self.ed_skl_pd_first_col.setFixedSize(70, 25); self.ed_skl_pd_first_col.setAlignment(Qt.AlignCenter); self.ed_skl_pd_first_col.setValidator(QIntValidator()); self.ed_skl_pd_first_col.setText("2")
             col_range_row_skl.addWidget(self.ed_skl_pd_first_col)
-            label_skl_pd_to = self._trL("lbl_to_short"); label_skl_pd_to.setAlignment(Qt.AlignCenter); label_skl_pd_to.setFixedSize(20, 25)
+            label_skl_pd_to = self._trL("lbl_to_short"); label_skl_pd_to.setAlignment(Qt.AlignCenter); label_skl_pd_to.setFixedSize(28, 25)
             col_range_row_skl.addWidget(label_skl_pd_to)
             self.ed_skl_pd_last_col = QLineEdit(); self.ed_skl_pd_last_col.setToolTip("Last Column Index"); self.ed_skl_pd_last_col.setFixedSize(70, 25); self.ed_skl_pd_last_col.setAlignment(Qt.AlignCenter); self.ed_skl_pd_last_col.setValidator(QIntValidator())
             col_range_row_skl.addWidget(self.ed_skl_pd_last_col)
             col_range_row_skl.addStretch()
             right_col_skl_save_pred.addLayout(col_range_row_skl)
 
-            # Refit: retreina o(s) modelo(s) selecionado(s), com os mesmos hiperparâmetros, em treino +
-            # teste (100% do Internal DataFrame) - nova variante "<nome>_refit" (ver run_skl_refit).
-            refit_row_skl = QHBoxLayout()
-            refit_row_skl.addStretch()
-            self.btn_skl_refit = QPushButton(); self._tr("s6_btn_refit", self.btn_skl_refit.setText)
-            self.btn_skl_refit.setProperty("role", "secondary")
-            self.btn_skl_refit.setFixedWidth(120)
-            self._tr("s6_tooltip_refit", self.btn_skl_refit.setToolTip)
-            refit_row_skl.addWidget(self.btn_skl_refit)
-            refit_row_skl.addStretch()
-            right_col_skl_save_pred.addLayout(refit_row_skl)
-
-            # Linha única com os dois checkboxes do Predict:
+            # Linha 2: os dois checkboxes do Predict e o botão Predict.
             # - "Remove Descriptors" (marcado por padrão): o resultado do Predict mantém só Name, SMILES
-            #   e as colunas de predição, descartando as colunas de descritores ("Descriptors Columns Range").
+            #   e as colunas de predição, descartando as colunas de descritores ("X range (external df)").
             # - "With Y": marcado automaticamente quando o External DataFrame tem a mesma coluna Y usada
             #   no treino (ver _skl_detect_external_y_column) - nesse caso o Predict também calcula as
-            #   métricas de predictivity (Q²F1-F3, CCC, Golbraikh-Tropsha...) sobre o External DataFrame.
+            #   métricas de validação externa (Q²F1-F3, CCC, Golbraikh-Tropsha...) sobre o External DataFrame.
             checks_row_skl = QHBoxLayout()
             checks_row_skl.addStretch()
             self.chk_skl_pd_remove_descriptors = QCheckBox(); self._tr("s6_chk_remove_descriptors", self.chk_skl_pd_remove_descriptors.setText)
             self.chk_skl_pd_remove_descriptors.setChecked(True)
             checks_row_skl.addWidget(self.chk_skl_pd_remove_descriptors)
-            checks_row_skl.addSpacing(20)
+            checks_row_skl.addSpacing(12)
             self.chk_skl_pd_with_y = QCheckBox(); self._tr("s6_chk_with_y", self.chk_skl_pd_with_y.setText)
             self._tr("s6_tooltip_with_y", self.chk_skl_pd_with_y.setToolTip)
             self.chk_skl_pd_with_y.setChecked(False)
             self.chk_skl_pd_with_y.clicked.connect(self._on_skl_with_y_clicked)
             checks_row_skl.addWidget(self.chk_skl_pd_with_y)
-            checks_row_skl.addStretch()
-            right_col_skl_save_pred.addLayout(checks_row_skl)
-
-            # Botões na ordem Evaluate Test | Remove Model | Predict.
-            last_row_skl = QHBoxLayout()
-            # Avaliação final (predictivity) no conjunto de teste separado no Screening - feita uma
-            # única vez, com o modelo final já escolhido e tunado.
-            self.btn_skl_eval_test = QPushButton(); self._tr("s6_btn_evaluate_test", self.btn_skl_eval_test.setText)
-            self.btn_skl_eval_test.setProperty("role", "secondary")
-            self.btn_skl_eval_test.setFixedWidth(120)
-            self._tr("s6_tooltip_evaluate_test", self.btn_skl_eval_test.setToolTip)
-            last_row_skl.addWidget(self.btn_skl_eval_test, alignment=Qt.AlignLeft)
-            last_row_skl.addStretch()
-            self.btn_skl_remove_model = QPushButton(); self._tr("s6_btn_remove_model", self.btn_skl_remove_model.setText)
-            self.btn_skl_remove_model.setProperty("role", "danger")
-            self.btn_skl_remove_model.setFixedWidth(120)
-            last_row_skl.addWidget(self.btn_skl_remove_model, alignment=Qt.AlignCenter)
-            last_row_skl.addStretch()
+            checks_row_skl.addSpacing(12)
             self.btn_skl_predict = QPushButton(); self._tr("s5_subtab_predict", self.btn_skl_predict.setText)
             self.btn_skl_predict.setProperty("role", "primary")
             self.btn_skl_predict.setFixedWidth(120)
-            last_row_skl.addWidget(self.btn_skl_predict, alignment=Qt.AlignRight)
+            self._tr("s6_tooltip_predict", self.btn_skl_predict.setToolTip)
+            checks_row_skl.addWidget(self.btn_skl_predict)
+            checks_row_skl.addStretch()
+            right_col_skl_save_pred.addLayout(checks_row_skl)
+
+            # Linha 3: Validate on Test Set | Refit | Remove Model - nessa ordem para não sugerir que o
+            # Refit vem antes da validação no teste: o modelo "_refit" foi treinado com o conjunto teste,
+            # e por isso "Validate on Test Set" fica desabilitado quando um "_refit" está selecionado
+            # (ver _refresh_skl_validate_test_enabled).
+            last_row_skl = QHBoxLayout()
+            last_row_skl.addStretch()
+            # Validação externa no conjunto teste separado no Screening - feita uma única vez, com o
+            # modelo final já escolhido e tunado.
+            self.btn_skl_eval_test = QPushButton(); self._tr("s6_btn_evaluate_test", self.btn_skl_eval_test.setText)
+            self.btn_skl_eval_test.setProperty("role", "secondary")
+            self.btn_skl_eval_test.setFixedWidth(160)
+            self._tr("s6_tooltip_evaluate_test", self.btn_skl_eval_test.setToolTip)
+            last_row_skl.addWidget(self.btn_skl_eval_test)
+            # Refit: retreina o(s) modelo(s) selecionado(s), com os mesmos hiperparâmetros, em treino +
+            # teste (100% do Internal DataFrame) - nova variante "<nome>_refit" (ver run_skl_refit).
+            self.btn_skl_refit = QPushButton(); self._tr("s6_btn_refit", self.btn_skl_refit.setText)
+            self.btn_skl_refit.setProperty("role", "secondary")
+            self.btn_skl_refit.setFixedWidth(120)
+            self._tr("s6_tooltip_refit", self.btn_skl_refit.setToolTip)
+            last_row_skl.addWidget(self.btn_skl_refit)
+            self.btn_skl_remove_model = QPushButton(); self._tr("s6_btn_remove_model", self.btn_skl_remove_model.setText)
+            self.btn_skl_remove_model.setProperty("role", "danger")
+            self.btn_skl_remove_model.setFixedWidth(120)
+            last_row_skl.addWidget(self.btn_skl_remove_model)
+            last_row_skl.addStretch()
             right_col_skl_save_pred.addLayout(last_row_skl)
 
             # Stretch 0: a coluna de controles fica só com a largura que seus botões/campos precisam e
@@ -21221,6 +21238,7 @@ class MainWindow(QMainWindow):
 
             # ---------- GROUP: PERFORMANCE CHARTS ----------
             gb_skl_charts = QGroupBox(); self._tr("s6_grp_performance_charts", gb_skl_charts.setTitle)
+            self._tr("s6_tooltip_grp_performance_charts", gb_skl_charts.setToolTip)
             gb_skl_charts.setStyleSheet("QGroupBox { font-weight: bold; }")
             lay_skl_charts = QHBoxLayout(gb_skl_charts)
 
@@ -21249,7 +21267,7 @@ class MainWindow(QMainWindow):
             lay_skl_charts.addLayout(btn_col_skl_charts)
 
             # ---------- LINHA: PERFORMANCE CHARTS (esquerda, metade) + REMOVE MODEL AND PREDICT (direita, metade) ----------
-            # Proporção 2:3 (antes 1:1) a favor do Remove Model and Predict, cuja coluna de controles só
+            # Proporção 2:3 (antes 1:1) a favor do External Validation, Refit and Prediction, cuja coluna de controles só
             # ocupa o que precisa - a sobra vai para a lista de modelos.
             row_save_charts_lay = QHBoxLayout()
             row_save_charts_lay.addWidget(gb_skl_charts, 2)
@@ -23220,7 +23238,7 @@ class MainWindow(QMainWindow):
     def _refresh_skl_model_combo(self, select=None, preserve_order=False):
         """Repopula o único combobox 'Model' (cb_skl_tune_model, no grupo Hyperparameter Tuning) com
         os modelos disponíveis em self.skl_trained_models — usado como referência única por Tuning,
-        Validation, Remove Model and Predict e Performance Charts.
+        Validation, External Validation, Refit and Prediction e Performance Charts.
 
         preserve_order=False (padrão): reconstrói a lista do zero na ordem de
         self.skl_trained_models - correto ao carregar uma USI salva, cujo dict acabou de ser
@@ -23250,13 +23268,14 @@ class MainWindow(QMainWindow):
         self._refresh_skl_tune_param_options(self.cb_skl_tune_model.currentText())
         self._refresh_skl_model_settings_widgets(self.cb_skl_tune_model.currentText())
 
-        # Lista de seleção múltipla "Remove Model" (grupo Remove Model and Predict) — sempre a mesma
+        # Lista de seleção múltipla "Remove Model" (grupo External Validation, Refit and Prediction) — sempre a mesma
         # lista/ordem exibida no combobox "Model" acima.
         if hasattr(self, "list_skl_saved_models"):
             self.list_skl_saved_models.blockSignals(True)
             self.list_skl_saved_models.clear()
             self.list_skl_saved_models.addItems(names)
             self.list_skl_saved_models.blockSignals(False)
+        self._refresh_skl_validate_test_enabled()
 
     def _get_skl_random_state(self):
         try:
@@ -24060,7 +24079,7 @@ class MainWindow(QMainWindow):
             if task != "clustering" and n_train < cv_folds:
                 QMessageBox.warning(self, i18n.t("msg_title_screening", self._idioma),
                     f"The training set has only {n_train} rows - fewer than the {cv_folds} CV folds. "
-                    "Reduce 'Folds (train)' or the test size.")
+                    "Reduce 'CV Folds (train)' or the test size.")
                 return
             split_method = self.cb_skl_split_method.currentText() if hasattr(self, "cb_skl_split_method") else "Random"
             smiles = None
@@ -24121,13 +24140,13 @@ class MainWindow(QMainWindow):
         self._skl_refit_settings = {}
 
         # Combobox "Model" único (grupo Hyperparameter Tuning), na ordem do ranking (melhor primeiro) —
-        # usado como referência por Tuning, Validation, Remove Model and Predict e Performance Charts.
+        # usado como referência por Tuning, Validation, External Validation, Refit and Prediction e Performance Charts.
         self.cb_skl_tune_model.blockSignals(True)
         self.cb_skl_tune_model.clear()
         self.cb_skl_tune_model.addItems(rank_df["Model"].astype(str).tolist())
         self.cb_skl_tune_model.blockSignals(False)
-        # Mesma lista/ordem na seleção múltipla do grupo Remove Model and Predict (usada por Predict
-        # e Evaluate Test) - antes ela só era preenchida depois de um Tuning ou ao recarregar a USI.
+        # Mesma lista/ordem na seleção múltipla do grupo External Validation, Refit and Prediction (usada por Predict
+        # e Validate on Test Set) - antes ela só era preenchida depois de um Tuning ou ao recarregar a USI.
         if hasattr(self, "list_skl_saved_models"):
             self.list_skl_saved_models.clear()
             self.list_skl_saved_models.addItems(rank_df["Model"].astype(str).tolist())
@@ -24268,7 +24287,7 @@ class MainWindow(QMainWindow):
 
         # Registra a versão otimizada como uma NOVA entrada (ex.: "RandomForestRegressor_1"), sem
         # sobrescrever a versão original/anterior, e já a seleciona no combobox "Model" único —
-        # unificado entre Tuning, Validation, Remove Model and Predict e Performance Charts.
+        # unificado entre Tuning, Validation, External Validation, Refit and Prediction e Performance Charts.
         new_name = self._add_skl_tuned_model_variant(base_name, best_model)
         self.skl_current_model = best_model
         self.skl_current_model_name = new_name
@@ -24631,7 +24650,7 @@ class MainWindow(QMainWindow):
             pass
 
     def run_skl_cv_plot(self):
-        """Botão "Plot CV Predictions" (grupo Validation and Model Robustness): Predicted vs Experimental
+        """Botão "Plot CV Predictions" (grupo Internal Validation): Predicted vs Experimental
         (regressão) ou Confusion Matrix (classificação) com as predições OUT-OF-FOLD da última
         validação cruzada do modelo selecionado - cada composto do treino previsto por um modelo que não
         o viu. Serve para inspecionar o modelo durante o desenvolvimento sem consumir o conjunto teste
@@ -24840,7 +24859,7 @@ class MainWindow(QMainWindow):
                 dlg.close()
 
             # "Remove Descriptors" (marcado por padrão): mantém só Name, SMILES e as colunas de
-            # predição, descartando as colunas de descritores do intervalo "Descriptors Columns Range".
+            # predição, descartando as colunas de descritores do intervalo "X range (external df)".
             if hasattr(self, "chk_skl_pd_remove_descriptors") and self.chk_skl_pd_remove_descriptors.isChecked():
                 descriptor_cols = list(df.columns[first_col:last_col + 1])
                 df_result = df_result.drop(columns=[c for c in descriptor_cols if c in df_result.columns], errors="ignore")
@@ -24894,6 +24913,18 @@ class MainWindow(QMainWindow):
         name = (name or "").strip()
         return bool(name) and (name in (getattr(self, "_skl_refit_settings", None) or {}) or name.endswith("_refit"))
 
+    def _refresh_skl_validate_test_enabled(self):
+        """"Validate on Test Set" fica desabilitado (cinza escuro, estilo "secondary" desabilitado)
+        enquanto houver um modelo "_refit" entre os selecionados na lista do grupo External Validation,
+        Refit and Prediction: ele foi treinado COM o conjunto teste, e avaliá-lo nele seria medir o
+        desempenho em dados já vistos."""
+        btn = getattr(self, "btn_skl_eval_test", None)
+        lst = getattr(self, "list_skl_saved_models", None)
+        if btn is None or lst is None:
+            return
+        refit_selected = any(self._skl_is_refit(it.text()) for it in lst.selectedItems())
+        btn.setEnabled(not refit_selected)
+
     def _skl_train_plus_test(self):
         """Treino + teste do Run Screening (100% do Internal DataFrame) - os dados do Refit. None,
         None se a USI não tem conjunto teste (Test Size = 0) ou ainda não rodou o Screening."""
@@ -24922,7 +24953,7 @@ class MainWindow(QMainWindow):
         """Botão "Refit" (grupo Refit, Evaluate, Predict and Remove): retreina o(s) modelo(s)
         selecionado(s), com OS MESMOS hiperparâmetros (sklearn.clone), em treino + teste - 100% do
         Internal DataFrame - e registra cada um como uma nova variante "<nome>_refit", sem alterar o
-        original. Uso: depois de avaliar o modelo no teste (Evaluate Test), gerar o modelo final com
+        original. Uso: depois de avaliar o modelo no teste (Validate on Test Set), gerar o modelo final com
         todos os dados. As métricas de teste continuam valendo para o modelo de origem (estimativa,
         geralmente conservadora, para o _refit); a validação externa do _refit é feita com o
         External DataFrame (Predict com "With Y")."""
@@ -25000,7 +25031,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, title, str(e))
 
     def run_skl_evaluate_test(self):
-        """'Evaluate Test' (grupo Remove Model and Predict): avaliação final de predictivity
+        """'Validate on Test Set' (grupo External Validation, Refit and Prediction): validação externa (predictivity)
         (Princípio 4 da OECD) do(s) modelo(s) selecionado(s) no conjunto de teste separado no
         Screening - que não participou do Screening, do Tuning nem da Validation. Deve ser feita
         uma única vez, com o modelo final; por isso pede confirmação antes."""
@@ -25383,7 +25414,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, i18n.t("msg_title_plot_error", self._idioma), str(e))
 
     def run_skl_yrandomization(self):
-        """STEP 4 'Validation and Model Robustness' group, 'Run Y-Scrambling' button:
+        """STEP 4 'Internal Validation' group, 'Run Y-Scrambling' button:
         OECD-recommended check that the selected model's performance isn't chance correlation.
         Retrains the model 'n' times with the response column shuffled (same X, same CV scheme -
         same number of Folds as 'Run Cross-Validation' above, same 'Sort metric' as Learning

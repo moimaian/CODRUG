@@ -393,7 +393,7 @@ _TEXTOS = {
         "en": "Descriptive Statistics / Distribution",
         "pt": "Estatística Descritiva / Distribuição",
     },
-    "menu_statistics": {"en": "Statistics", "pt": "Estatística"},
+    "menu_statistics": {"en": "Stats - Statistical Tests", "pt": "Stats - Testes Estatísticos"},
     "msg_statistics_build_error_title": {"en": "STATISTICS build error", "pt": "Erro ao construir a aba ESTATÍSTICA"},
     "msg_statistics_build_error": {
         "en": "There was an error building the STATISTICS TAB:\n{e}",
@@ -616,6 +616,7 @@ _TEXTOS = {
     "s5_lbl_usi": {"en": "USI:", "pt": "USI:"},
     "s5_subtab_predict": {"en": "Predict", "pt": "Predizer"},
     "lbl_descriptors_columns_range": {"en": "Descriptors Columns:", "pt": "Colunas de Descritores:"},
+    "s6_lbl_x_range_external": {"en": "X range (external df):", "pt": "Intervalo X (df externo):"},
     "btn_plot_model": {"en": "Plot Model", "pt": "Plotar Modelo"},
     "msg_step5_build_error_title": {"en": "STEP 5 build error", "pt": "Erro ao construir a ETAPA 5"},
     "msg_step5_build_error": {
@@ -643,10 +644,12 @@ _TEXTOS = {
     "s6_tooltip_with_y": {
         "en": "Checked automatically when the External DataFrame has the same Y column used to train "
               "the models. When checked, Predict also computes the external predictivity metrics "
-              "(RMSEP, Q2F1-F3, CCC, Golbraikh-Tropsha, rm2) on the rows that have an observed Y.",
+              "(RMSEP, Q2F1-F3, CCC, Golbraikh-Tropsha, rm2) on the rows that have an observed Y - the EXTERNAL "
+              "validation on the External DataFrame.",
         "pt": "Marcado automaticamente quando o External DataFrame tem a mesma coluna Y usada no treino "
               "dos modelos. Quando marcado, o Predict também calcula as métricas de predictivity externas "
-              "(RMSEP, Q2F1-F3, CCC, Golbraikh-Tropsha, rm2) nas linhas que têm Y observado.",
+              "(RMSEP, Q2F1-F3, CCC, Golbraikh-Tropsha, rm2) nas linhas que têm Y observado - a validação "
+              "EXTERNA no External DataFrame.",
     },
     "s6_msg_with_y_not_found": {
         "en": "The Y column used for training ('{y}') was not found in the External DataFrame (or it has "
@@ -660,12 +663,16 @@ _TEXTOS = {
         "pt": "Apenas {n} linha(s) do External DataFrame têm Y observado - são necessárias ao menos 3 "
               "para calcular as métricas externas. As predições foram salvas normalmente.",
     },
-    "s6_btn_evaluate_test": {"en": "Evaluate Test", "pt": "Avaliar Teste"},
+    "s6_btn_evaluate_test": {"en": "Validate on Test Set", "pt": "Validar no Teste"},
     "s6_tooltip_evaluate_test": {
-        "en": "Final predictivity evaluation (OECD Principle 4) of the selected model(s) on the test set "
-              "held out in Screening. Do it once, with the final (tuned and validated) model.",
-        "pt": "Avaliação final de predictivity (Princípio 4 da OECD) do(s) modelo(s) selecionado(s) no "
-              "conjunto teste separado no Screening. Faça uma única vez, com o modelo final (tunado e validado).",
+        "en": "EXTERNAL validation on the test set: predictivity (OECD Principle 4) of the selected model(s) on "
+              "the compounds held out in Screening, which took no part in model development. Do it once, with the "
+              "final (tuned and internally validated) model. Disabled while a _refit model is selected: it was "
+              "trained WITH the test set.",
+        "pt": "Validação EXTERNA no conjunto teste: predictivity (Princípio 4 da OECD) do(s) modelo(s) "
+              "selecionado(s) nos compostos separados no Screening, que não participaram do desenvolvimento do "
+              "modelo. Faça uma única vez, com o modelo final (tunado e validado internamente). Fica desabilitado "
+              "enquanto um modelo _refit estiver selecionado: ele foi treinado COM o conjunto teste.",
     },
     "s6_msg_evaluate_test_confirm": {
         "en": "The test set ({n} compounds) took no part in Screening, Tuning or Validation. It should "
@@ -692,9 +699,9 @@ _TEXTOS = {
     },
     "s6_msg_chart_no_test_set": {
         "en": "The chart '{chart}' evaluates the model on the test set, and this USI has no test set (Test Size = 0). "
-              "Use 'Plot CV Predictions' (Validation and Model Robustness) to inspect the model on the training set.",
+              "Use 'Plot CV Predictions' (group 'Internal Validation') to inspect the model on the training set.",
         "pt": "O gráfico '{chart}' avalia o modelo no conjunto teste, e esta USI não tem conjunto teste (Tamanho do "
-              "Teste = 0). Use 'Gráfico da CV' (Validação e Robustez do Modelo) para inspecionar o modelo no treino.",
+              "Teste = 0). Use 'Gráfico da CV' (grupo 'Validação Interna') para inspecionar o modelo no treino.",
     },
     "s6_btn_cv_plot": {"en": "Plot CV Predictions", "pt": "Gráfico da CV"},
     "s6_tooltip_cv_plot": {
@@ -747,11 +754,11 @@ _TEXTOS = {
     "s6_btn_refit": {"en": "Refit", "pt": "Refit"},
     "s6_tooltip_refit": {
         "en": "Retrains the selected model(s) with the SAME hyperparameters on training + test sets (100% of the "
-              "Internal DataFrame) and saves each one as '<name>_refit'. Use it after Evaluate Test, to get a final "
+              "Internal DataFrame) and saves each one as '<name>_refit'. Use it after 'Validate on Test Set', to get a final "
               "model with all data: the test metrics remain those of the source model (a conservative estimate for "
               "the _refit model), whose external validation is done with Predict + 'With Y'.",
         "pt": "Retreina o(s) modelo(s) selecionado(s) com os MESMOS hiperparâmetros em treino + teste (100% do "
-              "Internal DataFrame) e salva cada um como '<nome>_refit'. Use depois do Evaluate Test, para ter um "
+              "Internal DataFrame) e salva cada um como '<nome>_refit'. Use depois do 'Validar no Teste', para ter um "
               "modelo final com todos os dados: as métricas de teste continuam sendo as do modelo de origem (uma "
               "estimativa conservadora para o _refit), cuja validação externa é feita com Predict + 'Com Y'.",
     },
@@ -768,14 +775,14 @@ _TEXTOS = {
     "s6_msg_refit_confirm": {
         "en": "Refit {models} with the same hyperparameters on training ({n_train}) + test ({n_test}) = {n_total} "
               "compounds?\n\nEach one is saved as '<name>_refit' (the source model is kept). The test set then "
-              "becomes training data of the _refit model: Evaluate Test, the test-based Performance Charts and the "
+              "becomes training data of the _refit model: 'Validate on Test Set', the Performance Charts (Test Set) and the "
               "Interpretability Tools are not available for it - its external validation is done with Predict + "
-              "'With Y' on the External DataFrame. Run Evaluate Test on the source model first, if you have not yet.",
+              "'With Y' on the External DataFrame. Run 'Validate on Test Set' on the source model first, if you have not yet.",
         "pt": "Retreinar {models} com os mesmos hiperparâmetros em treino ({n_train}) + teste ({n_test}) = {n_total} "
               "compostos?\n\nCada um é salvo como '<nome>_refit' (o modelo de origem é mantido). O conjunto teste "
-              "passa a ser dado de treino do modelo _refit: Evaluate Test, os gráficos de Performance Charts "
-              "baseados no teste e as Interpretability Tools não ficam disponíveis para ele - sua validação externa é "
-              "feita com Predict + 'Com Y' no External DataFrame. Rode antes o Evaluate Test no modelo de origem, se "
+              "passa a ser dado de treino do modelo _refit: 'Validar no Teste', os Gráficos de Desempenho (Teste) "
+              "e as Interpretability Tools não ficam disponíveis para ele - sua validação externa é "
+              "feita com Predict + 'Com Y' no External DataFrame. Rode antes o 'Validar no Teste' no modelo de origem, se "
               "ainda não rodou.",
     },
     "s6_msg_refit_done": {
@@ -800,7 +807,7 @@ _TEXTOS = {
         "en": "'{model}' is a refit (final) model. To tune, select its source model '{source}' and refit again afterwards.",
         "pt": "'{model}' é um modelo refit (final). Para tunar, selecione o modelo de origem '{source}' e faça o refit de novo depois.",
     },
-    "s6_lbl_screening_cv_folds": {"en": "Folds (train):", "pt": "Folds (treino):"},
+    "s6_lbl_screening_cv_folds": {"en": "CV Folds (train):", "pt": "CV Folds (treino):"},
     "s6_tooltip_screening_cv_folds": {
         "en": "Number of k-fold cross-validation folds used to rank the models. The cross-validation "
               "runs on the training set only; the test set is kept aside for the final evaluation.",
@@ -827,17 +834,19 @@ _TEXTOS = {
               "repetições. Os folds são sempre embaralhados.",
     },
     "s6_tooltip_cv_table": {
-        "en": "n Val / R2 Val / Accuracy Val: the validation fold of each round (the compounds left out of it), "
-              "never the Screening test set. R2/Accuracy Train: the same round's training folds. "
-              "Pooled: metrics over all out-of-fold predictions together (for regression, R2 Val = Q² CV); "
-              "Train columns are the mean between folds. Std Dev: standard deviation between folds. "
+        "en": "Each row is one fold. R2/Accuracy Train: fit of the model copy on that round's training folds. The "
+              "other columns: the compounds left out (n Val), never the Screening test set - the same metrics as "
+              "the external validation (without Q²F1/Q²F3 and Golbraikh-Tropsha, specific to an external set). "
+              "Pooled: metrics over all out-of-fold predictions together (for regression, Q2 = Q² CV); Train "
+              "columns and AUC are means over folds. Std Dev: standard deviation between folds. "
               "Bootstrap: OOB = out-of-bag compounds of each iteration.\n"
               "With Repeats > 1: folds are labelled 'repetition-fold' (e.g. 2-3); Pooled = mean across repetitions of "
               "each repetition's pooled value; Std Dev = standard deviation BETWEEN repetitions.",
-        "pt": "n Val / R2 Val / Accuracy Val: o fold de validação de cada rodada (as moléculas deixadas de fora), "
-              "nunca o conjunto teste do Screening. R2/Accuracy Train: os folds de treino da mesma rodada. "
-              "Pooled: métricas sobre todas as predições out-of-fold juntas (em regressão, R2 Val = Q² CV); "
-              "as colunas Train são a média entre folds. Std Dev: desvio-padrão entre folds. "
+        "pt": "Cada linha é um fold. R2/Accuracy Train: ajuste da cópia do modelo nos folds de treino da rodada. As "
+              "demais colunas: os compostos deixados de fora (n Val), nunca o conjunto teste do Screening - as "
+              "mesmas métricas da validação externa (sem Q²F1/Q²F3 e Golbraikh-Tropsha, próprios de um conjunto "
+              "externo). Pooled: métricas sobre todas as predições out-of-fold juntas (em regressão, Q2 = Q² CV); "
+              "as colunas Train e a AUC são médias dos folds. Std Dev: desvio-padrão entre folds. "
               "Bootstrap: OOB = moléculas fora da reamostragem (out-of-bag) de cada iteração.\n"
               "Com Repetições > 1: os folds aparecem como 'repetição-fold' (ex.: 2-3); Pooled = média, entre repetições, "
               "do valor agrupado de cada uma; Std Dev = desvio-padrão ENTRE repetições.",
@@ -855,10 +864,10 @@ _TEXTOS = {
               "em cima), uma barra por métrica. Habilitado depois de executar o Run Screening nesta USI.",
     },
     "s6_btn_run_screening": {"en": "Run Screening", "pt": "Executar Seleção"},
-    "s6_grp_hyperparameter_tuning": {"en": "Hyperparameter Tuning", "pt": "Ajuste de Hiperparâmetros"},
+    "s6_grp_hyperparameter_tuning": {"en": "Hyperparameter Tuning (Training Set)", "pt": "Ajuste de Hiperparâmetros (Treino)"},
     "lbl_model": {"en": "Model:", "pt": "Modelo:"},
     "lbl_method": {"en": "Method:", "pt": "Método:"},
-    "s6_lbl_cv_folds": {"en": "Folds:", "pt": "Folds:"},
+    "s6_lbl_cv_folds": {"en": "CV Folds:", "pt": "CV Folds:"},
     "s6_lbl_n_iter": {"en": "n iter:", "pt": "n iter:"},
     "s6_tooltip_n_iter": {
         "en": "Number of hyperparameter combinations tried. Used only by RandomizedSearchCV and Bayesian Optimization (Optuna).",
@@ -871,11 +880,41 @@ _TEXTOS = {
     "s6_btn_remove_hyperparam_row": {"en": "− Remove row", "pt": "− Remover linha"},
     "lbl_parameter": {"en": "Parameter:", "pt": "Parâmetro:"},
     "btn_plot": {"en": "Plot", "pt": "Plotar"},
-    "s6_grp_validation": {"en": "Validation and Model Robustness", "pt": "Validação e Robustez do Modelo"},
-    "s6_lbl_folds": {"en": "Folds:", "pt": "Folds:"},
+    "s6_grp_validation": {"en": "Internal Validation (Training Set)", "pt": "Validação Interna (Treino)"},
+    "s6_tooltip_grp_internal_validation": {
+        "en": "INTERNAL validation (OECD Principle 4: goodness-of-fit and robustness), on the training set only: "
+              "cross-validation (with repetitions), Y-Scrambling and the out-of-fold predictions chart. The test "
+              "set and the External DataFrame are never used here.",
+        "pt": "Validação INTERNA (Princípio 4 da OECD: ajuste e robustez), somente no conjunto de treino: "
+              "validação cruzada (com repetições), Y-Scrambling e o gráfico das predições out-of-fold. O conjunto "
+              "teste e o External DataFrame nunca são usados aqui.",
+    },
+    "s6_tooltip_run_cv": {
+        "en": "Internal validation (robustness): cross-validation of the model selected in 'Model' on the training "
+              "set (training + test for a _refit model).",
+        "pt": "Validação interna (robustez): validação cruzada do modelo selecionado em 'Modelo' no conjunto de "
+              "treino (treino + teste para um modelo _refit).",
+    },
+    "s6_lbl_folds": {"en": "CV Folds:", "pt": "CV Folds:"},
     "s6_lbl_p_leave_p_out": {"en": "p (Leave-P-Out):", "pt": "p (Leave-P-Out):"},
     "s6_btn_run_cross_validation": {"en": "Run Cross-Validation", "pt": "Executar Validação Cruzada"},
-    "s6_grp_remove_model_predict": {"en": "Refit, Evaluate, Predict and Remove", "pt": "Retreinar, Avaliar, Predizer e Remover"},
+    "s6_grp_remove_model_predict": {"en": "External Validation, Refit and Prediction", "pt": "Validação Externa, Retreino e Predição"},
+    "s6_tooltip_grp_external_validation": {
+        "en": "EXTERNAL validation (OECD Principle 4: predictivity), on compounds that took no part in model "
+              "development: 'Validate on Test Set' (the test set held out in Screening) and Predict with 'With Y' "
+              "(the External DataFrame). Also Refit (final model on training + test), Predict without Y (virtual "
+              "screening) and Remove Model.",
+        "pt": "Validação EXTERNA (Princípio 4 da OECD: predictivity), em compostos que não participaram do "
+              "desenvolvimento do modelo: 'Validar no Teste' (o conjunto teste separado no Screening) e Predict com "
+              "'Com Y' (o External DataFrame). Também Refit (modelo final em treino + teste), Predict sem Y "
+              "(triagem virtual) e Remove Model.",
+    },
+    "s6_tooltip_predict": {
+        "en": "Predicts the External DataFrame with the selected model(s). With 'With Y' checked, also computes "
+              "the external validation metrics.",
+        "pt": "Prediz o External DataFrame com o(s) modelo(s) selecionado(s). Com 'Com Y' marcado, também calcula "
+              "as métricas de validação externa.",
+    },
     "s6_chk_remove_descriptors": {"en": "Remove Descriptors", "pt": "Remover Descritores"},
     "s6_btn_remove_model": {"en": "Remove Model", "pt": "Remover Modelo"},
     "s6_btn_remove_usi": {"en": "Remove USI", "pt": "Remover USI"},
@@ -907,7 +946,13 @@ _TEXTOS = {
         "en": "Could not remove USI '{usi}':\n{error}",
         "pt": "Não foi possível remover a USI '{usi}':\n{error}",
     },
-    "s6_grp_performance_charts": {"en": "Performance Charts", "pt": "Gráficos de Desempenho"},
+    "s6_grp_performance_charts": {"en": "Performance Charts (Test Set)", "pt": "Gráficos de Desempenho (Teste)"},
+    "s6_tooltip_grp_performance_charts": {
+        "en": "Charts of the selected model on the TEST set (external validation), except Feature Importance, "
+              "Learning Curve and Decision Tree, which use the model or the training set.",
+        "pt": "Gráficos do modelo selecionado no conjunto TESTE (validação externa), exceto Feature Importance, "
+              "Learning Curve e Decision Tree, que usam o próprio modelo ou o conjunto de treino.",
+    },
     "s6_chk_metric_legend": {"en": "Metric Legend", "pt": "Legenda de Métricas"},
     "s6_tooltip_metric_legend": {
         "en": "Add R2, MAE, RMSE and MSE to the chart legend (regression charts only).",
@@ -1376,7 +1421,7 @@ _TEXTOS = {
     "msg_title_predict": {"en": "Predict", "pt": "Predizer"},
     "msg_title_tuning": {"en": "Tuning", "pt": "Ajuste"},
     "msg_title_tuning_error": {"en": "Tuning error", "pt": "Erro no ajuste"},
-    "msg_title_evaluate": {"en": "Evaluate", "pt": "Avaliar"},
+    "msg_title_evaluate": {"en": "Validation", "pt": "Validação"},
     "msg_title_evaluate_error": {"en": "Evaluate error", "pt": "Erro na avaliação"},
     "msg_title_screening": {"en": "Screening", "pt": "Seleção"},
     "msg_title_screening_error": {"en": "Screening error", "pt": "Erro na seleção"},

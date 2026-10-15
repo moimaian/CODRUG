@@ -1526,6 +1526,8 @@ _STEP4_ML_TEXTS = {
     "external_eval_en": "The models were also applied to the external set, with {n} compounds of known experimental value, giving the metrics below:",
     "external_eval_refit_pt": " Para os modelos refit ({models}), Q²F1 e Q²F3 usam como referência a média e a variância de treino + teste, os dados em que esses modelos foram treinados.",
     "external_eval_refit_en": " For the refit models ({models}), Q²F1 and Q²F3 use the mean and variance of training + test, the data these models were trained on, as reference.",
+    "cv_columns_new_pt": "Na tabela, cada fold mostra o ajuste da cópia do modelo nos seus folds de treino (R2 Train ou Accuracy Train) e, nos compostos deixados de fora, as mesmas métricas usadas na validação externa (exceto Q²F1/Q²F3 e os critérios de Golbraikh-Tropsha, próprios de um conjunto externo); a linha Pooled reúne as predições out-of-fold de todos os folds (em regressão, seu Q2 corresponde ao Q² CV; R2/Accuracy Train e AUC são médias dos folds), e a linha Std Dev traz o desvio-padrão entre folds.",
+    "cv_columns_new_en": "In the table, each fold shows the fit of the model copy on its training folds (R2 Train or Accuracy Train) and, on the compounds left out, the same metrics used in the external validation (except Q²F1/Q²F3 and the Golbraikh-Tropsha criteria, which are specific to an external set); the Pooled row gathers the out-of-fold predictions of all folds (for regression, its Q2 corresponds to Q² CV; R2/Accuracy Train and AUC are means over folds), and the Std Dev row gives the standard deviation between folds.",
     "cv_columns_pt": "Na tabela, R2 Val (ou Accuracy Val) é o desempenho em cada fold de validação, formado pelos compostos deixados de fora naquela rodada; a linha Pooled reúne as predições out-of-fold de todos os folds (em regressão, seu R2 Val corresponde ao Q² CV), e a linha Std Dev traz o desvio-padrão entre folds.",
     "cv_columns_en": "In the table, R2 Val (or Accuracy Val) is the performance on each validation fold, made up of the compounds left out in that round; the Pooled row gathers the out-of-fold predictions of all folds (for regression, its R2 Val corresponds to Q² CV), and the Std Dev row gives the standard deviation between folds.",
     "scope_full_cv_pt": " Por se tratar de um modelo refit, a validação cruzada foi feita sobre o conjunto interno completo (treino + teste, {n} compostos), os dados em que ele foi treinado.",
@@ -1548,8 +1550,14 @@ _STEP4_ML_TEXTS = {
     "tuning_en": "Hyperparameter Tuning was applied to the {model} model using {method} with {folds} Folds{rep}{metric}. The hyperparameters and their optimal values can be seen in the table below:",
     "cv_pt": "A validação cruzada do modelo {model} foi realizada através do método {method} com {folds} Folds{rep}, gerando a tabela a seguir:",
     "cv_en": "Cross-validation of the {model} model was performed using the {method} method with {folds} Folds{rep}, generating the table below:",
-    "charts_pt": "Os gráficos gerados para o modelo {model} são apresentados a seguir:",
-    "charts_en": "The charts generated for the {model} model are presented below:",
+    "charts_pt": "Os gráficos de desempenho do modelo {model} (conjunto teste; Feature Importance usa o próprio modelo) são apresentados a seguir:",
+    "charts_en": "The performance charts of the {model} model (test set; Feature Importance uses the model itself) are presented below:",
+    "cv_charts_pt": "As predições out-of-fold da validação cruzada do modelo {model} (conjunto de treino) são apresentadas a seguir:",
+    "cv_charts_en": "The out-of-fold predictions from the cross-validation of the {model} model (training set) are presented below:",
+    "heading_internal_pt": "Validação interna (Princípio 4 da OECD: ajuste e robustez - somente o conjunto de treino)",
+    "heading_internal_en": "Internal validation (OECD Principle 4: goodness-of-fit and robustness - training set only)",
+    "heading_external_pt": "Validação externa (Princípio 4 da OECD: predictividade - compostos que não participaram do desenvolvimento do modelo)",
+    "heading_external_en": "External validation (OECD Principle 4: predictivity - compounds that took no part in model development)",
     "figure4_caption_pt": "Figura 4. Divisão dos conjuntos de treino e teste para o dataframe {df}.",
     "figure4_caption_en": "Figure 4. Train and test set split for the {df} dataframe.",
     "table3_caption_pt": "Tabela 3. Resultado da triagem dos modelos de machine learning para o dataframe interno {df}.",
@@ -1885,6 +1893,21 @@ def _add_step5_section(document: Any, project_dir: str, state: dict[str, Any], i
             )
             _add_skl_results_table(document, tune_df)
 
+        # Subseções "Validação interna" / "Validação externa" (Princípio 4 da OECD), escritas só na
+        # primeira vez em que houver conteúdo de cada tipo nesta USI.
+        shown_sections = {"internal": False, "external": False}
+
+        def _section(kind: str) -> None:
+            if shown_sections[kind]:
+                return
+            run = document.add_paragraph().add_run(texts[f"heading_{kind}_{'pt' if lang == 'pt' else 'en'}"])
+            run.bold = True
+            run.italic = True
+            shown_sections[kind] = True
+
+        _cv_chart_kinds = [k for k in _STEP4_CHART_KINDS if k.startswith("cv_")]
+        _test_chart_kinds = [k for k in _STEP4_CHART_KINDS if not k.startswith("cv_")]
+
         validation_settings = session.get("validation_settings", {})
         for model_name, settings in validation_settings.items():
             method = settings.get("method", "")
@@ -1900,42 +1923,34 @@ def _add_step5_section(document: Any, project_dir: str, state: dict[str, Any], i
                     # Modelo "_refit": CV sobre treino + teste (CODRUG._skl_dev_data_for).
                     cv_text = texts[f"scope_full_cv_{'pt' if lang == 'pt' else 'en'}"].format(
                         n=settings.get("n_samples", "?")).strip() + " " + cv_text
+                _section("internal")
                 _para(document).add_run(cv_text)
                 fold_col = 0 if list(cv_df.columns)[:1] == ["Fold"] else None
-                if "R2 Val" in cv_df.columns or "Accuracy Val" in cv_df.columns:
-                    _para(document).add_run(texts[f"cv_columns_{'pt' if lang == 'pt' else 'en'}"]
+                # Texto conforme o formato do CSV: colunas atuais (Q2/Accuracy + métricas da validação
+                # externa) ou as de versões anteriores (R2 Val/Accuracy Val).
+                cv_cols_key = ("cv_columns_new" if ("Q2" in cv_df.columns or "Balanced Accuracy" in cv_df.columns)
+                               else "cv_columns" if ("R2 Val" in cv_df.columns or "Accuracy Val" in cv_df.columns)
+                               else None)
+                if cv_cols_key:
+                    _para(document).add_run(texts[f"{cv_cols_key}_{'pt' if lang == 'pt' else 'en'}"]
                                             + (" " + texts[f"cv_repeats_note_{'pt' if lang == 'pt' else 'en'}"].format(r=v_rep)
                                                if v_rep > 1 else ""))
                 # "Pooled" (atual) ou "Mean" (CSVs de versões anteriores) + "Std Dev".
                 _add_skl_results_table(document, cv_df, highlight_col=fold_col, highlight_col_bold=True,
                                         overall_row_value=("Pooled", "Mean", "Std Dev"))
 
-            chart_paths = [
-                path for path in (_find_skl_image(midia_dir, model_name, kind, usi) for kind in _STEP4_CHART_KINDS)
+            # Gráficos da validação cruzada (predições out-of-fold, conjunto de treino): validação interna.
+            cv_chart_paths = [
+                path for path in (_find_skl_image(midia_dir, model_name, kind, usi) for kind in _cv_chart_kinds)
                 if path
             ]
-            if chart_paths:
+            if cv_chart_paths:
+                _section("internal")
                 _para(document).add_run(
-                    texts["charts_pt" if lang == "pt" else "charts_en"].format(model=model_name)
+                    texts["cv_charts_pt" if lang == "pt" else "cv_charts_en"].format(model=model_name)
                 )
-                for chart_path in chart_paths:
+                for chart_path in cv_chart_paths:
                     _add_image(document, chart_path)
-
-            # Structural identification of the Top 15 Feature Importance features (CODRUG.
-            # _save_feature_importance_structures) - CSV table + grid drawing, when at least one
-            # feature could be resolved (see BIN/module_feature_structures.py for which
-            # descriptor families are supported and why the rest are skipped rather than guessed).
-            struct_csv = _find_feature_structures_csv(midia_dir, model_name, usi)
-            struct_df = _read_csv(struct_csv)
-            if struct_df is not None and not struct_df.empty:
-                _para(document).add_run(
-                    texts["feat_struct_intro_pt" if lang == "pt" else "feat_struct_intro_en"].format(model=model_name)
-                )
-                struct_png = _find_skl_image(midia_dir, model_name, "feature_importance_structures", usi)
-                if struct_png:
-                    _add_image(document, struct_png)
-                display_cols = [c for c in ("rank", "descriptor", "family", "smiles", "smarts", "exact") if c in struct_df.columns]
-                _add_dataframe_table(document, struct_df[display_cols] if display_cols else struct_df, max_rows=15)
 
             # Y-Scrambling (CODRUG.run_skl_yrandomization) - CSV in DATA, chart in MIDIA; one row
             # per permutation, with the real/summary stats repeated on every row (only the first
@@ -1949,6 +1964,7 @@ def _add_step5_section(document: Any, project_dir: str, state: dict[str, Any], i
                     crp2_text = f"{float(crp2_val):.3g}" if crp2_val == crp2_val else "N/A"  # NaN != NaN
                 except (TypeError, ValueError):
                     crp2_text = "N/A"
+                _section("internal")
                 _para(document).add_run(
                     texts["yrand_intro_pt" if lang == "pt" else "yrand_intro_en"].format(
                         model=model_name, n=int(first.get("n_permutations", len(yrand_df))),
@@ -1975,7 +1991,7 @@ def _add_step5_section(document: Any, project_dir: str, state: dict[str, Any], i
             except Exception:
                 continue
 
-        # Final predictivity evaluation on the held-out test set ("Evaluate Test" button) and on
+        # Final predictivity evaluation on the held-out test set ("Validate on Test Set" button) and on
         # the External DataFrame (Predict with "With Y") - one column per evaluated model.
         for prefix, key in (("skl_test_eval", "test_eval"), ("skl_external_eval", "external_eval")):
             eval_df = _read_csv(_find_skl_csv(data_dir, prefix, usi))
@@ -1992,6 +2008,7 @@ def _add_step5_section(document: Any, project_dir: str, state: dict[str, Any], i
             if key == "external_eval" and refit_cols and (eval_df["Metric"] == "Q2F1").any():
                 eval_text = eval_text.rstrip(":") + "." + texts[f"external_eval_refit_{'pt' if lang == 'pt' else 'en'}"].format(
                     models=", ".join(refit_cols))
+            _section("external")
             _para(document).add_run(eval_text)
 
             def _fmt(value):
@@ -2007,6 +2024,38 @@ def _add_step5_section(document: Any, project_dir: str, state: dict[str, Any], i
             for col in eval_df.columns[2:]:
                 eval_df[col] = [_fmt(v) for v in eval_df[col]]
             _add_skl_results_table(document, eval_df, highlight_col=0)
+
+        # Gráficos de desempenho (conjunto teste) e subestruturas do Feature Importance de cada modelo
+        # validado: parte da validação externa.
+        for model_name in validation_settings:
+            chart_paths = [
+                path for path in (_find_skl_image(midia_dir, model_name, kind, usi) for kind in _test_chart_kinds)
+                if path
+            ]
+            if chart_paths:
+                _section("external")
+                _para(document).add_run(
+                    texts["charts_pt" if lang == "pt" else "charts_en"].format(model=model_name)
+                )
+                for chart_path in chart_paths:
+                    _add_image(document, chart_path)
+
+            # Structural identification of the Top 15 Feature Importance features (CODRUG.
+            # _save_feature_importance_structures) - CSV table + grid drawing, when at least one
+            # feature could be resolved (see BIN/module_feature_structures.py for which
+            # descriptor families are supported and why the rest are skipped rather than guessed).
+            struct_csv = _find_feature_structures_csv(midia_dir, model_name, usi)
+            struct_df = _read_csv(struct_csv)
+            if struct_df is not None and not struct_df.empty:
+                _section("external")
+                _para(document).add_run(
+                    texts["feat_struct_intro_pt" if lang == "pt" else "feat_struct_intro_en"].format(model=model_name)
+                )
+                struct_png = _find_skl_image(midia_dir, model_name, "feature_importance_structures", usi)
+                if struct_png:
+                    _add_image(document, struct_png)
+                display_cols = [c for c in ("rank", "descriptor", "family", "smiles", "smarts", "exact") if c in struct_df.columns]
+                _add_dataframe_table(document, struct_df[display_cols] if display_cols else struct_df, max_rows=15)
 
         added_any = True
         document.add_paragraph()

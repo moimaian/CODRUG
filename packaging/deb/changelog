@@ -80,6 +80,55 @@ codrug (1.2.0-1) unstable; urgency=low
     rótulo "Repeats" (e entre a spinbox de Repeats e os botões ao lado), o
     que também alarga a coluna do grid - antes o rótulo ficava colado na
     caixa de Folds (CODRUG.py).
+  * STEP 4: termos de validação alinhados ao Princípio 4 da OECD. "Validation
+    and Model Robustness" vira "Internal Validation (Training Set)"; "Refit,
+    Evaluate, Predict and Remove" vira "External Validation, Refit and
+    Prediction"; "Evaluate Test" vira "Validate on Test Set"; "Performance
+    Charts" vira "Performance Charts (Test Set)"; "Descriptors Columns" vira
+    "X range (external df)". O grupo de validação externa passa a ter três
+    linhas: intervalo X; Remove Descriptors, With Y e Predict; Refit,
+    Validate on Test Set e Remove Model. Tooltips explicam o que é interno
+    (ajuste e robustez, só treino) e externo (predictividade), e mensagens
+    citam os nomes novos (CODRUG.py, BIN/i18n.py).
+  * Relatório final: a STEP 4 ganha as subseções "Validação interna" (CV,
+    gráficos da CV, Y-Scrambling) e "Validação externa" (conjunto teste,
+    conjunto externo, gráficos de desempenho e subestruturas do Feature
+    Importance); antes os gráficos do teste apareciam junto da CV
+    (BIN/module_report.py).
+  * Menu: o item da aba STATS passa de "Statistics" a "Stats - Statistical
+    Tests" ("Stats - Testes Estatísticos"), no mesmo padrão "Aba - descrição"
+    dos demais itens (BIN/i18n.py).
+  * STEP 4: rótulo "CV Folds" nos três grupos ("CV Folds (train)" no Model
+    Screening, "CV Folds" no Tuning e na Internal Validation); na Internal
+    Validation o combobox Method fica mais estreito (a lista aberta continua
+    larga) e "CV Folds" sobe para a mesma linha, entre ele e o "shuffle". O
+    grupo de tuning passa a se chamar "Hyperparameter Tuning (Training Set)"
+    ("Ajuste de Hiperparâmetros (Treino)") (CODRUG.py, BIN/i18n.py).
+  * STEP 4, External Validation: ordem dos botões passa a ser "Validate on
+    Test Set", Refit, Remove Model (não sugere fazer o Refit antes da
+    validação no teste), e "Validate on Test Set" fica desabilitado (cinza
+    escuro) enquanto um modelo "_refit" estiver selecionado - ele foi
+    treinado com o conjunto teste. O aviso ao clicar continua como proteção
+    extra (CODRUG.py, BIN/i18n.py).
+  * Validação interna com as mesmas métricas da externa: a tabela da
+    Cross-Validation (e do Nested CV e do Bootstrap) passa a mostrar, em
+    classificação, Accuracy, Balanced Accuracy, Precision, Recall
+    (Sensitivity), Specificity, F1, MCC, Cohen's Kappa e AUC; em regressão,
+    Q2, RMSE, MAE, CCC, r2 (Pearson), rm2 (average) e delta rm2 (Q²F1/Q²F3
+    e Golbraikh-Tropsha ficam só na validação externa). R2/Accuracy Train
+    continuam por fold; na linha Pooled, Train e AUC são médias dos folds e
+    as demais métricas usam todas as predições out-of-fold. "Accuracy Val"
+    e "R2 Val" passam a se chamar "Accuracy" e "Q2"; o MSE sai (é o RMSE ao
+    quadrado). Tooltip e relatório atualizados; CSVs antigos continuam
+    legíveis (CODRUG.py, BIN/i18n.py, BIN/module_report.py).
+  * Tuning, classificação: grade padrão ganha class_weight = None,balanced
+    (peso maior para a classe minoritária) em LogisticRegression,
+    RidgeClassifier, SVC, NuSVC, SGDClassifier, PassiveAggressive,
+    RandomForest, ExtraTrees, HistGradientBoosting e LGBM, e
+    auto_class_weights = None,Balanced no CatBoost (o valor "None" é passado
+    como texto, o único que o CatBoost aceita via set_params). A grade de nu
+    do NuSVC passa a 0.1,0.3,0.5 - 0.7 é inviável quando a menor classe tem
+    menos de 35% dos dados (CODRUG.py).
 
  -- Moisés Maia Neto <moimaian@gmail.com>  Tue, 13 Oct 2026 03:18:10 -0300
 
