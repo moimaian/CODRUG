@@ -155,6 +155,13 @@ codrug (1.2.0-1) unstable; urgency=low
   * "shuffle" da Internal Validation desabilitado nos métodos em que não tem
     efeito (LOOCV, Leave-P-Out, Time Series, Bootstrap), além de travado
     marcado com Repeats > 1 (CODRUG.py).
+  * Nested CV: a busca interna de cada fold externo passa a usar também o
+    Repeats do grupo Hyperparameter Tuning (antes fixo em 1), além da grade
+    e dos CV Folds desse grupo - sempre os valores da tela no momento da
+    validação (selecionar o modelo só restaura os do tuning dele). Folds e
+    Repeats da busca interna ficam gravados na sessão e descritos no
+    relatório; tooltip próprio para o Repeats do Tuning (CODRUG.py,
+    BIN/i18n.py, BIN/module_report.py).
 
  -- Moisés Maia Neto <moimaian@gmail.com>  Tue, 13 Oct 2026 03:18:10 -0300
 

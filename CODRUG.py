@@ -3488,7 +3488,9 @@ class SklEvaluateWorker(QThread): # type: ignore
         """Nested CV: busca interna (GridSearchCV, folds embaralhados - ver _skl_make_cv) dentro de cada
         fold externo. Com "Repeats" > 1, a CV externa é repetida com outras partições (Random State +
         r); os folds aparecem numerados "repetição-fold" e as predições out-of-fold usadas no gráfico
-        são as da 1ª repetição."""
+        são as da 1ª repetição. A busca interna reproduz o procedimento do grupo Hyperparameter Tuning:
+        grade, CV Folds ("inner_folds") e Repeats ("inner_repeats") que estão na interface no momento
+        da validação."""
         x_reset, y_reset, task = self.x_reset, self.y_reset, self.task
         cls = self.kwargs["cls"]
         base_kwargs = self.kwargs["base_kwargs"]
@@ -3497,6 +3499,7 @@ class SklEvaluateWorker(QThread): # type: ignore
         shuffle = self.kwargs["shuffle"]
         random_state = self.kwargs["random_state"]
         inner_folds = self.kwargs["inner_folds"]
+        inner_repeats = max(1, int(self.kwargs.get("inner_repeats", 1) or 1))
         repeats = max(1, int(self.kwargs.get("repeats", 1) or 1))
 
         rows = []
@@ -3515,7 +3518,7 @@ class SklEvaluateWorker(QThread): # type: ignore
                 x_tr, x_te = x_reset.iloc[train_idx], x_reset.iloc[test_idx]
                 y_tr, y_te = y_reset.iloc[train_idx], y_reset.iloc[test_idx]
                 inner_model = _skl_instantiate(cls, _skl_force_single_thread_kwargs(cls, base_kwargs), random_state)
-                inner_cv = _skl_make_cv(task == "classification", inner_folds, 1, seed)
+                inner_cv = _skl_make_cv(task == "classification", inner_folds, inner_repeats, seed)
                 inner_search = GridSearchCV(inner_model, param_grid, cv=inner_cv, n_jobs=-1,
                                             scoring=self.kwargs.get("scoring"))
                 inner_search.fit(x_tr, y_tr)
@@ -21027,7 +21030,7 @@ class MainWindow(QMainWindow):
             # Repetições da CV do Tuning (cada uma com outra partição dos folds; 1 = sem repetição).
             tune_row2.addWidget(self._trL("s6_lbl_cv_repeats"))
             self.sp_skl_tune_repeats = QSpinBox(); self.sp_skl_tune_repeats.setRange(1, 20); self.sp_skl_tune_repeats.setValue(SKL_DEFAULT_CV_REPEATS)
-            self._tr("s6_tooltip_cv_repeats", self.sp_skl_tune_repeats.setToolTip)
+            self._tr("s6_tooltip_tune_repeats", self.sp_skl_tune_repeats.setToolTip)
             tune_row2.addWidget(self.sp_skl_tune_repeats)
             tune_row2.addWidget(self._trL("s6_lbl_n_iter"))
             self.sp_skl_tune_n_iter = QSpinBox(); self.sp_skl_tune_n_iter.setRange(1, 500); self.sp_skl_tune_n_iter.setValue(20)
@@ -24011,7 +24014,7 @@ class MainWindow(QMainWindow):
             "Leave-One-Out (LOOCV)": "Trains one model per sample (n_samples folds) — can be slow for larger datasets.",
             "Leave-P-Out": "Trains one model per combination of p held-out samples — extremely slow for p > 1 or larger datasets.",
             "Time Series Split (Walk-Forward Validation)": "Assumes rows are already ordered chronologically.",
-            "Nested CV": "Uses the Tuning group's hyperparameter grid as the inner search space (GridSearchCV) inside each outer fold.",
+            "Nested CV": "Inner search (GridSearchCV) in each outer fold uses the Tuning group's grid, CV Folds and Repeats as currently set.",
             "Bootstrap": "Trains on a bootstrap resample and evaluates on the out-of-bag samples, repeated 'Folds' times.",
         }
         if hasattr(self, "lbl_skl_cv_note"):
@@ -24622,7 +24625,12 @@ class MainWindow(QMainWindow):
                 worker_kwargs = dict(
                     cls=cls, base_kwargs=base_kwargs, param_grid=param_grid,
                     folds=folds, shuffle=shuffle, random_state=random_state,
-                    inner_folds=self.sp_skl_tune_folds.value(), scoring=inner_scoring,
+                    # Busca interna = o Tuning configurado no grupo Hyperparameter Tuning: sempre os
+                    # valores que estão na interface AGORA (não os gravados no tuning desse modelo -
+                    # selecionar o modelo apenas os restaura, e o usuário pode alterá-los).
+                    inner_folds=self.sp_skl_tune_folds.value(),
+                    inner_repeats=self.sp_skl_tune_repeats.value() if hasattr(self, "sp_skl_tune_repeats") else 1,
+                    scoring=inner_scoring,
                     repeats=cv_repeats,
                 )
             elif method == "Bootstrap":
@@ -24641,6 +24649,9 @@ class MainWindow(QMainWindow):
             self._skl_evaluate_cv_shuffle = shuffle
             self._skl_evaluate_cv_p = self.sp_skl_cv_p.value()
             self._skl_evaluate_cv_repeats = cv_repeats
+            # Busca interna do Nested CV (None nos demais métodos) - lida pelo relatório.
+            self._skl_evaluate_inner_folds = worker_kwargs.get("inner_folds") if mode == "nested" else None
+            self._skl_evaluate_inner_repeats = worker_kwargs.get("inner_repeats") if mode == "nested" else None
             self._skl_evaluate_scope = scope
             self._skl_evaluate_n = len(x_reset)
             self._skl_evaluate_worker = SklEvaluateWorker(
@@ -24697,6 +24708,9 @@ class MainWindow(QMainWindow):
             "shuffle": getattr(self, "_skl_evaluate_cv_shuffle", None),
             "p": getattr(self, "_skl_evaluate_cv_p", None),
             "repeats": getattr(self, "_skl_evaluate_cv_repeats", 1),
+            # Nested CV: CV Folds/Repeats da busca interna (grupo Hyperparameter Tuning) - lido pelo relatório.
+            "inner_folds": getattr(self, "_skl_evaluate_inner_folds", None),
+            "inner_repeats": getattr(self, "_skl_evaluate_inner_repeats", None),
             # "train" (conjunto de treino) ou "full" (treino + teste, modelos "_refit") - lido pelo relatório.
             "data_scope": getattr(self, "_skl_evaluate_scope", "train"),
             "n_samples": getattr(self, "_skl_evaluate_n", None),

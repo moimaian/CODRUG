@@ -873,6 +873,18 @@ _TEXTOS = {
               "modelos (Krstajic et al., J. Cheminform. 2014). O tempo de execução é multiplicado pelo número de "
               "repetições. Os folds são sempre embaralhados.",
     },
+    "s6_tooltip_tune_repeats": {
+        "en": "Number of times the k-fold cross-validation of the Tuning is repeated, each time with a different "
+              "random partition of the folds (Random State + repetition). 1 = no repetition. Run time is multiplied "
+              "by the number of repetitions. Folds are always shuffled. CV Folds and Repeats of this group are also "
+              "used by the inner search of 'Nested CV' (Internal Validation), always with the values on screen when "
+              "it is run - selecting a model only restores the values used in its tuning.",
+        "pt": "Quantas vezes a validação cruzada k-fold do Tuning é repetida, cada vez com outra partição aleatória "
+              "dos folds (Random State + repetição). 1 = sem repetição. O tempo de execução é multiplicado pelo número "
+              "de repetições. Os folds são sempre embaralhados. CV Folds e Repeats deste grupo também são usados pela "
+              "busca interna do 'Nested CV' (Internal Validation), sempre com os valores da tela no momento em que ele "
+              "roda - selecionar um modelo apenas restaura os valores usados no tuning dele.",
+    },
     "s6_tooltip_cv_table": {
         "en": "Each row is one fold. R2/Accuracy Train: fit of the model copy on that round's training folds. The "
               "other columns: the compounds left out (n Val), never the Screening test set - the same metrics as "

@@ -1552,6 +1552,10 @@ _STEP4_ML_TEXTS = {
     "cv_en": "Cross-validation of the {model} model was performed using the {method} method with {folds} Folds{rep}, generating the table below:",
     "charts_pt": "Os gráficos de desempenho do modelo {model} (conjunto teste; Feature Importance usa o próprio modelo) são apresentados a seguir:",
     "charts_en": "The performance charts of the {model} model (test set; Feature Importance uses the model itself) are presented below:",
+    "nested_inner_pt": " Em cada fold externo, os hiperparâmetros foram escolhidos por uma busca interna (GridSearchCV) restrita aos folds de treino daquele fold, com {k} folds{rep}; os compostos do fold externo nunca participaram dessa escolha.",
+    "nested_inner_en": " In each outer fold, the hyperparameters were chosen by an inner search (GridSearchCV) restricted to that fold's training folds, with {k} folds{rep}; the compounds of the outer fold never took part in that choice.",
+    "cv_table_follows_pt": "Os resultados estão na tabela a seguir:",
+    "cv_table_follows_en": "The results are shown in the table below:",
     "cv_charts_pt": "As predições out-of-fold da validação cruzada do modelo {model} (conjunto de treino) são apresentadas a seguir:",
     "cv_charts_en": "The out-of-fold predictions from the cross-validation of the {model} model (training set) are presented below:",
     "repsplit_pt": "Para avaliar a estabilidade do modelo {model} em relação à divisão dos dados, foi realizada uma análise de divisões repetidas: o conjunto interno foi dividido {n} vezes ({method}, com {pct}% dos compostos separados como conjunto externo em cada divisão; a divisão 1 é a mesma usada no desenvolvimento do modelo). Em cada divisão, o modelo, com os mesmos hiperparâmetros, foi submetido à validação cruzada {folds}-fold repetida {repeats} vez(es) na parte de treino (colunas CV, média ± desvio-padrão) e avaliado na parte separada (colunas Ext). A última linha traz a média ± desvio-padrão entre as divisões.",
@@ -1963,6 +1967,16 @@ def _add_step5_section(document: Any, project_dir: str, state: dict[str, Any], i
                 cv_text = texts["cv_pt" if lang == "pt" else "cv_en"].format(
                     model=model_name, method=method, folds=folds,
                     rep=texts[f"rep_short_{'pt' if lang == 'pt' else 'en'}"].format(r=v_rep) if v_rep > 1 else "")
+                if method == "Nested CV" and settings.get("inner_folds"):
+                    # Busca interna do Nested CV: CV Folds/Repeats do grupo Hyperparameter Tuning.
+                    i_rep = int(settings.get("inner_repeats") or 1)
+                    for tail in (", gerando a tabela a seguir:", ", generating the table below:"):
+                        if cv_text.endswith(tail):
+                            cv_text = cv_text[:-len(tail)] + "."
+                    cv_text += texts[f"nested_inner_{'pt' if lang == 'pt' else 'en'}"].format(
+                        k=settings["inner_folds"],
+                        rep=texts[f"rep_short_{'pt' if lang == 'pt' else 'en'}"].format(r=i_rep) if i_rep > 1 else "")
+                    cv_text += " " + texts[f"cv_table_follows_{'pt' if lang == 'pt' else 'en'}"]
                 if settings.get("data_scope") == "full":
                     # Modelo "_refit": CV sobre treino + teste (CODRUG._skl_dev_data_for).
                     cv_text = texts[f"scope_full_cv_{'pt' if lang == 'pt' else 'en'}"].format(
