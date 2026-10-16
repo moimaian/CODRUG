@@ -817,6 +817,8 @@ _TEXTOS = {
     },
     "lbl_status": {"en": "Status:", "pt": "Status:"},
     "s6_fmt_screening_progress": {"en": "Screening: %p%", "pt": "Seleção: %p%"},
+    "s6_fmt_cv_progress": {"en": "Cross-Validation: %p%", "pt": "Validação Cruzada: %p%"},
+    "s6_fmt_yrand_progress": {"en": "Y-Scrambling: %p%", "pt": "Y-Scrambling: %p%"},
     "btn_select_all": {"en": "Select All", "pt": "Selecionar Tudo"},
     "s6_btn_view_train_test_freq": {"en": "View Split", "pt": "Ver Divisão"},
     "s6_btn_view_rank": {"en": "View Rank", "pt": "Ver Ranking"},
@@ -834,15 +836,17 @@ _TEXTOS = {
         "en": "Stability of the models CHECKED in this group's list (same algorithm and hyperparameters, not "
               "retuned) with respect to how the data are split: the whole Internal DataFrame (training + test) is "
               "split n times with the Model Screening Test Size and Split Method (split 1 = this USI's own split); "
-              "in each split, k-fold cross-validation repeated r times on the training part (CV columns, mean ± SD) "
-              "and evaluation on the held-out part (Ext columns). The CV uses 'CV Folds', 'Repeats' and 'All Folds' "
+              "in each split, k-fold cross-validation repeated r times on the training part (CV rows, mean ± SD) "
+              "and evaluation on the held-out part (Ext rows), with the same metrics as the Internal Validation and "
+              "'Validate on Test Set'; one column per split, 3 decimals. The CV uses 'CV Folds', 'Repeats' and 'All Folds' "
               "of the Internal Validation group. Because it re-splits the test set too, run it once, with the final "
               "model(s), like 'Validate on Test Set'. Random or Scaffold split only.",
         "pt": "Estabilidade dos modelos MARCADOS na lista deste grupo (mesmo algoritmo e hiperparâmetros, sem "
               "retunar) em relação à divisão dos dados: o Internal DataFrame inteiro (treino + teste) é dividido n "
               "vezes com o Test Size e o Split Method do Model Screening (divisão 1 = a da própria USI); em cada "
-              "divisão, validação cruzada k-fold repetida r vezes na parte de treino (colunas CV, média ± DP) e "
-              "avaliação na parte separada (colunas Ext). A CV usa 'CV Folds', 'Repetições' e 'All Folds' do "
+              "divisão, validação cruzada k-fold repetida r vezes na parte de treino (linhas CV, média ± DP) e "
+              "avaliação na parte separada (linhas Ext), com as mesmas métricas da Validação Interna e do "
+              "'Validar no Teste'; uma coluna por divisão, 3 casas decimais. A CV usa 'CV Folds', 'Repetições' e 'All Folds' do "
               "grupo Validação Interna. Como redivide também o conjunto teste, rode uma vez, com o(s) modelo(s) final(is), como o "
               "'Validar no Teste'. Só divisão Random ou Scaffold.",
     },
@@ -891,13 +895,13 @@ _TEXTOS = {
               "the table - with Repeats > 1, the k x Repeats folds together (e.g. 5 x 10 = 50 folds). Unchecked: 'Pooled' = metrics over the out-of-fold predictions of each "
               "repetition together (for regression, Q2 = Q² CV), averaged across repetitions, and 'Std Dev' = "
               "standard deviation BETWEEN repetitions (between folds with Repeats = 1). Applies to KFold, "
-              "StratifiedKFold, Nested CV and Time Series, and to 'Run Repeated Splits' (CV columns).",
+              "StratifiedKFold, Nested CV and Time Series, and to 'Run Repeated Splits' (CV rows).",
         "pt": "Como são calculadas as linhas de resumo no fim da tabela da validação cruzada (exibida e salva). "
               "Marcado: 'Mean' e 'Std Dev' são a média e o desvio-padrão das métricas de TODOS os folds da tabela - "
               "com Repetições > 1, os k x Repetições folds juntos (ex.: 5 x 10 = 50 folds). Desmarcado: 'Pooled' = métricas sobre as predições out-of-fold de cada repetição "
               "juntas (em regressão, Q2 = Q² CV), em média entre as repetições, e 'Std Dev' = desvio-padrão ENTRE "
               "repetições (entre folds com Repetições = 1). Vale para KFold, StratifiedKFold, Nested CV e Time "
-              "Series, e para o 'Run Repeated Splits' (colunas CV).",
+              "Series, e para o 'Run Repeated Splits' (linhas CV).",
     },
     "s6_tooltip_cv_table": {
         "en": "Each column is one fold (header: 'repetition-fold' with Repeats > 1, e.g. 2-3; the last columns are the "

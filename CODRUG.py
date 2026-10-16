@@ -97,7 +97,7 @@ print("")
 try:
     import PyQt5
     print("✅ PyQt5 imported successfully.")
-    from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject, QTimer, QDir, QProcess, QPoint, QRect, QEvent, QSettings, QSize
+    from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject, QTimer, QDir, QProcess, QPoint, QRect, QEvent, QSettings, QSize, QEventLoop
     from PyQt5.QtGui import QPixmap, QGuiApplication, QIcon, QIntValidator, QFont, QPainter, QPen, QColor, QBrush
     from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QTabWidget, QTabBar, QVBoxLayout, QHBoxLayout,
@@ -2742,9 +2742,9 @@ class SklScreeningWorker(QThread): # type: ignore
             else:
                 fold_row = {
                     "Accuracy": float(accuracy_score(y_val, y_pred)),
-                    "F1": float(f1_score(y_val, y_pred, average="weighted")),
-                    "Precision": float(precision_score(y_val, y_pred, average="weighted", zero_division=0)),
-                    "Recall": float(recall_score(y_val, y_pred, average="weighted")),
+                    "F1": _skl_f1(y_val, y_pred),
+                    "Precision": _skl_precision(y_val, y_pred),
+                    "Recall": _skl_recall(y_val, y_pred),
                     "MCC": float(matthews_corrcoef(y_val, y_pred)),
                     "Specificity": _specificity_score(y_val, y_pred),
                     "AUC": float("nan"),
@@ -2768,9 +2768,9 @@ class SklScreeningWorker(QThread): # type: ignore
         else:
             pooled = {
                 "Accuracy": float(accuracy_score(y_true_all, y_pred_all)),
-                "F1": float(f1_score(y_true_all, y_pred_all, average="weighted")),
-                "Precision": float(precision_score(y_true_all, y_pred_all, average="weighted", zero_division=0)),
-                "Recall": float(recall_score(y_true_all, y_pred_all, average="weighted")),
+                "F1": _skl_f1(y_true_all, y_pred_all),
+                "Precision": _skl_precision(y_true_all, y_pred_all),
+                "Recall": _skl_recall(y_true_all, y_pred_all),
                 "MCC": float(matthews_corrcoef(y_true_all, y_pred_all)),
                 "Specificity": _specificity_score(y_true_all, y_pred_all),
                 "AUC": float(fold_df["AUC"].mean()),
@@ -2876,10 +2876,10 @@ def _skl_external_classification_metrics(y_obs, y_pred, model=None, x=None):
         ("n", "", len(y_obs)),
         ("Accuracy", "", float(accuracy_score(y_obs, y_pred))),
         ("Balanced Accuracy", "", float(balanced_accuracy_score(y_obs, y_pred))),
-        ("Precision", "", float(precision_score(y_obs, y_pred, average="weighted", zero_division=0))),
-        ("Recall (Sensitivity)", "", float(recall_score(y_obs, y_pred, average="weighted"))),
+        ("Precision", "", _skl_precision(y_obs, y_pred)),
+        ("Recall (Sensitivity)", "", _skl_recall(y_obs, y_pred)),
         ("Specificity", "", _specificity_score(y_obs, y_pred)),
-        ("F1", "", float(f1_score(y_obs, y_pred, average="weighted"))),
+        ("F1", "", _skl_f1(y_obs, y_pred)),
         ("MCC", "", float(matthews_corrcoef(y_obs, y_pred))),
         ("Cohen's Kappa", "", float(cohen_kappa_score(y_obs, y_pred))),
         ("AUC", "", auc),
@@ -2913,7 +2913,9 @@ def _skl_cv_metrics(task, y_true, y_pred, model=None, x=None):
 
 def _skl_external_metrics_table(task, models, x, y, y_train=None):
     """Tabela de métricas externas (uma coluna por modelo) usada pela avaliação final no conjunto de
-    teste e pelo Predict com Y. Colunas: Metric, Acceptance, <modelo 1>, <modelo 2>, ...
+    teste e pelo Predict com Y. Colunas: Metric, Acceptance, <modelo 1>, <modelo 2>, ... - a coluna
+    Acceptance (critérios de Golbraikh & Tropsha / Chirico & Gramatica / Roy) só em regressão: em
+    classificação não há limiares de aceitação consensuais e ela ficaria vazia.
     y_train: Y de treino de referência do Q²F1/Q²F3 - um único array para todos os modelos ou um
     dict {modelo: array} (modelos "_refit" usam treino + teste, que é o treino deles)."""
     table = None
@@ -2925,7 +2927,9 @@ def _skl_external_metrics_table(task, models, x, y, y_train=None):
         else:
             rows = _skl_external_classification_metrics(y, y_pred, model, x)
         if table is None:
-            table = pd.DataFrame({"Metric": [r[0] for r in rows], "Acceptance": [r[1] for r in rows]})
+            table = pd.DataFrame({"Metric": [r[0] for r in rows]})
+            if task == "regression":
+                table["Acceptance"] = [r[1] for r in rows]
         table[name] = [round(r[2], 4) if isinstance(r[2], float) else r[2] for r in rows]
     return table
 
@@ -3141,6 +3145,27 @@ def _skl_cv_summary_rows(fold_df, id_col, summaries, all_folds, n_val=None):
     return [pooled, std_row]
 
 
+def _skl_cv_transposed(cv_df, keep_best_params=True):
+    """Tabela da validação cruzada TRANSPOSTA - o formato exibido na Internal Validation e gravado no
+    CSV skl_cv_*: a 1ª coluna mantém o nome da coluna de identificação ("Fold", "Outer Fold" ou
+    "Iteration") e traz o nome de cada métrica; as demais colunas são os folds/iterações (ex.: "1-1",
+    "1-2"...) seguidos das de resumo (Pooled/Mean e Std Dev). "Best Params" (Nested CV) só no CSV
+    (keep_best_params=True); a interface usa False. Valores numéricos sem arredondamento."""
+    id_col = cv_df.columns[0]
+    df = cv_df.copy() if keep_best_params else cv_df.drop(columns=["Best Params"], errors="ignore")
+    # Contagens ("n Val"/"n OOB") como inteiros quando todas forem inteiras (a coluna vira float por
+    # causa do NaN da linha Std Dev, e o CSV gravaria "40.0"); a média de "n OOB" do Bootstrap fica float.
+    for col in ("n Val", "n OOB", "n Train", "n Ext", "Random State"):
+        if col in df.columns:
+            vals = pd.to_numeric(df[col], errors="coerce")
+            if vals.dropna().apply(lambda v: float(v).is_integer()).all():
+                df[col] = vals.round().astype("Int64")
+    t = df.set_index(id_col).T
+    t.columns = [str(c) for c in t.columns]
+    t.insert(0, id_col, [str(i) for i in t.index])
+    return t.reset_index(drop=True)
+
+
 def _skl_nested_params_summary(cv_df):
     """Resumo da coluna "Best Params" do Nested CV: quantas vezes cada combinação de hiperparâmetros
     foi escolhida pela busca interna dos folds externos (linhas de resumo Mean/Pooled/Std Dev fora),
@@ -3183,20 +3208,65 @@ def _skl_repetition_seed(random_state, repetition):
         return repetition
 
 
+def _skl_binary_pos_neg(y_true, y_pred):
+    """(classe positiva, classe negativa) de um problema BINÁRIO, a partir dos rótulos presentes em
+    y_true/y_pred: positiva = rótulo "de ativo" (_SKL_POSITIVE_CLASS_HINTS, ex.: "active", 1) quando
+    houver, senão a segunda em ordem (convenção do scikit-learn) - o mesmo critério de
+    _skl_positive_class, usado nos gráficos. None se não houver exatamente 2 rótulos (3+ classes, ou
+    um fold com uma só classe), caso em que as métricas usam a média ponderada entre classes."""
+    labels = np.unique(np.concatenate([np.asarray(y_true).ravel(), np.asarray(y_pred).ravel()]))
+    if len(labels) != 2:
+        return None
+    pos = next((c for c in labels if str(c).strip().lower() in _SKL_POSITIVE_CLASS_HINTS), labels[1])
+    neg = labels[0] if pos == labels[1] else labels[1]
+    return pos, neg
+
+
+def _skl_precision(y_true, y_pred):
+    """Precision: binária = da classe POSITIVA (PPV dos ativos); 3+ classes = média ponderada."""
+    pn = _skl_binary_pos_neg(y_true, y_pred)
+    if pn is not None:
+        return float(precision_score(y_true, y_pred, pos_label=pn[0], average="binary", zero_division=0))
+    return float(precision_score(y_true, y_pred, average="weighted", zero_division=0))
+
+
+def _skl_recall(y_true, y_pred):
+    """Recall (Sensitivity): binária = da classe POSITIVA (TP/(TP+FN), ativos recuperados); 3+
+    classes = média ponderada. Antes era sempre a ponderada - que, em problema binário, é igual à
+    Accuracy."""
+    pn = _skl_binary_pos_neg(y_true, y_pred)
+    if pn is not None:
+        return float(recall_score(y_true, y_pred, pos_label=pn[0], average="binary", zero_division=0))
+    return float(recall_score(y_true, y_pred, average="weighted", zero_division=0))
+
+
+def _skl_f1(y_true, y_pred):
+    """F1: binária = da classe POSITIVA; 3+ classes = média ponderada."""
+    pn = _skl_binary_pos_neg(y_true, y_pred)
+    if pn is not None:
+        return float(f1_score(y_true, y_pred, pos_label=pn[0], average="binary", zero_division=0))
+    return float(f1_score(y_true, y_pred, average="weighted", zero_division=0))
+
+
 def _specificity_score(y_true, y_pred):
-    """Specificity / True Negative Rate = TN/(TN+FP) - completa Sensitivity/Recall, Accuracy e MCC
-    nas métricas de classificação.
-    - Binária: TN/(TN+FP), tomando a segunda classe em ordem (rótulos ordenados) como positiva.
+    """Specificity / True Negative Rate = TN/(TN+FP).
+    - Binária: recall da classe NEGATIVA (inativos corretamente rejeitados), com a classe positiva de
+      _skl_binary_pos_neg. Antes tomava a segunda classe em ordem alfabética como positiva - com
+      "active"/"inactive" a positiva virava "inactive" e a "Specificity" era a sensibilidade dos ativos.
     - 3+ classes: não há uma única "classe negativa", então calcula a especificidade de cada classe
       contra as demais (one-vs-rest) e faz a média ponderada pelo nº de amostras reais de cada classe
-      - mesmo critério "weighted" de Precision/Recall/F1. Antes retornava NaN nesse caso."""
-    labels = np.unique(np.concatenate([np.asarray(y_true), np.asarray(y_pred)]))
+      - mesmo critério "weighted" de Precision/Recall/F1 nesse caso."""
+    labels = np.unique(np.concatenate([np.asarray(y_true).ravel(), np.asarray(y_pred).ravel()]))
     if len(labels) < 2:
         return float("nan")
+    pn = _skl_binary_pos_neg(y_true, y_pred)
+    if pn is not None:
+        y_true_a = np.asarray(y_true).ravel()
+        neg_mask = y_true_a == pn[1]
+        if not neg_mask.any():
+            return float("nan")
+        return float(np.mean(np.asarray(y_pred).ravel()[neg_mask] == pn[1]))
     cm = confusion_matrix(y_true, y_pred, labels=labels)
-    if len(labels) == 2:
-        tn, fp, fn, tp = cm.ravel()
-        return float(tn / (tn + fp)) if (tn + fp) > 0 else float("nan")
     total = cm.sum()
     support = cm.sum(axis=1)
     specs, weights = [], []
@@ -3248,11 +3318,11 @@ def _skl_curve_compute_metric(metric, y_true, y_pred, model=None, x=None):
     if metric in ("Accuracy Test", "Accuracy Train", "Accuracy"):
         return float(accuracy_score(y_true, y_pred))
     if metric == "F1":
-        return float(f1_score(y_true, y_pred, average="weighted"))
+        return _skl_f1(y_true, y_pred)
     if metric == "Precision":
-        return float(precision_score(y_true, y_pred, average="weighted", zero_division=0))
+        return _skl_precision(y_true, y_pred)
     if metric == "Recall":
-        return float(recall_score(y_true, y_pred, average="weighted"))
+        return _skl_recall(y_true, y_pred)
     if metric == "MCC":
         return float(matthews_corrcoef(y_true, y_pred))
     if metric == "Specificity":
@@ -3396,11 +3466,42 @@ class SklEvaluateWorker(QThread): # type: ignore
         # "Predicted vs Experimental (CV)". None quando o método prevê o mesmo composto várias vezes
         # (Leave-P-Out com p > 1, Bootstrap), em que não há uma predição única por composto.
         self.oof = None
+        # Progresso (barra da Internal Validation): progress_cb(feitos, total) chamado a cada fold/
+        # fold externo/iteração concluído. None = sem progresso (ex.: Run Repeated Splits).
+        self.progress_cb = None
+        self._progress_done = 0
+        self._progress_total = 1
+
+    def _progress_total_for_run(self):
+        """Quantos folds (ou folds externos/iterações) esta validação vai treinar."""
+        k = self.kwargs
+        n = len(self.x_reset)
+        if self.mode == "bootstrap":
+            return max(1, int(k.get("n_iterations", 1)))
+        repeats = max(1, int(k.get("repeats", 1) or 1))
+        if self.mode == "nested":
+            return max(1, int(k["folds"]) * repeats)
+        method = k.get("method")
+        if method == "Leave-One-Out (LOOCV)":
+            return max(1, n)
+        if method == "Leave-P-Out":
+            from math import comb
+            return max(1, comb(n, int(k.get("p", 1))))
+        if method not in ("KFold", "StratifiedKFold"):
+            repeats = 1
+        return max(1, int(k["folds"]) * repeats)
+
+    def _progress_tick(self):
+        self._progress_done += 1
+        if self.progress_cb is not None:
+            self.progress_cb(self._progress_done, self._progress_total)
 
     def run(self):
         # Força threads em vez de processos (fork) para o joblib — ver comentário em SklScreeningWorker.run().
         backend_ctx = joblib.parallel_backend("threading")
         backend_ctx.__enter__()
+        self._progress_done = 0
+        self._progress_total = self._progress_total_for_run()
         try:
             if self.mode == "nested":
                 cv_df = self._run_nested()
@@ -3470,6 +3571,7 @@ class SklEvaluateWorker(QThread): # type: ignore
             else:
                 row["Correct"] = bool(np.mean(np.asarray(y_te) == np.asarray(y_pred)) >= 0.5)
             rows.append(row)
+            self._progress_tick()
 
         cv_df = pd.DataFrame(rows)
         # Linha de resumo "Pooled" (antes "Mean"/"OVERALL"): as métricas de validação calculadas sobre
@@ -3579,6 +3681,7 @@ class SklEvaluateWorker(QThread): # type: ignore
                 row.update(_skl_cv_metrics(task, y_te, y_pred, inner_search.best_estimator_, x_te))
                 rows.append(row)
                 rep_aucs.append(row.get("AUC", float("nan")))
+                self._progress_tick()
             if r == 0:
                 self.oof = (oof_true, oof_pred)
             # Resumo agrupado desta repetição (mesmo critério do _standard_pass: métricas sobre as
@@ -3604,6 +3707,7 @@ class SklEvaluateWorker(QThread): # type: ignore
             boot_idx = rng.randint(0, n_samples, n_samples)
             oob_idx = np.setdiff1d(np.arange(n_samples), boot_idx)
             if len(oob_idx) == 0:
+                self._progress_tick()
                 continue
             x_tr, y_tr = x_reset.iloc[boot_idx], y_reset.iloc[boot_idx]
             x_te, y_te = x_reset.iloc[oob_idx], y_reset.iloc[oob_idx]
@@ -3614,6 +3718,7 @@ class SklEvaluateWorker(QThread): # type: ignore
             row = {"Iteration": it, "n OOB": len(oob_idx)}
             row.update(_skl_cv_metrics(task, y_te, y_pred, fold_model, x_te))
             rows.append(row)
+            self._progress_tick()
 
         if not rows:
             raise ValueError("No out-of-bag samples were produced — dataset may be too small for Bootstrap.")
@@ -5499,7 +5604,10 @@ class MainWindow(QMainWindow):
         self._set_combo_text(self.ed_skl_USI, usi)
         idx = self.ed_skl_USI.findText(usi)
         if idx >= 0:
-            self._on_skl_usi_selected(idx)
+            # quiet: ao carregar o projeto não mostra a janela "USI '...' loaded: n model(s)" (exigia
+            # um OK e interrompia o uso); a USI é carregada exatamente como antes. Selecionar uma USI
+            # manualmente na STEP 4 continua mostrando a janela.
+            self._on_skl_usi_selected(idx, quiet=True)
         return True
 
     def _save_step6_sklearn_state(self):
@@ -21220,6 +21328,13 @@ class MainWindow(QMainWindow):
             self._tr("s6_tooltip_cv_table", self.tbl_skl_cv.setToolTip)
             lay_skl_eval.addWidget(self.tbl_skl_cv, 1)
 
+            # Progresso de Run Cross-Validation (folds concluídos) e de Run Y-Scrambling (permutações
+            # concluídas) - a mesma barra, reiniciada a cada execução (ver _skl_eval_progress_start).
+            self.pb_skl_eval = self._mk_progress()
+            self.pb_skl_eval.setMaximum(100); self.pb_skl_eval.setValue(0)
+            self._tr("s6_fmt_cv_progress", self.pb_skl_eval.setFormat)
+            lay_skl_eval.addWidget(self.pb_skl_eval)
+
             eval_btn_row = QHBoxLayout()
             eval_btn_row.addStretch()
             self.btn_skl_run_eval = QPushButton(); self._tr("s6_btn_run_cross_validation", self.btn_skl_run_eval.setText)
@@ -23431,9 +23546,10 @@ class MainWindow(QMainWindow):
             "MAE": "neg_mean_absolute_error",
             "MSE": "neg_mean_squared_error",
             "Accuracy Test": "accuracy", "Accuracy": "accuracy",
-            "F1": "f1_weighted",
-            "Precision": "precision_weighted",
-            "Recall": "recall_weighted",
+            # Binária: da classe positiva (ativos); 3+ classes: ponderada - ver _skl_precision etc.
+            "F1": make_scorer(_skl_f1),
+            "Precision": make_scorer(_skl_precision),
+            "Recall": make_scorer(_skl_recall),
             "MCC": "matthews_corrcoef",
             "Specificity": make_scorer(_specificity_score),
             "AUC": "roc_auc_ovr_weighted",
@@ -23765,6 +23881,8 @@ class MainWindow(QMainWindow):
                 widget.clear()
         if hasattr(self, "pb_skl_screening"):
             self.pb_skl_screening.setValue(0)
+        if hasattr(self, "pb_skl_eval"):
+            self.pb_skl_eval.setValue(0)
         if hasattr(self, "ed_skl_USI"):
             self.ed_skl_USI.blockSignals(True)
             self.ed_skl_USI.setCurrentText("")
@@ -24221,28 +24339,27 @@ class MainWindow(QMainWindow):
         return x, y
 
     def _fill_skl_cv_table(self, cv_df):
-        """Tabela da Internal Validation, TRANSPOSTA em relação ao CSV skl_cv_* (que não muda): a 1ª célula
-        do cabeçalho é o nome da coluna de identificação ("Fold", "Outer Fold" ou "Iteration"), seguida
-        de um fold/iteração por coluna (ex.: "1-1", "1-2"... e as de resumo Pooled/Mean/Std Dev); cada
-        linha é uma métrica. "Best Params" (Nested CV) fica só no CSV - longa demais para a tabela, e
-        resumida à parte (skl_nested_params_*). Células vazias (NaN, ex.: "n Val" na linha Std Dev)
+        """Tabela da Internal Validation no MESMO formato transposto do CSV skl_cv_* (_skl_cv_transposed):
+        cabeçalho = coluna de identificação ("Fold"/"Outer Fold"/"Iteration") + um fold/iteração por
+        coluna (ex.: "1-1", "1-2"... e as de resumo Pooled/Mean/Std Dev); cada linha é uma métrica. A
+        única diferença para o CSV: sem "Best Params" (Nested CV), longa demais para a tabela e
+        resumida à parte (skl_nested_params_*). Células vazias (NaN, ex.: "n Val" na coluna Std Dev)
         ficam em branco; "n Val"/"n OOB" sem casas decimais."""
         t = self.tbl_skl_cv
-        df = cv_df.drop(columns=["Best Params"], errors="ignore")
         t.setRowCount(0)
-        if df.empty:
+        if cv_df is None or cv_df.empty:
             t.setColumnCount(0)
             return
-        id_col = df.columns[0]
-        fold_labels = [str(v) for v in df[id_col]]
-        metrics = [c for c in df.columns[1:]]
-        t.setColumnCount(1 + len(fold_labels))
-        t.setHorizontalHeaderLabels([str(id_col)] + fold_labels)
-        t.setRowCount(len(metrics))
-        for i, metric in enumerate(metrics):
-            t.setItem(i, 0, QTableWidgetItem(str(metric)))
-            for j, val in enumerate(df[metric].tolist(), start=1):
-                if val is None or (isinstance(val, float) and np.isnan(val)):
+        tdf = _skl_cv_transposed(cv_df, keep_best_params=False)
+        t.setColumnCount(len(tdf.columns))
+        t.setHorizontalHeaderLabels([str(c) for c in tdf.columns])
+        t.setRowCount(len(tdf))
+        for i in range(len(tdf)):
+            metric = str(tdf.iat[i, 0])
+            t.setItem(i, 0, QTableWidgetItem(metric))
+            for j in range(1, len(tdf.columns)):
+                val = tdf.iat[i, j]
+                if val is None or (not isinstance(val, str) and pd.isna(val)):
                     text = ""
                 elif metric in ("n Val", "n OOB") and isinstance(val, (int, float, np.integer, np.floating)):
                     text = f"{val:.0f}" if float(val).is_integer() else f"{val:.1f}"
@@ -24843,12 +24960,10 @@ class MainWindow(QMainWindow):
             self._skl_evaluate_worker.finished_ok.connect(self._on_skl_evaluate_finished)
             self._skl_evaluate_worker.error.connect(self._on_skl_evaluate_error)
             self.btn_skl_run_eval.setEnabled(False)
-            # Mensagem de espera (sem barra de progresso), fechada em _on_skl_evaluate_finished()/
-            # _on_skl_evaluate_error() assim que o cálculo termina, logo antes de exibir o resultado.
-            self._skl_evaluate_progress_dlg = self.show_wait_message_dialog(
-                "Validation", f"Running cross-validation on the {self._skl_scope_text(scope, len(x_reset))}... "
-                              "Please wait for it to finish!"
-            )
+            # Barra de progresso do grupo (no lugar da antiga janela de espera): avança a cada fold
+            # (fold externo no Nested CV, iteração no Bootstrap) concluído.
+            self._skl_eval_progress_start("s6_fmt_cv_progress")
+            self._skl_evaluate_worker.progress_cb = self._skl_eval_progress_update
             # Síncrono na thread da GUI — ver comentário em run_skl_screening() sobre os crashes
             # causados pelo uso de QThread em background para esses cálculos.
             self._skl_evaluate_worker.run()
@@ -24906,7 +25021,8 @@ class MainWindow(QMainWindow):
         stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         try:
             out_path = os.path.join(self.skl_out_data, f"skl_cv_{eval_model_name}_{self.skl_usi_key}_{stamp}.csv")
-            cv_df.to_csv(out_path, index=False)
+            # Mesmo formato transposto da tabela da interface, com "Best Params" (Nested CV).
+            _skl_cv_transposed(cv_df, keep_best_params=True).to_csv(out_path, index=False)
         except Exception:
             pass
 
@@ -24985,12 +25101,36 @@ class MainWindow(QMainWindow):
             import traceback; traceback.print_exc()
             QMessageBox.critical(self, i18n.t("msg_title_plot_error", idioma), str(e))
 
+    def _skl_eval_progress_start(self, fmt_key, maximum=100):
+        """Reinicia a barra de progresso da Internal Validation (Run Cross-Validation / Run
+        Y-Scrambling), com o rótulo da tarefa (chave i18n do formato, ex.: "Validação Cruzada: %p%")."""
+        pb = getattr(self, "pb_skl_eval", None)
+        if pb is None:
+            return
+        self._tr(fmt_key, pb.setFormat)
+        pb.setMaximum(max(1, int(maximum)))
+        pb.setValue(0)
+        QApplication.processEvents(QEventLoop.ExcludeUserInputEvents)
+
+    def _skl_eval_progress_update(self, done, total):
+        """Atualiza a barra (cálculo síncrono na thread da GUI): só redesenha, sem processar cliques
+        nem teclas - o usuário não dispara outra ação no meio do cálculo."""
+        pb = getattr(self, "pb_skl_eval", None)
+        if pb is None:
+            return
+        if pb.maximum() != max(1, int(total)):
+            pb.setMaximum(max(1, int(total)))
+        pb.setValue(min(int(done), pb.maximum()))
+        QApplication.processEvents(QEventLoop.ExcludeUserInputEvents)
+
     def _on_skl_evaluate_error(self, message):
         dlg = getattr(self, "_skl_evaluate_progress_dlg", None)
         if dlg is not None:
             dlg.close()
             self._skl_evaluate_progress_dlg = None
         self.btn_skl_run_eval.setEnabled(True)
+        if getattr(self, "pb_skl_eval", None) is not None:
+            self.pb_skl_eval.setValue(0)
         QMessageBox.critical(self, i18n.t("msg_title_evaluate_error", self._idioma), message)
 
     # ---------- REMOVE MODEL ----------
@@ -25690,45 +25830,59 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, i18n.t("msg_title_plot_error", self._idioma), str(e))
 
     # Métricas exibidas na tabela-resumo da análise de divisões repetidas (o CSV guarda todas).
-    _SKL_REPSPLIT_DISPLAY = {
-        "classification": ["Accuracy", "Balanced Accuracy", "Recall (Sensitivity)", "Specificity", "MCC"],
-        "regression": ["Q2", "RMSE", "MAE", "CCC"],
-    }
-
     @staticmethod
-    def _skl_repsplit_display_table(df, task):
-        """Tabela-resumo a partir do CSV completo da análise: uma
-        linha por divisão, "CV <métrica>" como "média ± DP" e "Ext <métrica>"; as linhas Mean/Std Dev
-        finais viram uma única linha "Mean ± SD"."""
-        metrics = [m for m in MainWindow._SKL_REPSPLIT_DISPLAY.get(task, []) if f"Ext {m}" in df.columns]
+    def _skl_repsplit_display_table(df, task=None):
+        """Tabela-resumo TRANSPOSTA do Run Repeated Splits (df = uma linha por divisão + Mean/Std Dev):
+        1ª coluna "Split" com os nomes das linhas - n Train, n Ext, "CV <métrica>" (média ± DP da CV de
+        cada divisão) e "Ext <métrica>" (conjunto separado) -, uma coluna por divisão ("1", "2"...) e a
+        coluna final "Mean ± SD" entre as divisões. Mesmas métricas da tabela da Internal Validation
+        (CV) e do Validate on Test Set (Ext), todas com 3 casas decimais."""
         split_rows = df[pd.to_numeric(df["Split"], errors="coerce").notna()]
         mean_row = df[df["Split"].astype(str) == "Mean"]
         sd_row = df[df["Split"].astype(str) == "Std Dev"]
+        ext_metrics = [c[len("Ext "):] for c in df.columns if c.startswith("Ext ")]
+        cv_metrics = [c[len("CV "):] for c in df.columns
+                      if c.startswith("CV ") and not c.endswith(" SD")]
 
-        def _f(v, digits=2):
+        def _f(v):
             try:
                 v = float(v)
             except (TypeError, ValueError):
                 return ""
-            return "" if v != v else f"{v:.{digits}f}"
+            return "" if v != v else f"{v:.3f}"
 
-        out = []
-        for _, r in split_rows.iterrows():
-            row = {"Split": int(float(r["Split"])), "n Train": int(float(r["n Train"])), "n Ext": int(float(r["n Ext"]))}
-            for m in metrics:
-                row[f"CV {m}"] = f"{_f(r.get(f'CV {m}'))} ± {_f(r.get(f'CV {m} SD'))}"
-            for m in metrics:
-                row[f"Ext {m}"] = _f(r.get(f"Ext {m}"))
-            out.append(row)
-        if not mean_row.empty and not sd_row.empty:
-            mr, sr = mean_row.iloc[0], sd_row.iloc[0]
-            row = {"Split": "Mean ± SD", "n Train": "", "n Ext": ""}
-            for m in metrics:
-                row[f"CV {m}"] = f"{_f(mr.get(f'CV {m}'))} ± {_f(sr.get(f'CV {m}'))}"
-            for m in metrics:
-                row[f"Ext {m}"] = f"{_f(mr.get(f'Ext {m}'))} ± {_f(sr.get(f'Ext {m}'))}"
-            out.append(row)
-        return pd.DataFrame(out)
+        def _pm(a, b):
+            a, b = _f(a), _f(b)
+            return f"{a} ± {b}" if a and b else a
+
+        has_summary = not mean_row.empty and not sd_row.empty
+        mr = mean_row.iloc[0] if has_summary else None
+        sr = sd_row.iloc[0] if has_summary else None
+        labels = [str(int(float(v))) for v in split_rows["Split"]]
+        lines = []
+        for count in ("n Train", "n Ext"):
+            if count in df.columns:
+                line = {"Split": count}
+                for lab, (_, r) in zip(labels, split_rows.iterrows()):
+                    line[lab] = str(int(float(r[count])))
+                if has_summary:
+                    line["Mean ± SD"] = ""
+                lines.append(line)
+        for m in cv_metrics:
+            line = {"Split": f"CV {m}"}
+            for lab, (_, r) in zip(labels, split_rows.iterrows()):
+                line[lab] = _pm(r.get(f"CV {m}"), r.get(f"CV {m} SD"))
+            if has_summary:
+                line["Mean ± SD"] = _pm(mr.get(f"CV {m}"), sr.get(f"CV {m}"))
+            lines.append(line)
+        for m in ext_metrics:
+            line = {"Split": f"Ext {m}"}
+            for lab, (_, r) in zip(labels, split_rows.iterrows()):
+                line[lab] = _f(r.get(f"Ext {m}"))
+            if has_summary:
+                line["Mean ± SD"] = _pm(mr.get(f"Ext {m}"), sr.get(f"Ext {m}"))
+            lines.append(line)
+        return pd.DataFrame(lines)
 
     def run_skl_repeated_splits(self):
         """Botão "Run Repeated Splits" (grupo External Validation, Refit and Prediction): estabilidade
@@ -25738,11 +25892,14 @@ class MainWindow(QMainWindow):
         1) divide o Internal DataFrame da USI (treino + teste, na ordem original) com o Test Size e o
            Split Method do Model Screening e Random State + i - a divisão 1 reproduz a da própria USI;
         2) roda no treino a validação cruzada k-fold (CV Folds) repetida r vezes (Repeats) do grupo
-           Internal Validation - colunas "CV <métrica>" (linha Pooled, ou Mean com "All Folds") e "CV <métrica> SD" (Std Dev);
-        3) treina a receita no treino inteiro e avalia no conjunto separado - colunas "Ext <métrica>".
+           Internal Validation - "CV <métrica>" (Pooled, ou Mean com "All Folds") e "CV <métrica> SD" (Std Dev),
+           com as métricas da tabela da Internal Validation (inclusive R2/Accuracy Train);
+        3) treina a receita no treino inteiro e avalia no conjunto separado - "Ext <métrica>".
         Por redividir o Internal DataFrame inteiro, consome o conjunto teste: deve ser feita uma vez,
         com o(s) modelo(s) final(is). Um CSV por modelo (DATA/skl_repsplit_<modelo>_<USI>_<data>.csv),
-        com todas as métricas e as linhas Mean e Std Dev entre divisões."""
+        transposto como o da Internal Validation (uma coluna por divisão, mais Mean e Std Dev entre
+        divisões, valores sem arredondamento); a janela mostra a tabela-resumo transposta com 3 casas
+        decimais (_skl_repsplit_display_table)."""
         idioma = self._idioma
         title = i18n.t("msg_title_repsplit", idioma)
         selected = [it.text() for it in self.list_skl_saved_models.selectedItems()] \
@@ -25826,7 +25983,12 @@ class MainWindow(QMainWindow):
                     y_pred = ext_model.predict(x_te)
                     ext = _skl_cv_metrics(task, np.asarray(y_te), y_pred, ext_model, x_te)
                     row = {"Split": i + 1, "Random State": seed, "n Train": len(x_tr), "n Ext": len(x_te)}
-                    for m in ext:
+                    # CV: as mesmas métricas da tabela da Internal Validation (ajuste no treino dos folds -
+                    # R2/Accuracy Train - e as de validação); Ext: as mesmas do Validate on Test Set
+                    # comuns à validação interna (_skl_cv_metrics).
+                    train_col = "R2 Train" if task == "regression" else "Accuracy Train"
+                    cv_names = ([train_col] if train_col in pooled.index else []) + list(ext)
+                    for m in cv_names:
                         row[f"CV {m}"] = pooled.get(m)
                         row[f"CV {m} SD"] = spread.get(m)
                     for m, v in ext.items():
@@ -25852,7 +26014,10 @@ class MainWindow(QMainWindow):
         for model_name, df in results.items():
             out_path = os.path.join(self.skl_out_data, f"skl_repsplit_{model_name}_{self.skl_usi_key}_{stamp}.csv")
             try:
-                df.to_csv(out_path, index=False)
+                # Transposto, como o CSV da Internal Validation: 1ª coluna "Split" com os nomes das linhas
+                # (Random State, n Train, n Ext, CV <métrica>, CV <métrica> SD, Ext <métrica>), uma coluna
+                # por divisão e as colunas Mean/Std Dev entre divisões; valores sem arredondamento.
+                _skl_cv_transposed(df).to_csv(out_path, index=False)
             except Exception:
                 pass
             self._skl_repsplit_settings[model_name] = {
@@ -25950,19 +26115,32 @@ class MainWindow(QMainWindow):
                 scores = cross_val_score(clone(model), x, y_perm, cv=cv, scoring=scoring, n_jobs=1)
                 return sign * float(np.mean(scores)), corr
 
-            dlg = self.show_wait_message_dialog(
-                "Y-Scrambling", f"Running {n_perm} permutations (parallel)... Please wait for it to finish!"
-            )
+            # Barra de progresso da Internal Validation (reiniciada): 1 passo para a CV com o y real e 1
+            # por permutação. As permutações continuam em paralelo; return_as="generator" entrega os
+            # resultados (na ordem das sementes) à medida que ficam prontos, para a barra avançar.
+            total_steps = int(n_perm) + 1
+            self._skl_eval_progress_start("s6_fmt_yrand_progress", total_steps)
+            if hasattr(self, "btn_skl_yrand_run"):
+                self.btn_skl_yrand_run.setEnabled(False)
             try:
                 t0 = time.time()
                 real_scores = cross_val_score(clone(model), x, y_arr, cv=cv, scoring=scoring, n_jobs=-1)
                 real_metric = sign * float(np.mean(real_scores))
-                results = joblib.Parallel(n_jobs=n_jobs)(
+                self._skl_eval_progress_update(1, total_steps)
+                results = []
+                for res in joblib.Parallel(n_jobs=n_jobs, return_as="generator")(
                     joblib.delayed(_yrand_single_run)(seed) for seed in seeds
-                )
+                ):
+                    results.append(res)
+                    self._skl_eval_progress_update(1 + len(results), total_steps)
                 elapsed = time.time() - t0
+            except Exception:
+                if getattr(self, "pb_skl_eval", None) is not None:
+                    self.pb_skl_eval.setValue(0)
+                raise
             finally:
-                dlg.close()
+                if hasattr(self, "btn_skl_yrand_run"):
+                    self.btn_skl_yrand_run.setEnabled(True)
 
             scrambled_metrics = np.array([r[0] for r in results], dtype=float)
             correlations = np.array([r[1] for r in results], dtype=float)

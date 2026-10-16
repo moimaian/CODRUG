@@ -1520,8 +1520,12 @@ _STEP4_ML_TEXTS = {
     "no_test_split_en": " The whole internal dataset was used as the training set (no test set); predictivity was assessed on the external set. ",
     "refit_pt": "O modelo {model} foi retreinado (refit) com os mesmos hiperparâmetros do modelo {source} usando todos os {n_total} compostos do conjunto interno (treino: {n_train}; teste: {n_test}). As métricas do conjunto teste referem-se ao modelo {source} e constituem uma estimativa conservadora para {model}. ",
     "refit_en": "The model {model} was refit with the same hyperparameters as {source} on all {n_total} compounds of the internal set (training: {n_train}; test: {n_test}). The test-set metrics refer to {source} and are a conservative estimate for {model}. ",
-    "test_eval_pt": "A capacidade preditiva (predictivity) foi avaliada uma única vez no conjunto teste ({n} compostos), que não participou da triagem, do ajuste de hiperparâmetros nem da validação cruzada. Os critérios de aceitação seguem Golbraikh & Tropsha (2002) e Chirico & Gramatica (2012):",
-    "test_eval_en": "Predictivity was assessed once on the test set ({n} compounds), which took no part in screening, hyperparameter tuning or cross-validation. Acceptance criteria follow Golbraikh & Tropsha (2002) and Chirico & Gramatica (2012):",
+    "test_eval_pt": "A capacidade preditiva (predictivity) foi avaliada uma única vez no conjunto teste ({n} compostos), que não participou da triagem, do ajuste de hiperparâmetros nem da validação cruzada.{criteria} As métricas obtidas estão na tabela a seguir:",
+    "test_eval_en": "Predictivity was assessed once on the test set ({n} compounds), which took no part in screening, hyperparameter tuning or cross-validation.{criteria} The resulting metrics are shown in the table below:",
+    "criteria_regression_pt": " Os critérios de aceitação (coluna Acceptance) seguem Golbraikh & Tropsha (2002), Chirico & Gramatica (2012) e Roy et al. (rm²).",
+    "criteria_regression_en": " Acceptance criteria (Acceptance column) follow Golbraikh & Tropsha (2002), Chirico & Gramatica (2012) and Roy et al. (rm²).",
+    "criteria_classification_pt": " Para modelos de classificação não há limiares de aceitação consensuais na literatura de QSAR, por isso as métricas são apresentadas sem critério de aceitação.",
+    "criteria_classification_en": " For classification models there are no consensus acceptance thresholds in the QSAR literature, so the metrics are reported without acceptance criteria.",
     "external_eval_pt": "Os modelos também foram aplicados ao conjunto externo, com {n} compostos com valor experimental conhecido, gerando as métricas a seguir:",
     "external_eval_en": "The models were also applied to the external set, with {n} compounds of known experimental value, giving the metrics below:",
     "external_eval_refit_pt": " Para os modelos refit ({models}), Q²F1 e Q²F3 usam como referência a média e a variância de treino + teste, os dados em que esses modelos foram treinados.",
@@ -1558,18 +1562,18 @@ _STEP4_ML_TEXTS = {
     "cv_table_follows_en": "The results are shown in the table below:",
     "cv_columns_all_folds_pt": "Na tabela, cada fold mostra, nos compostos deixados de fora, as mesmas métricas usadas na validação externa (exceto Q²F1/Q²F3 e os critérios de Golbraikh-Tropsha, próprios de um conjunto externo), além do ajuste da cópia do modelo nos seus folds de treino (R2 Train ou Accuracy Train) quando disponível; as linhas de resumo foram calculadas sobre todos os {n} folds da tabela: Mean é a média das métricas de todos os folds e Std Dev, o desvio-padrão entre eles.",
     "cv_columns_all_folds_en": "In the table, each fold shows, on the compounds left out, the same metrics used in the external validation (except Q²F1/Q²F3 and the Golbraikh-Tropsha criteria, which are specific to an external set), plus the fit of the model copy on its training folds (R2 Train or Accuracy Train) when available; the summary rows were calculated over all {n} folds of the table: Mean is the mean of the metrics of all folds and Std Dev is the standard deviation between them.",
-    "repsplit_cv_all_folds_pt": " Nas colunas CV, o valor de cada divisão é a média ± desvio-padrão das métricas de todos os {n} folds da sua validação cruzada.",
-    "repsplit_cv_all_folds_en": " In the CV columns, each split's value is the mean ± standard deviation of the metrics of all {n} folds of its cross-validation.",
-    "repsplit_cv_pooled_pt": " Nas colunas CV, o valor de cada divisão é a métrica das predições out-of-fold agrupadas (média entre as repetições) ± o desvio-padrão {between}.",
-    "repsplit_cv_pooled_en": " In the CV columns, each split's value is the metric of the pooled out-of-fold predictions (mean across repetitions) ± the standard deviation {between}.",
+    "repsplit_cv_all_folds_pt": " Nas linhas CV, o valor de cada divisão é a média ± desvio-padrão das métricas de todos os {n} folds da sua validação cruzada.",
+    "repsplit_cv_all_folds_en": " In the CV rows, each split's value is the mean ± standard deviation of the metrics of all {n} folds of its cross-validation.",
+    "repsplit_cv_pooled_pt": " Nas linhas CV, o valor de cada divisão é a métrica das predições out-of-fold agrupadas (média entre as repetições) ± o desvio-padrão {between}.",
+    "repsplit_cv_pooled_en": " In the CV rows, each split's value is the metric of the pooled out-of-fold predictions (mean across repetitions) ± the standard deviation {between}.",
     "between_reps_pt": "entre as repetições", "between_reps_en": "between repetitions",
     "between_folds_pt": "entre os folds", "between_folds_en": "between folds",
     "nested_params_pt": "A tabela a seguir resume os hiperparâmetros escolhidos pela busca interna nos {total} folds externos do Nested CV do modelo {model}, com o número e a porcentagem de folds em que cada combinação foi escolhida. Uma combinação predominante indica uma escolha estável; combinações muito variadas indicam que várias delas têm desempenho semelhante ou que a escolha é sensível à partição dos dados. O modelo final não é nenhum destes: ele resulta do Tuning, com a mesma busca, sobre todo o conjunto de treino.",
     "nested_params_en": "The table below summarizes the hyperparameters chosen by the inner search in the {total} outer folds of the Nested CV of the {model} model, with the number and percentage of folds in which each combination was chosen. A predominant combination indicates a stable choice; widely varying combinations indicate that several of them perform similarly or that the choice is sensitive to how the data are partitioned. The final model is none of these: it results from the Tuning, with the same search, on the whole training set.",
     "cv_charts_pt": "As predições out-of-fold da validação cruzada do modelo {model} (conjunto de treino) são apresentadas a seguir:",
     "cv_charts_en": "The out-of-fold predictions from the cross-validation of the {model} model (training set) are presented below:",
-    "repsplit_pt": "Para avaliar a estabilidade do modelo {model} em relação à divisão dos dados, foi realizada uma análise de divisões repetidas: o conjunto interno foi dividido {n} vezes ({method}, com {pct}% dos compostos separados como conjunto externo em cada divisão; a divisão 1 é a mesma usada no desenvolvimento do modelo). Em cada divisão, o modelo, com os mesmos hiperparâmetros, foi submetido à validação cruzada {folds}-fold repetida {repeats} vez(es) na parte de treino (colunas CV, média ± desvio-padrão) e avaliado na parte separada (colunas Ext). A última linha traz a média ± desvio-padrão entre as divisões.",
-    "repsplit_en": "To assess the stability of the {model} model with respect to how the data are split, a repeated-splits analysis was performed: the internal set was split {n} times ({method}, holding out {pct}% of the compounds as an external set in each split; split 1 is the one used to develop the model). In each split, the model, with the same hyperparameters, underwent {folds}-fold cross-validation repeated {repeats} time(s) on the training part (CV columns, mean ± standard deviation) and was evaluated on the held-out part (Ext columns). The last row gives the mean ± standard deviation across splits.",
+    "repsplit_pt": "Para avaliar a estabilidade do modelo {model} em relação à divisão dos dados, foi realizada uma análise de divisões repetidas: o conjunto interno foi dividido {n} vezes ({method}, com {pct}% dos compostos separados como conjunto externo em cada divisão; a divisão 1 é a mesma usada no desenvolvimento do modelo). Em cada divisão, o modelo, com os mesmos hiperparâmetros, foi submetido à validação cruzada {folds}-fold repetida {repeats} vez(es) na parte de treino (linhas CV, média ± desvio-padrão) e avaliado na parte separada (linhas Ext), com as mesmas métricas da validação interna e da validação no conjunto teste. Cada coluna da tabela é uma divisão, e a última coluna traz a média ± desvio-padrão entre as divisões.",
+    "repsplit_en": "To assess the stability of the {model} model with respect to how the data are split, a repeated-splits analysis was performed: the internal set was split {n} times ({method}, holding out {pct}% of the compounds as an external set in each split; split 1 is the one used to develop the model). In each split, the model, with the same hyperparameters, underwent {folds}-fold cross-validation repeated {repeats} time(s) on the training part (CV rows, mean ± standard deviation) and was evaluated on the held-out part (Ext rows), with the same metrics as the internal validation and the test-set validation. Each table column is one split, and the last column gives the mean ± standard deviation across splits.",
     "heading_internal_pt": "Validação interna (Princípio 4 da OECD: ajuste e robustez - somente o conjunto de treino)",
     "heading_internal_en": "Internal validation (OECD Principle 4: goodness-of-fit and robustness - training set only)",
     "heading_external_pt": "Validação externa (Princípio 4 da OECD: predictividade - compostos que não participaram do desenvolvimento do modelo)",
@@ -1617,16 +1621,58 @@ _STEP4_ML_TEXTS = {
 _STEP4_COLOR_HIGHLIGHT = "DEEBF6"
 _STEP4_COLOR_OVERALL = "FEF2CC"
 
-# Métricas da tabela-resumo da análise de divisões repetidas (mesma escolha de
-# CODRUG.MainWindow._SKL_REPSPLIT_DISPLAY; o CSV guarda todas).
-_REPSPLIT_DISPLAY = {
-    "classification": ["Accuracy", "Balanced Accuracy", "Recall (Sensitivity)", "Specificity", "MCC"],
-    "regression": ["Q2", "RMSE", "MAE", "CCC"],
-}
+def _repsplit_csv_rows(df):
+    """CSV skl_repsplit_* no formato de uma LINHA POR DIVISÃO (+ Mean/Std Dev). Desde a 1.2.0-1 o CSV é
+    gravado transposto (1ª coluna "Split" com os nomes das linhas - Random State, n Train, n Ext,
+    CV/Ext <métrica> -, uma coluna por divisão e as colunas Mean/Std Dev); CSVs anteriores passam
+    direto."""
+    if df is None or df.empty or df.columns[0] != "Split":
+        return df
+    import pandas as pd
+    if not df["Split"].astype(str).isin(["n Train", "n Ext"]).any():
+        return df  # formato antigo
+    t = df.set_index("Split").T
+    t.index.name = "Split"
+    t = t.reset_index()
+    t.columns.name = None
+    for col in t.columns[1:]:
+        try:
+            t[col] = pd.to_numeric(t[col])
+        except (TypeError, ValueError):
+            pass
+    return t
+
+
+def _cv_csv_rows(df):
+    """CSV skl_cv_* no formato de uma LINHA POR FOLD, usado pelo relatório. Desde a 1.2.0-1 o CSV é
+    gravado transposto (CODRUG._skl_cv_transposed: 1ª coluna "Fold"/"Outer Fold"/"Iteration" com os
+    nomes das métricas, uma coluna por fold/resumo); CSVs anteriores (uma linha por fold) passam
+    direto. Métricas voltam a ser numéricas; "Best Params" continua texto."""
+    if df is None or df.empty:
+        return df
+    import pandas as pd
+    first = df.columns[0]
+    if first not in ("Fold", "Outer Fold", "Iteration"):
+        return df
+    labels = df[first].astype(str)
+    if not labels.isin(["n Val", "n OOB"]).any():
+        return df  # formato antigo: a 1ª coluna já traz os folds
+    t = df.set_index(first).T
+    t.index.name = first
+    t = t.reset_index()
+    t.columns.name = None
+    for col in t.columns[1:]:
+        if col == "Best Params":
+            continue
+        try:
+            t[col] = pd.to_numeric(t[col])
+        except (TypeError, ValueError):
+            pass
+    return t
 
 
 def _repsplit_cv_note(rs_settings: dict, texts: dict, lang: str) -> str:
-    """Frase sobre o resumo das colunas CV do Repeated Splits ("All Folds" marcado: média ± DP de todos
+    """Frase sobre o resumo das linhas CV do Repeated Splits ("All Folds" marcado: média ± DP de todos
     os k x r folds; senão Pooled ± DP entre repetições/folds). Vazia em sessões gravadas antes do
     "All Folds" (sem a chave), cujo texto original já descreve o resultado."""
     if "all_folds" not in rs_settings:
@@ -1640,38 +1686,58 @@ def _repsplit_cv_note(rs_settings: dict, texts: dict, lang: str) -> str:
         between=texts[f"between_reps_{sfx}" if reps > 1 else f"between_folds_{sfx}"])
 
 
-def _repsplit_display_table(df: "pd.DataFrame", task: str) -> "pd.DataFrame":
-    """Tabela-resumo do CSV skl_repsplit_*: uma linha por divisão ("CV <métrica>" = média ± DP,
-    "Ext <métrica>") e uma linha final "Mean ± SD" entre as divisões."""
+def _repsplit_display_table(df: "pd.DataFrame", task: str = "") -> "pd.DataFrame":
+    """Tabela-resumo TRANSPOSTA do Repeated Splits (mesmo formato da janela do CODRUG,
+    MainWindow._skl_repsplit_display_table): 1ª coluna "Split" com n Train, n Ext, "CV <métrica>"
+    (média ± DP da CV de cada divisão) e "Ext <métrica>"; uma coluna por divisão e a final
+    "Mean ± SD" entre as divisões. Mesmas métricas da validação interna (CV) e do Validate on Test
+    Set (Ext), com 3 casas decimais. df = uma linha por divisão (ver _repsplit_csv_rows)."""
     import pandas as pd
-    metrics = [m for m in _REPSPLIT_DISPLAY.get(task, []) if f"Ext {m}" in df.columns]
+    split_rows = df[pd.to_numeric(df["Split"], errors="coerce").notna()]
+    mean_row = df[df["Split"].astype(str) == "Mean"]
+    sd_row = df[df["Split"].astype(str) == "Std Dev"]
+    ext_metrics = [c[len("Ext "):] for c in df.columns if c.startswith("Ext ")]
+    cv_metrics = [c[len("CV "):] for c in df.columns if c.startswith("CV ") and not c.endswith(" SD")]
 
     def _f(v):
         try:
             v = float(v)
         except (TypeError, ValueError):
             return ""
-        return "" if v != v else f"{v:.2f}"
+        return "" if v != v else f"{v:.3f}"
 
-    out = []
-    for _, r in df[pd.to_numeric(df["Split"], errors="coerce").notna()].iterrows():
-        row = {"Split": str(int(float(r["Split"]))), "n Train": str(int(float(r["n Train"]))), "n Ext": str(int(float(r["n Ext"])))}
-        for m in metrics:
-            row[f"CV {m}"] = f"{_f(r.get(f'CV {m}'))} ± {_f(r.get(f'CV {m} SD'))}"
-        for m in metrics:
-            row[f"Ext {m}"] = _f(r.get(f"Ext {m}"))
-        out.append(row)
-    mean_row = df[df["Split"].astype(str) == "Mean"]
-    sd_row = df[df["Split"].astype(str) == "Std Dev"]
-    if not mean_row.empty and not sd_row.empty:
-        mr, sr = mean_row.iloc[0], sd_row.iloc[0]
-        row = {"Split": "Mean ± SD", "n Train": "", "n Ext": ""}
-        for m in metrics:
-            row[f"CV {m}"] = f"{_f(mr.get(f'CV {m}'))} ± {_f(sr.get(f'CV {m}'))}"
-        for m in metrics:
-            row[f"Ext {m}"] = f"{_f(mr.get(f'Ext {m}'))} ± {_f(sr.get(f'Ext {m}'))}"
-        out.append(row)
-    return pd.DataFrame(out)
+    def _pm(a, b):
+        a, b = _f(a), _f(b)
+        return f"{a} ± {b}" if a and b else a
+
+    has_summary = not mean_row.empty and not sd_row.empty
+    mr = mean_row.iloc[0] if has_summary else None
+    sr = sd_row.iloc[0] if has_summary else None
+    labels = [str(int(float(v))) for v in split_rows["Split"]]
+    lines = []
+    for count in ("n Train", "n Ext"):
+        if count in df.columns:
+            line = {"Split": count}
+            for lab, (_, r) in zip(labels, split_rows.iterrows()):
+                line[lab] = str(int(float(r[count])))
+            if has_summary:
+                line["Mean ± SD"] = ""
+            lines.append(line)
+    for m in cv_metrics:
+        line = {"Split": f"CV {m}"}
+        for lab, (_, r) in zip(labels, split_rows.iterrows()):
+            line[lab] = _pm(r.get(f"CV {m}"), r.get(f"CV {m} SD"))
+        if has_summary:
+            line["Mean ± SD"] = _pm(mr.get(f"CV {m}"), sr.get(f"CV {m}"))
+        lines.append(line)
+    for m in ext_metrics:
+        line = {"Split": f"Ext {m}"}
+        for lab, (_, r) in zip(labels, split_rows.iterrows()):
+            line[lab] = _f(r.get(f"Ext {m}"))
+        if has_summary:
+            line["Mean ± SD"] = _pm(mr.get(f"Ext {m}"), sr.get(f"Ext {m}"))
+        lines.append(line)
+    return pd.DataFrame(lines)
 
 
 _STEP4_CHART_KINDS = ["predicted_vs_actual", "residuals", "manifold", "feature_importance",
@@ -1986,7 +2052,7 @@ def _add_step5_section(document: Any, project_dir: str, state: dict[str, Any], i
             method = settings.get("method", "")
             folds = settings.get("folds", "")
             cv_csv = _find_skl_csv(data_dir, "skl_cv", usi, model_name)
-            cv_df = _read_csv(cv_csv)
+            cv_df = _cv_csv_rows(_read_csv(cv_csv))
             if cv_df is not None:
                 v_rep = int(settings.get("repeats") or 1)
                 cv_text = texts["cv_pt" if lang == "pt" else "cv_en"].format(
@@ -2095,14 +2161,25 @@ def _add_step5_section(document: Any, project_dir: str, state: dict[str, Any], i
             eval_df = _read_csv(_find_skl_csv(data_dir, prefix, usi))
             if eval_df is None or eval_df.empty or "Metric" not in eval_df.columns:
                 continue
+            # Coluna Acceptance: só em regressão (CODRUG._skl_external_metrics_table). CSVs de versões
+            # anteriores a trazem também em classificação, sempre vazia - removida aqui.
+            is_regression = (eval_df["Metric"] == "Q2F1").any()
+            if "Acceptance" in eval_df.columns and not is_regression:
+                eval_df = eval_df.drop(columns=["Acceptance"])
+            n_first = 2 if "Acceptance" in eval_df.columns else 1  # 1ª coluna de modelo
             n_row = eval_df.loc[eval_df["Metric"] == "n"]
-            n_val = n_row.iloc[0, 2] if not n_row.empty and eval_df.shape[1] > 2 else ""
+            n_val = n_row.iloc[0, n_first] if not n_row.empty and eval_df.shape[1] > n_first else ""
             try:
                 n_val = int(float(n_val))
             except (TypeError, ValueError):
                 pass
-            eval_text = texts[f"{key}_{'pt' if lang == 'pt' else 'en'}"].format(n=n_val)
-            refit_cols = [c for c in eval_df.columns[2:] if str(c).endswith("_refit")]
+            sfx = "pt" if lang == "pt" else "en"
+            if key == "test_eval":
+                criteria = texts[f"criteria_{'regression' if is_regression else 'classification'}_{sfx}"]
+                eval_text = texts[f"{key}_{sfx}"].format(n=n_val, criteria=criteria)
+            else:
+                eval_text = texts[f"{key}_{sfx}"].format(n=n_val)
+            refit_cols = [c for c in eval_df.columns[n_first:] if str(c).endswith("_refit")]
             if key == "external_eval" and refit_cols and (eval_df["Metric"] == "Q2F1").any():
                 eval_text = eval_text.rstrip(":") + "." + texts[f"external_eval_refit_{'pt' if lang == 'pt' else 'en'}"].format(
                     models=", ".join(refit_cols))
@@ -2119,14 +2196,14 @@ def _add_step5_section(document: Any, project_dir: str, state: dict[str, Any], i
                 return "nan" if number != number else f"{number:.4g}"
 
             eval_df = eval_df.fillna("")
-            for col in eval_df.columns[2:]:
+            for col in eval_df.columns[n_first:]:
                 eval_df[col] = [_fmt(v) for v in eval_df[col]]
             _add_skl_results_table(document, eval_df, highlight_col=0)
 
         # Análise de divisões repetidas (CODRUG.run_skl_repeated_splits): estabilidade frente à
         # divisão treino/externo - uma linha por divisão (CV média ± DP e Ext), dentro da validação externa.
         for model_name, rs_settings in (session.get("repeated_splits_settings") or {}).items():
-            rs_df = _read_csv(_find_skl_csv(data_dir, "skl_repsplit", usi, model_name))
+            rs_df = _repsplit_csv_rows(_read_csv(_find_skl_csv(data_dir, "skl_repsplit", usi, model_name)))
             if rs_df is None or rs_df.empty or "Split" not in rs_df.columns:
                 continue
             _section("external")
@@ -2136,7 +2213,7 @@ def _add_step5_section(document: Any, project_dir: str, state: dict[str, Any], i
                 repeats=rs_settings.get("repeats", 1))
                 + _repsplit_cv_note(rs_settings, texts, lang))
             _add_skl_results_table(document, _repsplit_display_table(rs_df, session.get("task", "")),
-                                    highlight_col=0, highlight_col_bold=True, overall_row_value="Mean ± SD")
+                                    highlight_col=0, highlight_col_bold=True)
 
         # Gráficos de desempenho (conjunto teste) e subestruturas do Feature Importance de cada modelo
         # validado: parte da validação externa.

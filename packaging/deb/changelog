@@ -185,11 +185,47 @@ codrug (1.2.0-1) unstable; urgency=low
     é ela que o Nested CV usa na busca interna), inclusive logo após o
     Tuning. USIs antigas: a grade do modelo base é atribuída à variante
     quando confere com o CSV do tuning dela (skl_tune_*) (CODRUG.py).
-  * Tabela da Internal Validation transposta: cada coluna é um fold
-    (cabeçalho "Fold"/"Outer Fold"/"Iteration", depois "1-1", "1-2"... e as
-    colunas de resumo) e cada linha uma métrica. "Best Params" do Nested CV
-    fica só no CSV skl_cv_* (que mantém o formato de antes, uma linha por
-    fold) (CODRUG.py, BIN/i18n.py).
+  * Tabela da Internal Validation e CSV skl_cv_* transpostos, no mesmo
+    formato: cada coluna é um fold (cabeçalho "Fold"/"Outer Fold"/
+    "Iteration", depois "1-1", "1-2"... e as colunas de resumo) e cada linha
+    uma métrica. "Best Params" do Nested CV fica só no CSV. O relatório lê
+    tanto o CSV novo quanto o de versões anteriores (uma linha por fold) e
+    mantém sua tabela com uma linha por fold (CODRUG.py, BIN/i18n.py,
+    BIN/module_report.py).
+  * Internal Validation: barra de progresso entre a tabela e os botões, no
+    lugar da janela de espera - avança a cada fold (fold externo no Nested
+    CV, iteração no Bootstrap) em Run Cross-Validation e a cada permutação
+    em Run Y-Scrambling (reiniciada a cada execução, com o nome da tarefa)
+    (CODRUG.py, BIN/i18n.py).
+  * Run Repeated Splits: tabela e CSV skl_repsplit_* transpostos, como os
+    da Internal Validation (uma coluna por divisão e "Mean ± SD"; no CSV,
+    colunas Mean e Std Dev e valores sem arredondamento); valores da janela
+    e do relatório com 3 casas decimais; mesmas métricas da tabela da
+    Internal Validation nas linhas CV (inclusive R2/Accuracy Train) e do
+    Validate on Test Set nas linhas Ext. O relatório lê também os CSVs de
+    versões anteriores (CODRUG.py, BIN/i18n.py, BIN/module_report.py).
+  * Validate on Test Set e Predict com Y: a coluna Acceptance (critérios de
+    aceitação) só aparece em regressão - em classificação não há limiares
+    consensuais e ela ficava sempre vazia (janela, CSV e relatório; CSVs
+    antigos têm a coluna vazia removida no relatório). O texto do relatório
+    cita os critérios de Golbraikh & Tropsha, Chirico & Gramatica e Roy só
+    em regressão e, em classificação, explica a ausência de critérios
+    (CODRUG.py, BIN/module_report.py).
+  * Ao carregar um projeto (aba CONFIG), a USI da STEP 4 é restaurada sem a
+    janela "USI '...' loaded: n model(s) available", que exigia um OK;
+    selecionar uma USI manualmente na STEP 4 continua mostrando-a
+    (CODRUG.py).
+  * Correção das métricas de classificação BINÁRIA: Precision, Recall
+    (Sensitivity) e F1 passam a ser os da classe positiva (rótulo "de ativo",
+    ex.: active/1, ou a segunda classe em ordem) e Specificity, o recall da
+    classe negativa. Antes Precision/Recall/F1 eram médias ponderadas entre
+    as classes (o Recall ponderado é sempre igual à Accuracy) e a Specificity
+    tomava a segunda classe alfabética como positiva - com active/inactive
+    ela era, na verdade, a sensibilidade dos ativos. Vale para Screening,
+    validação interna, Tuning e Nested CV (scorers), Y-Scrambling, curvas,
+    Validate on Test Set, Predict com Y, Repeated Splits e relatório; 3+
+    classes mantêm a média ponderada. Resultados gerados antes precisam ser
+    refeitos (CODRUG.py).
 
  -- Moisés Maia Neto <moimaian@gmail.com>  Tue, 13 Oct 2026 03:18:10 -0300
 
