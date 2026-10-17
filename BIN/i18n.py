@@ -536,11 +536,15 @@ _TEXTOS = {
     },
     "s4_tooltip_ext_split_method": {
         "en": "Random: random split, reproducible with this step's Random State.\n"
+              "Stratified Random: random split keeping the same proportion of each class (classification) or of each "
+              "Y range (regression, 5 quantile ranges) in both sets - needs the Y column; reproducible with the Random State.\n"
               "Kennard-Stone / Sphere Exclusion: rational splits on the descriptor columns of 'Feature Columns Range' "
               "(the external set lies inside the chemical space of the internal one) - same methods as the 'Split Method' of STEP 4.\n"
               "Scaffold: Bemis-Murcko scaffolds of the SMILES column; whole scaffold groups go to one side, so the external "
               "set has only chemical families absent from the internal one (extrapolation - a harder, more realistic test).",
         "pt": "Random: divisão aleatória, reprodutível pelo Random State desta etapa.\n"
+              "Stratified Random: divisão aleatória que mantém a mesma proporção de cada classe (classificação) ou de "
+              "cada faixa de Y (regressão, 5 faixas por quantis) nos dois conjuntos - exige a coluna Y; reprodutível pelo Random State.\n"
               "Kennard-Stone / Sphere Exclusion: divisões racionais sobre as colunas de descritores de 'Feature Columns Range' "
               "(o conjunto externo fica dentro do espaço químico do interno) - os mesmos métodos do 'Split Method' da ETAPA 4.\n"
               "Scaffold: esqueletos de Bemis-Murcko da coluna de SMILES; grupos inteiros de scaffold vão para um só lado, então o "
@@ -728,6 +732,9 @@ _TEXTOS = {
     "s6_tooltip_split_method": {
         "en": "How the Internal DataFrame is divided into training and test sets.\n"
               "Random: random split, reproducible with the Random State (default).\n"
+              "Stratified Random: random split that keeps the same proportion of each class (classification) or of "
+              "each Y range (regression, 5 quantile ranges) in training and test - recommended for imbalanced classes; "
+              "reproducible with the Random State.\n"
               "Kennard-Stone: picks the training set to cover the descriptor space (max-min distance); "
               "the test set lies inside the training space. Exact test size.\n"
               "Sphere Exclusion (Golbraikh & Tropsha): sphere centres go to training and the compounds "
@@ -739,6 +746,9 @@ _TEXTOS = {
               "families. Reproducible with the Random State; the test size may differ slightly; not stratified by class.",
         "pt": "Como o Internal DataFrame é dividido em conjuntos de treino e teste.\n"
               "Random: divisão aleatória, reprodutível pelo Random State (padrão).\n"
+              "Stratified Random: divisão aleatória que mantém a mesma proporção de cada classe (classificação) ou "
+              "de cada faixa de Y (regressão, 5 faixas por quantis) no treino e no teste - recomendada para classes "
+              "desbalanceadas; reprodutível pelo Random State.\n"
               "Kennard-Stone: escolhe o treino para cobrir o espaço dos descritores (distância max-min); "
               "o teste fica dentro do espaço do treino. Tamanho do teste exato.\n"
               "Sphere Exclusion (Golbraikh & Tropsha): os centros das esferas vão para o treino e os "
@@ -817,6 +827,8 @@ _TEXTOS = {
     },
     "lbl_status": {"en": "Status:", "pt": "Status:"},
     "s6_fmt_screening_progress": {"en": "Screening: %p%", "pt": "Seleção: %p%"},
+    "s6_fmt_tune_progress": {"en": "Tuning: %p%", "pt": "Ajuste: %p%"},
+    "s6_fmt_repsplit_progress": {"en": "Repeated Splits: %p%", "pt": "Divisões Repetidas: %p%"},
     "s6_fmt_cv_progress": {"en": "Cross-Validation: %p%", "pt": "Validação Cruzada: %p%"},
     "s6_fmt_yrand_progress": {"en": "Y-Scrambling: %p%", "pt": "Y-Scrambling: %p%"},
     "btn_select_all": {"en": "Select All", "pt": "Selecionar Tudo"},
@@ -840,7 +852,7 @@ _TEXTOS = {
               "and evaluation on the held-out part (Ext rows), with the same metrics as the Internal Validation and "
               "'Validate on Test Set'; one column per split, 3 decimals. The CV uses 'CV Folds', 'Repeats' and 'All Folds' "
               "of the Internal Validation group. Because it re-splits the test set too, run it once, with the final "
-              "model(s), like 'Validate on Test Set'. Random or Scaffold split only.",
+              "model(s), like 'Validate on Test Set'. Random, Stratified Random or Scaffold split only.",
         "pt": "Estabilidade dos modelos MARCADOS na lista deste grupo (mesmo algoritmo e hiperparâmetros, sem "
               "retunar) em relação à divisão dos dados: o Internal DataFrame inteiro (treino + teste) é dividido n "
               "vezes com o Test Size e o Split Method do Model Screening (divisão 1 = a da própria USI); em cada "
@@ -848,7 +860,7 @@ _TEXTOS = {
               "avaliação na parte separada (linhas Ext), com as mesmas métricas da Validação Interna e do "
               "'Validar no Teste'; uma coluna por divisão, 3 casas decimais. A CV usa 'CV Folds', 'Repetições' e 'All Folds' do "
               "grupo Validação Interna. Como redivide também o conjunto teste, rode uma vez, com o(s) modelo(s) final(is), como o "
-              "'Validar no Teste'. Só divisão Random ou Scaffold.",
+              "'Validar no Teste'. Só divisão Random, Stratified Random ou Scaffold.",
     },
     "s6_msg_repsplit_no_model": {
         "en": "Check at least one model in the list of the External Validation, Refit and Prediction group.",
@@ -860,10 +872,10 @@ _TEXTOS = {
               "que 0 em Model Screening.",
     },
     "s6_msg_repsplit_deterministic": {
-        "en": "The {method} split is deterministic: every split would be identical. Select Random or Scaffold in "
-              "Model Screening's Split Method.",
-        "pt": "A divisão {method} é determinística: todas as divisões seriam idênticas. Selecione Random ou Scaffold "
-              "no Método de Divisão do Model Screening.",
+        "en": "The {method} split is deterministic: every split would be identical. Select Random, Stratified Random or "
+              "Scaffold in Model Screening's Split Method.",
+        "pt": "A divisão {method} é determinística: todas as divisões seriam idênticas. Selecione Random, Stratified "
+              "Random ou Scaffold no Método de Divisão do Model Screening.",
     },
     "s6_tooltip_cv_repeats": {
         "en": "Number of times the k-fold cross-validation is repeated, each time with a different random partition "

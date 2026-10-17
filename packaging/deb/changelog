@@ -226,6 +226,27 @@ codrug (1.2.0-1) unstable; urgency=low
     Validate on Test Set, Predict com Y, Repeated Splits e relatório; 3+
     classes mantêm a média ponderada. Resultados gerados antes precisam ser
     refeitos (CODRUG.py).
+  * Hyperparameter Tuning: barra de progresso abaixo da tabela de
+    hiperparâmetros e acima do Run Tuning, no lugar da janela de espera -
+    avança a cada avaliação (combinação x fold) concluída; indeterminada nos
+    métodos Halving, cujo nº de avaliações não é conhecido antes. A busca
+    roda numa thread Python sem objetos Qt; resultados idênticos aos de
+    antes (CODRUG.py, BIN/i18n.py).
+  * Run Repeated Splits: barra de progresso no grupo External Validation,
+    Refit and Prediction (abaixo de "Splits (n)"), no lugar da janela de
+    espera - avança a cada fold da CV e a cada avaliação Ext de cada divisão
+    de cada modelo marcado (CODRUG.py, BIN/i18n.py).
+  * Home (Hardware Specs da GPU): nova linha "CUDA cores" (ex.: 10240 (80 SM
+    x 128)) = multiprocessadores x núcleos por SM da compute capability,
+    lidos do driver da NVIDIA num subprocesso curto - o processo do CODRUG
+    continua sem acesso à GPU (CUDA_VISIBLE_DEVICES="") (CODRUG.py).
+  * Novo Split Method "Stratified Random" (divisão treino/teste da STEP 4,
+    Run Repeated Splits e separação do External DataFrame): divisão
+    aleatória, reprodutível pelo Random State, que mantém a mesma proporção
+    de cada classe (classificação) ou de cada faixa de Y (regressão, 5
+    faixas por quantis) nos dois conjuntos; exige a coluna Y e ao menos 2
+    compostos por classe/faixa. Tooltips e relatório descrevem o método
+    (BIN/rational_split.py, CODRUG.py, BIN/i18n.py, BIN/module_report.py).
 
  -- Moisés Maia Neto <moimaian@gmail.com>  Tue, 13 Oct 2026 03:18:10 -0300
 

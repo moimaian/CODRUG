@@ -2599,7 +2599,7 @@ class SklScreeningWorker(QThread): # type: ignore
         self.cv_folds = cv_folds
         # Nº de repetições da validação cruzada do ranking (cada uma com outra partição dos folds).
         self.cv_repeats = max(1, int(cv_repeats or 1))
-        self.split_method = split_method  # "Random", "Kennard-Stone", "Sphere Exclusion" ou "Scaffold"
+        self.split_method = split_method  # "Random", "Stratified Random", "Kennard-Stone", "Sphere Exclusion" ou "Scaffold"
         self.smiles = smiles  # SMILES alinhados linha a linha com x - só para o split "Scaffold"
         self.trained_models = {}
         self.x_train = self.x_test = self.y_train = self.y_test = None
@@ -2641,8 +2641,9 @@ class SklScreeningWorker(QThread): # type: ignore
             else:
                 if self.test_size and self.test_size > 0:
                     if rational_split is not None and self.split_method != "Random":
-                        # Split racional (Kennard-Stone / Sphere Exclusion): o teste fica dentro do
-                        # espaço químico do treino - ver BIN/rational_split.py.
+                        # Stratified Random (aleatório, mesma proporção de classes / faixas de Y), Scaffold
+                        # ou split racional (Kennard-Stone / Sphere Exclusion: o teste fica dentro do
+                        # espaço químico do treino) - ver BIN/rational_split.py.
                         self.x_train, self.x_test, self.y_train, self.y_test = rational_split.split(
                             self.x, self.y, self.test_size, self.split_method, self.task,
                             random_state=self.random_state, smiles=self.smiles,
@@ -2980,8 +2981,35 @@ class SklTuneWorker(QThread): # type: ignore
         # que o sklearn maximiza invertidos - os resultados são desinvertidos no fim, para exibição.
         self.scoring = scoring
         self.sign = sign
+        # Progresso (barra do grupo Hyperparameter Tuning): nº de avaliações (combinação x fold) já
+        # pontuadas e o total previsto - 0 quando não dá para prever (Halving*, barra indeterminada).
+        self.progress_done = 0
+        self.progress_total = 0
+        self._progress_lock = threading.Lock()
+
+    def _counting_scorer(self, estimator):
+        """Scorer da busca (o da 'Sort metric', ou o padrão do estimador) que conta cada avaliação
+        de fold para a barra de progresso. Mesmos valores - só soma 1 a progress_done."""
+        from sklearn.metrics import check_scoring
+        base = check_scoring(estimator, scoring=self.scoring)
+
+        def _scorer(est, x, y):
+            value = base(est, x, y)
+            with self._progress_lock:
+                self.progress_done += 1
+            return value
+        return _scorer
 
     def run(self):
+        try:
+            best_model, best_params, cv_results = self.compute()
+            self.finished_ok.emit(best_model, best_params, cv_results)
+        except Exception as e:
+            self.error.emit(str(e))
+
+    def compute(self):
+        """Executa a busca e retorna (best_model, best_params, cv_results); exceções sobem. Pode rodar
+        numa thread Python sem Qt (run_skl_tune), enquanto a thread da GUI atualiza a barra."""
         # Força threads em vez de processos (fork) para o joblib — ver comentário em SklScreeningWorker.run().
         backend_ctx = joblib.parallel_backend("threading")
         backend_ctx.__enter__()
@@ -3009,9 +3037,25 @@ class SklTuneWorker(QThread): # type: ignore
             from sklearn.base import is_classifier
             folds = _skl_make_cv(is_classifier(base_model), folds, self.repeats, random_state)
 
+            # Total de avaliações para a barra: combinações x folds (x repetições). Halving*: o nº de
+            # candidatos por rodada depende dos recursos - barra indeterminada (total 0).
+            from sklearn.model_selection import ParameterGrid
+            n_splits = folds.get_n_splits()
+            n_grid = len(ParameterGrid(search_param_grid))
+            self.progress_done = 0
+            if method == "RandomizedSearchCV":
+                self.progress_total = min(int(self.n_iter), n_grid) * n_splits
+            elif method == "Bayesian Optimization (Optuna)":
+                self.progress_total = int(self.n_iter) * n_splits
+            elif method in ("HalvingGridSearchCV", "HalvingRandomSearchCV"):
+                self.progress_total = 0
+            else:
+                self.progress_total = n_grid * n_splits
+            scorer = self._counting_scorer(base_model)
+
             if method == "RandomizedSearchCV":
                 search = RandomizedSearchCV(base_model, search_param_grid, n_iter=self.n_iter,
-                                              cv=folds, random_state=random_state, n_jobs=-1, scoring=self.scoring)
+                                              cv=folds, random_state=random_state, n_jobs=-1, scoring=scorer)
                 search.fit(self.x_train, self.y_train)
                 best_model, best_params = search.best_estimator_, search.best_params_
                 self.best_cv_score = float(search.best_score_)
@@ -3019,7 +3063,7 @@ class SklTuneWorker(QThread): # type: ignore
                 cv_results = _skl_grid_cv_results_to_df(search.cv_results_)
             elif method == "HalvingGridSearchCV":
                 search = HalvingGridSearchCV(base_model, search_param_grid, cv=folds, random_state=random_state, n_jobs=-1,
-                                             scoring=self.scoring)
+                                             scoring=scorer)
                 search.fit(self.x_train, self.y_train)
                 best_model, best_params = search.best_estimator_, search.best_params_
                 self.best_cv_score = float(search.best_score_)
@@ -3027,7 +3071,7 @@ class SklTuneWorker(QThread): # type: ignore
                 cv_results = _skl_grid_cv_results_to_df(search.cv_results_)
             elif method == "HalvingRandomSearchCV":
                 search = HalvingRandomSearchCV(base_model, search_param_grid, cv=folds, random_state=random_state, n_jobs=-1,
-                                               scoring=self.scoring)
+                                               scoring=scorer)
                 search.fit(self.x_train, self.y_train)
                 best_model, best_params = search.best_estimator_, search.best_params_
                 self.best_cv_score = float(search.best_score_)
@@ -3041,7 +3085,7 @@ class SklTuneWorker(QThread): # type: ignore
                     trial_params = {name: trial.suggest_categorical(name, values) for name, values in param_grid.items()}
                     trial_kwargs = _skl_force_single_thread_kwargs(cls, {**base_kwargs, **trial_params})
                     trial_model = _skl_instantiate(cls, trial_kwargs, random_state)
-                    scores = cross_val_score(trial_model, self.x_train, self.y_train, cv=folds, scoring=self.scoring)
+                    scores = cross_val_score(trial_model, self.x_train, self.y_train, cv=folds, scoring=scorer)
                     trial.set_user_attr("cv_std", float(scores.std()))
                     return float(scores.mean())
 
@@ -3055,7 +3099,7 @@ class SklTuneWorker(QThread): # type: ignore
                 best_model.fit(self.x_train, self.y_train)
                 cv_results = study.trials_dataframe().sort_values("value", ascending=False).reset_index(drop=True)
             else:
-                search = GridSearchCV(base_model, search_param_grid, cv=folds, n_jobs=-1, scoring=self.scoring)
+                search = GridSearchCV(base_model, search_param_grid, cv=folds, n_jobs=-1, scoring=scorer)
                 search.fit(self.x_train, self.y_train)
                 best_model, best_params = search.best_estimator_, search.best_params_
                 self.best_cv_score = float(search.best_score_)
@@ -3086,9 +3130,7 @@ class SklTuneWorker(QThread): # type: ignore
                     for col in ("mean_test_score", "value"):
                         if col in cv_results.columns:
                             cv_results[col] = -cv_results[col]
-            self.finished_ok.emit(best_model, best_params, cv_results)
-        except Exception as e:
-            self.error.emit(str(e))
+            return best_model, best_params, cv_results
         finally:
             backend_ctx.__exit__(None, None, None)
 
@@ -4354,9 +4396,63 @@ class MainWindow(QMainWindow):
                 "Driver",
             ]
             rows.extend(zip(labels, parts))
+            # Núcleos CUDA logo após o modelo (o nvidia-smi não os informa).
+            cores = MainWindow._home_hw_cuda_cores(0)
+            if cores:
+                rows.insert(1, ("CUDA cores", cores))
         except Exception as exc:
             rows.append(("Error", str(exc)))
         return rows
+
+    # Núcleos CUDA (FP32) por multiprocessador (SM), por compute capability - tabela do CUDA
+    # Programming Guide; "major" sozinho vale para toda a geração quando não há exceção por "minor".
+    _CUDA_CORES_PER_SM = {
+        (2, 0): 32, (2, 1): 48, 3: 192, 5: 128, (6, 0): 64, 6: 128, 7: 64,
+        (8, 0): 64, 8: 128, 9: 128, 10: 128, 11: 128, 12: 128,
+    }
+
+    # Consulta ao driver da NVIDIA (ctypes), executada num subprocesso: imprime "SMs major minor".
+    _CUDA_QUERY_SCRIPT = (
+        "import ctypes,sys\n"
+        "names=('nvcuda.dll',) if sys.platform.startswith('win') else ('libcuda.so.1','libcuda.so')\n"
+        "lib=None\n"
+        "for n in names:\n"
+        "    try:\n"
+        "        lib=ctypes.CDLL(n); break\n"
+        "    except OSError: pass\n"
+        "if lib is None or lib.cuInit(0)!=0: sys.exit(1)\n"
+        "d=ctypes.c_int()\n"
+        "if lib.cuDeviceGet(ctypes.byref(d),int(sys.argv[1]))!=0: sys.exit(1)\n"
+        "def a(c):\n"
+        "    v=ctypes.c_int()\n"
+        "    return v.value if lib.cuDeviceGetAttribute(ctypes.byref(v),c,d)==0 else -1\n"
+        "print(a(16),a(75),a(76))\n"
+    )
+
+    @staticmethod
+    def _home_hw_cuda_cores(device=0):
+        """Nº de núcleos CUDA da GPU 'device' = SMs x núcleos por SM (pela compute capability). Lidos do
+        driver da NVIDIA (libcuda / nvcuda.dll via ctypes) num SUBPROCESSO curto: o próprio CODRUG
+        esconde a GPU de si mesmo (CUDA_VISIBLE_DEVICES="", ver o início do arquivo) e não deve
+        inicializar o driver CUDA no processo principal. Texto "10240 (80 SM x 128)", ou None se o
+        driver não responder ou a arquitetura não estiver na tabela."""
+        env = dict(os.environ)
+        env.pop("CUDA_VISIBLE_DEVICES", None)
+        try:
+            out = subprocess.run(
+                [sys.executable, "-I", "-c", MainWindow._CUDA_QUERY_SCRIPT, str(int(device))],
+                capture_output=True, text=True, timeout=6, env=env,
+            )
+            sms, major, minor = (int(v) for v in out.stdout.split()[:3])
+        except Exception:
+            return None
+        if sms <= 0 or major < 0:
+            return None
+        table = MainWindow._CUDA_CORES_PER_SM
+        per_sm = table.get((major, minor), table.get(major))
+        if not per_sm:
+            return None
+        return f"{sms * per_sm} ({sms} SM x {per_sm})"
 
     @staticmethod
     def _home_sw_versions():
@@ -12127,7 +12223,8 @@ class MainWindow(QMainWindow):
     def run_split_external_dataframe(self):
         """Botão "Split External DataFrame" (Etapa 3, Descriptors Builder): divide o dataframe atual da
         Etapa 3 (Select DataFrame) em um conjunto INTERNO e um EXTERNO, com o tamanho de "External
-        Size" e o método de "Split Method" (Random, reprodutível pelo Random State desta etapa;
+        Size" e o método de "Split Method" (Random ou Stratified Random - este mantém a proporção de cada
+        classe / faixa de Y, e exige a coluna Y -, reprodutíveis pelo Random State desta etapa;
         Kennard-Stone; Sphere Exclusion - BIN/rational_split.py, sobre as colunas de "Feature Columns
         Range"). O arquivo original não é alterado; são gerados <nome>_<pct>_Internal.csv (em
         DATA/INTERNAL_DATA, ao lado do original) e <nome>_<pct>_External.csv (também em
@@ -12162,7 +12259,7 @@ class MainWindow(QMainWindow):
                     QMessageBox.warning(self, title, i18n.t("s4_msg_split_no_smiles", idioma)); return
                 smiles = df[smiles_col].tolist()
                 x = df[[]].assign(_row=np.arange(len(df)))
-            elif method != "Random":
+            elif method not in ("Random", "Stratified Random"):
                 rng = None
                 try:
                     first = int(self.ed_feature_first_column.text().strip())
@@ -12179,7 +12276,7 @@ class MainWindow(QMainWindow):
                 if x.shape[1] == 0:
                     QMessageBox.warning(self, title, i18n.t("s4_msg_split_no_features", idioma)); return
             else:
-                x = df[[]].assign(_row=np.arange(len(df)))   # o split aleatório só precisa dos índices
+                x = df[[]].assign(_row=np.arange(len(df)))   # o split aleatório (estratificado ou não) só precisa dos índices
 
             _reg, task = self._get_skl_registry()
             y, ycol = None, ""
@@ -12232,7 +12329,7 @@ class MainWindow(QMainWindow):
             self._refresh_step4_dataframe_widgets()
             self._step4_last_external_split = {
                 "source": os.path.basename(src_path), "method": method, "external_size": size,
-                "random_state": seed if method in ("Random", "Scaffold") else None,
+                "random_state": seed if method in ("Random", "Stratified Random", "Scaffold") else None,
                 "n_total": int(len(df)), "n_internal": int(len(df_int)), "n_external": int(len(df_ext)),
                 "internal_file": int_name, "external_file": ext_name,
                 "y_column": ycol if y is not None else None,
@@ -20297,7 +20394,7 @@ class MainWindow(QMainWindow):
             ext_split_layout.addSpacing(12)
             ext_split_layout.addWidget(self._trL("s4_lbl_split_method"))
             self.cb_ext_split_method = QComboBox()
-            self.cb_ext_split_method.addItems(["Random", "Kennard-Stone", "Sphere Exclusion", "Scaffold"] if rational_split is not None else ["Random"])
+            self.cb_ext_split_method.addItems(["Random", "Stratified Random", "Kennard-Stone", "Sphere Exclusion", "Scaffold"] if rational_split is not None else ["Random"])
             self.cb_ext_split_method.setFixedWidth(170)
             self._tr("s4_tooltip_ext_split_method", self.cb_ext_split_method.setToolTip)
             ext_split_layout.addWidget(self.cb_ext_split_method)
@@ -21091,7 +21188,7 @@ class MainWindow(QMainWindow):
             # Método de divisão treino/teste, logo abaixo do Test Size: aleatório (padrão, reprodutível
             # pelo Random State) ou racional (Kennard-Stone / Sphere Exclusion - BIN/rational_split.py).
             self.cb_skl_split_method = QComboBox()
-            self.cb_skl_split_method.addItems(["Random", "Kennard-Stone", "Sphere Exclusion", "Scaffold"] if rational_split is not None else ["Random"])
+            self.cb_skl_split_method.addItems(["Random", "Stratified Random", "Kennard-Stone", "Sphere Exclusion", "Scaffold"] if rational_split is not None else ["Random"])
             self.cb_skl_split_method.setFixedWidth(160)
             self._tr("s6_tooltip_split_method", self.cb_skl_split_method.setToolTip)
             _metric_row(4, "s6_lbl_split_method", self.cb_skl_split_method)
@@ -21242,6 +21339,12 @@ class MainWindow(QMainWindow):
             self.lbl_skl_tune_note.setStyleSheet("color: #cc4444; font-size: 9pt;")
             self.lbl_skl_tune_note.setWordWrap(True)
             lay_skl_tune.addWidget(self.lbl_skl_tune_note)
+
+            # Progresso do Run Tuning (avaliações combinação x fold concluídas; indeterminada nos Halving*).
+            self.pb_skl_tune = self._mk_progress()
+            self.pb_skl_tune.setMaximum(100); self.pb_skl_tune.setValue(0)
+            self._tr("s6_fmt_tune_progress", self.pb_skl_tune.setFormat)
+            lay_skl_tune.addWidget(self.pb_skl_tune)
 
             tune_row3 = QHBoxLayout()
             #tune_row3.addStretch()
@@ -21479,6 +21582,12 @@ class MainWindow(QMainWindow):
             repsplit_row.addWidget(self.btn_skl_repsplit)
             repsplit_row.addStretch()
             right_col_skl_save_pred.addLayout(repsplit_row)
+
+            # Progresso do Run Repeated Splits: modelos x divisões x (folds da CV + 1 avaliação Ext).
+            self.pb_skl_repsplit = self._mk_progress()
+            self.pb_skl_repsplit.setMaximum(100); self.pb_skl_repsplit.setValue(0)
+            self._tr("s6_fmt_repsplit_progress", self.pb_skl_repsplit.setFormat)
+            right_col_skl_save_pred.addWidget(self.pb_skl_repsplit)
 
             # Stretch 0: a coluna de controles fica só com a largura que seus botões/campos precisam e
             # toda a sobra do grupo vai para a lista de modelos (list_skl_saved_models, stretch 1).
@@ -23883,6 +23992,10 @@ class MainWindow(QMainWindow):
             self.pb_skl_screening.setValue(0)
         if hasattr(self, "pb_skl_eval"):
             self.pb_skl_eval.setValue(0)
+        if hasattr(self, "pb_skl_tune"):
+            self.pb_skl_tune.setRange(0, 100); self.pb_skl_tune.setValue(0)
+        if hasattr(self, "pb_skl_repsplit"):
+            self.pb_skl_repsplit.setValue(0)
         if hasattr(self, "ed_skl_USI"):
             self.ed_skl_USI.blockSignals(True)
             self.ed_skl_USI.setCurrentText("")
@@ -24610,14 +24723,11 @@ class MainWindow(QMainWindow):
             self._skl_tune_worker.finished_ok.connect(self._on_skl_tune_finished)
             self._skl_tune_worker.error.connect(self._on_skl_tune_error)
             self.btn_skl_run_tune.setEnabled(False)
-            # Mensagem de espera (sem barra de progresso), fechada em _on_skl_tune_finished()/
-            # _on_skl_tune_error() assim que o cálculo termina, logo antes de exibir o resultado.
-            self._skl_tune_progress_dlg = self.show_wait_message_dialog(
-                "Hyperparameter Tuning", "Tuning hyperparameters... Please wait for it to finish!"
-            )
-            # Síncrono na thread da GUI — ver comentário em run_skl_screening() sobre os crashes
-            # causados pelo uso de QThread em background para esses cálculos.
-            self._skl_tune_worker.run()
+            # Barra de progresso do grupo (no lugar da antiga janela de espera). A busca roda numa thread
+            # Python comum, sem nenhum objeto Qt (os treinos já rodavam em threads do joblib, backend
+            # "threading"), enquanto a thread da GUI só redesenha a barra, sem processar cliques nem
+            # teclas. Os resultados são entregues na própria thread da GUI, como antes.
+            self._run_skl_tune_with_progress(self._skl_tune_worker)
         except Exception as e:
             dlg = getattr(self, "_skl_tune_progress_dlg", None)
             if dlg is not None:
@@ -24625,6 +24735,43 @@ class MainWindow(QMainWindow):
                 self._skl_tune_progress_dlg = None
             import traceback; traceback.print_exc()
             QMessageBox.critical(self, i18n.t("msg_title_tuning_error", self._idioma), str(e))
+
+    def _run_skl_tune_with_progress(self, worker):
+        pb = getattr(self, "pb_skl_tune", None)
+        if pb is not None:
+            self._tr("s6_fmt_tune_progress", pb.setFormat)
+            pb.setMaximum(100); pb.setValue(0)
+        outcome = {}
+
+        def _target():
+            try:
+                outcome["result"] = worker.compute()
+            except Exception as e:  # entregue à GUI abaixo
+                import traceback; traceback.print_exc()
+                outcome["error"] = str(e)
+
+        thread = threading.Thread(target=_target, name="CODRUG-tuning", daemon=True)
+        thread.start()
+        while thread.is_alive():
+            if pb is not None:
+                total = int(worker.progress_total or 0)
+                if total > 0:
+                    if pb.maximum() != total:
+                        pb.setMaximum(total)
+                    pb.setValue(min(int(worker.progress_done), total))
+                elif pb.maximum() != 0:
+                    pb.setRange(0, 0)  # indeterminada (Halving*)
+            QApplication.processEvents(QEventLoop.ExcludeUserInputEvents)
+            thread.join(0.05)
+        if "error" in outcome:
+            if pb is not None:
+                pb.setRange(0, 100); pb.setValue(0)
+            self._on_skl_tune_error(outcome["error"])
+            return
+        if pb is not None:
+            maximum = max(1, int(worker.progress_total or 1))
+            pb.setRange(0, maximum); pb.setValue(maximum)
+        self._on_skl_tune_finished(*outcome["result"])
 
     def _on_skl_tune_finished(self, best_model, best_params, cv_results):
         dlg = getattr(self, "_skl_tune_progress_dlg", None)
@@ -25961,9 +26108,26 @@ class MainWindow(QMainWindow):
                 x_tr, x_te, y_tr, y_te = train_test_split(x_full, y_full, test_size=test_size, random_state=seed)
             splits.append((seed, x_tr, x_te, y_tr, y_te))
 
-        dlg = self.show_wait_message_dialog(
-            "Repeated Splits", f"{len(models)} model(s) x {n_splits} splits x {folds}-fold CV x {repeats} repeats... "
-                               "Please wait!")
+        # Barra de progresso do grupo (no lugar da antiga janela de espera): cada divisão de cada modelo
+        # vale folds x repetições (CV) + 1 (avaliação Ext); avança a cada fold concluído.
+        pb = getattr(self, "pb_skl_repsplit", None)
+        per_split = int(folds) * max(1, int(repeats)) + 1
+        total_steps = max(1, len(models) * len(splits) * per_split)
+
+        def _progress(done):
+            if pb is None:
+                return
+            if pb.maximum() != total_steps:
+                pb.setMaximum(total_steps)
+            pb.setValue(min(int(done), total_steps))
+            QApplication.processEvents(QEventLoop.ExcludeUserInputEvents)
+
+        if pb is not None:
+            self._tr("s6_fmt_repsplit_progress", pb.setFormat)
+        _progress(0)
+        if hasattr(self, "btn_skl_repsplit"):
+            self.btn_skl_repsplit.setEnabled(False)
+        steps_done = 0
         results = {}
         try:
             for model_name, model in models.items():
@@ -25973,6 +26137,8 @@ class MainWindow(QMainWindow):
                         "standard", task, model, x_tr.reset_index(drop=True), pd.Series(np.asarray(y_tr)),
                         method=cv_method, folds=folds, shuffle=True, random_state=seed, p=2, repeats=repeats,
                         all_folds=all_folds)
+                    cv_worker.progress_cb = lambda d, _t, _base=steps_done: _progress(_base + d)
+                    cv_worker._progress_done = 0
                     cv_df = cv_worker._run_standard()
                     first_col = cv_df.columns[0]
                     # "All Folds" marcado: Mean/Std Dev sobre todos os folds; senão Pooled/Std Dev.
@@ -25994,6 +26160,8 @@ class MainWindow(QMainWindow):
                     for m, v in ext.items():
                         row[f"Ext {m}"] = v
                     rows.append(row)
+                    steps_done += per_split
+                    _progress(steps_done)
                 df = pd.DataFrame(rows)
                 numeric = [c for c in df.columns if c not in ("Split", "Random State", "n Train", "n Ext")]
                 mean_row = {"Split": "Mean", **{c: float(pd.to_numeric(df[c], errors="coerce").mean()) for c in numeric}}
@@ -26001,10 +26169,14 @@ class MainWindow(QMainWindow):
                 results[model_name] = pd.concat([df, pd.DataFrame([mean_row, sd_row])], ignore_index=True)
         except Exception as e:
             import traceback; traceback.print_exc()
+            if pb is not None:
+                pb.setValue(0)
             QMessageBox.critical(self, title, str(e))
             return
         finally:
-            dlg.close()
+            if hasattr(self, "btn_skl_repsplit"):
+                self.btn_skl_repsplit.setEnabled(True)
+        _progress(total_steps)
 
         if not hasattr(self, "_skl_repsplit_settings") or self._skl_repsplit_settings is None:
             self._skl_repsplit_settings = {}

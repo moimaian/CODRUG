@@ -1470,10 +1470,14 @@ def _add_step4_section(document: Any, project_dir: str, state: dict[str, Any], i
         method = ext_split.get("method", "Random")
         rs = ext_split.get("random_state")
         how_pt = {"Kennard-Stone": "pelo algoritmo de Kennard-Stone", "Sphere Exclusion": "por sphere exclusion",
+                  "Stratified Random": "de forma aleatória e estratificada (mesma proporção de cada classe ou faixa de valores da variável resposta nos dois conjuntos"
+                                       + (f", random state = {rs}" if rs is not None else "") + ")",
                   "Scaffold": "por scaffold (esqueletos de Bemis-Murcko; nenhum scaffold compartilhado entre os conjuntos"
                               + (f", random state = {rs}" if rs is not None else "") + ")"}.get(
             method, "de forma aleatória" + (f" (random state = {rs})" if rs is not None else ""))
         how_en = {"Kennard-Stone": "with the Kennard-Stone algorithm", "Sphere Exclusion": "by sphere exclusion",
+                  "Stratified Random": "randomly with stratification (same proportion of each class or response-value range in both sets"
+                                       + (f", random state = {rs}" if rs is not None else "") + ")",
                   "Scaffold": "by scaffold (Bemis-Murcko scaffolds; no scaffold shared between the sets"
                               + (f", random state = {rs}" if rs is not None else "") + ")"}.get(
             method, "randomly" + (f" (random state = {rs})" if rs is not None else ""))
@@ -1510,6 +1514,8 @@ _STEP4_ML_TEXTS = {
     "test_train_split_en": " The test set represented {test}% and the training set {train}% of the total data. ",
     "split_random_pt": "A divisão entre treino e teste foi aleatória{rs}. ",
     "split_random_en": "The training/test split was random{rs}. ",
+    "split_stratified_pt": "A divisão entre treino e teste foi aleatória e estratificada{rs}, mantendo nos dois conjuntos a mesma proporção de cada classe (classificação) ou de cada faixa de valores da variável resposta (regressão, cinco faixas por quantis). ",
+    "split_stratified_en": "The training/test split was random and stratified{rs}, keeping the same proportion of each class (classification) or of each range of the response values (regression, five quantile ranges) in both sets. ",
     "split_ks_pt": "A divisão entre treino e teste foi feita pelo algoritmo de Kennard-Stone, que seleciona o conjunto de treino de modo a cobrir o espaço dos descritores e mantém o conjunto teste dentro desse espaço. ",
     "split_ks_en": "The training/test split was performed with the Kennard-Stone algorithm, which selects the training set to cover the descriptor space and keeps the test set within that space. ",
     "split_se_pt": "A divisão entre treino e teste foi feita por sphere exclusion (Golbraikh & Tropsha, 2002), que mantém o conjunto teste dentro do espaço químico do conjunto de treino. ",
@@ -1974,6 +1980,10 @@ def _add_step5_section(document: Any, project_dir: str, state: dict[str, Any], i
                 add_bi(texts["split_se_pt"], texts["split_se_en"], False)
             elif split_method == "Scaffold":
                 add_bi(texts["split_scaffold_pt"], texts["split_scaffold_en"], False)
+            elif split_method == "Stratified Random":
+                rs = screening.get("random_state")
+                add_bi(texts["split_stratified_pt"].format(rs=f" (random state = {rs})" if rs is not None else ""),
+                       texts["split_stratified_en"].format(rs=f" (random state = {rs})" if rs is not None else ""), False)
             else:
                 rs = screening.get("random_state")
                 add_bi(texts["split_random_pt"].format(rs=f" (random state = {rs})" if rs is not None else ""),

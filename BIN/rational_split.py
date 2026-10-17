@@ -36,10 +36,13 @@ import numpy as np
 import pandas as pd
 
 RANDOM = "Random"
+STRATIFIED = "Stratified Random"
 KENNARD_STONE = "Kennard-Stone"
 SPHERE_EXCLUSION = "Sphere Exclusion"
 SCAFFOLD = "Scaffold"
-METHODS = (RANDOM, KENNARD_STONE, SPHERE_EXCLUSION, SCAFFOLD)
+METHODS = (RANDOM, STRATIFIED, KENNARD_STONE, SPHERE_EXCLUSION, SCAFFOLD)
+# Nº de faixas (quantis de Y) usadas para estratificar a divisão aleatória em regressão.
+STRATIFY_BINS = 5
 
 MAX_COMPONENTS = 50
 
@@ -193,12 +196,43 @@ def scaffold_split_positions(smiles, test_size: float, random_state=None) -> np.
     return np.array(sorted(train), dtype=int)
 
 
+def stratify_labels(y, task: str, n_bins: int = STRATIFY_BINS):
+    """Rótulos para estratificar a divisão aleatória: em classificação, a própria classe; em
+    regressão, a faixa de Y (quantis - até n_bins faixas com o mesmo nº de compostos, menos se
+    houver valores repetidos). Y ausente (NaN) vira uma faixa própria."""
+    y_series = pd.Series(np.asarray(y))
+    if task == "classification":
+        return y_series.astype(str).to_numpy()
+    values = pd.to_numeric(y_series, errors="coerce")
+    labels = pd.Series("nan", index=values.index, dtype=object)
+    ok = values.notna()
+    if ok.sum() > 0:
+        n = max(1, min(int(n_bins), int(ok.sum())))
+        bins = pd.qcut(values[ok], q=n, labels=False, duplicates="drop")
+        labels[ok] = bins.astype(int).astype(str)
+    return labels.to_numpy()
+
+
 def split(x: pd.DataFrame, y, test_size: float, method: str, task: str,
           random_state=None, smiles=None):
     """Mesmo contrato de sklearn.train_test_split: devolve (x_train, x_test, y_train, y_test),
-    preservando os índices originais. method: RANDOM, KENNARD_STONE, SPHERE_EXCLUSION ou SCAFFOLD
-    (este exige 'smiles', alinhado linha a linha com x). y pode ser None (divisão só por X;
-    y_train/y_test devolvidos como None)."""
+    preservando os índices originais. method: RANDOM, STRATIFIED, KENNARD_STONE, SPHERE_EXCLUSION ou
+    SCAFFOLD (este exige 'smiles', alinhado linha a linha com x). y pode ser None (divisão só por X;
+    y_train/y_test devolvidos como None) - exceto no STRATIFIED, que precisa de Y.
+    STRATIFIED: divisão aleatória (train_test_split, mesmo Random State) estratificada - mesma
+    proporção de cada classe (classificação) ou de cada faixa de Y (regressão, ver stratify_labels)
+    no treino e no teste."""
+    if method == STRATIFIED:
+        if y is None:
+            raise ValueError("The Stratified Random split needs the response column (Y).")
+        from sklearn.model_selection import train_test_split
+        strata = stratify_labels(y, task)
+        counts = pd.Series(strata).value_counts()
+        if counts.min() < 2:
+            raise ValueError(
+                f"Stratified Random split: the group '{counts.idxmin()}' has only {int(counts.min())} "
+                "compound(s) - each class (or Y range) needs at least 2. Use the Random split.")
+        return train_test_split(x, y, test_size=test_size, random_state=random_state, stratify=strata)
     if method == SCAFFOLD:
         if smiles is None:
             raise ValueError("The Scaffold split needs a SMILES column.")
