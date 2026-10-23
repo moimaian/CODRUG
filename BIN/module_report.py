@@ -798,6 +798,8 @@ _OUTLIER_METHOD_LABELS = {
     "IQR": {"pt": "intervalo interquartílico (IQR)", "en": "interquartile range (IQR)"},
     "Z-Score": {"pt": "Z-Score", "en": "Z-Score"},
     "SD": {"pt": "desvio padrão (SD)", "en": "standard deviation (SD)"},
+    "Robust Z-Score": {"pt": "Z-Score robusto (mediana e desvio absoluto mediano, MAD; Iglewicz & Hoaglin, 1993)",
+                       "en": "robust Z-Score (median and median absolute deviation, MAD; Iglewicz & Hoaglin, 1993)"},
 }
 
 _OUTLIER_FORMULA_TEXTS = {
@@ -808,6 +810,10 @@ _OUTLIER_FORMULA_TEXTS = {
     "Z-Score": {
         "pt": "considerando-se outliers valores com Z-Score abaixo de -Threshold ou acima de +Threshold",
         "en": "considering as outliers values with a Z-Score below -Threshold or above +Threshold",
+    },
+    "Robust Z-Score": {
+        "pt": "considerando-se outliers valores com |0,6745 × (x - mediana) / MAD| maior ou igual ao Threshold",
+        "en": "considering as outliers values with |0.6745 × (x - median) / MAD| greater than or equal to the Threshold",
     },
     "SD": {
         "pt": "considerando-se outliers valores abaixo da média menos Threshold desvios-padrão ou acima da média mais Threshold desvios-padrão",
@@ -927,6 +933,21 @@ def _add_step2_3_section(document: Any, project_dir: str, state: dict[str, Any],
     # 4) Deduplication.
     rep_method = step2.get("rep_method", "")
     rep_count = _row_count(_latest_glob(os.path.join(internal_dir, "df2_TratRepetitions_*.csv")))
+    disc_df = _read_csv(_latest_glob(os.path.join(stats_dir, "Discordant_Replicates_Removed.csv"))) \
+        if (rep_method and step2.get("rep_discordance_filter") in (True, "True", "true", 1)) else None
+    if disc_df is not None and not disc_df.empty:
+        rep_col_name = step2.get("rep_group_column") or ""
+        n_disc = int(disc_df[rep_col_name].nunique()) if rep_col_name in disc_df.columns else len(disc_df)
+        max_log = step2.get("rep_discordance_max_log", "")
+        add_bi("Antes da agregação, compostos com medidas repetidas discordantes, com amplitude (máximo - mínimo) maior que ",
+               "Before aggregation, compounds with discordant repeated measurements, spreading (maximum - minimum) more than ", False)
+        add(str(max_log), True)
+        add_bi(" unidade(s) log10, foram removidos por completo (", " log10 unit(s), were removed entirely (", False)
+        add(f"{n_disc:,}", True)
+        add_bi(" compostos; RESULTS/STATISTICS/Discordant_Replicates_Removed.csv), pois a média ou mediana de valores "
+               "que discordam em ordens de grandeza não representa o composto (Kramer et al., 2012). ",
+               " compounds; RESULTS/STATISTICS/Discordant_Replicates_Removed.csv), since the mean or median of values that "
+               "disagree by orders of magnitude does not represent the compound (Kramer et al., 2012). ", False)
     if rep_method:
         add_bi("Repetições do mesmo composto dentro do dataframe foram tratadas pelo método da ", "Repeated occurrences of the same compound within the dataframe were treated using the ", False)
         add(rep_method, True)
@@ -1046,6 +1067,11 @@ def _add_step2_3_section(document: Any, project_dir: str, state: dict[str, Any],
         if formula_text:
             add2(f", {formula_text}", False)
         add2(". ", False)
+        if step2.get("outlier_log_scale") in (True, "True", "true", 1):
+            add2_bi("A detecção foi feita sobre o log10 dos valores (concentrações seguem distribuição log-normal), "
+                    "e os limites são apresentados na unidade original. ",
+                    "Detection was performed on the log10 of the values (concentrations follow a log-normal "
+                    "distribution), and the limits are given in the original units. ", False)
 
         outlier_report_path = _latest_glob(os.path.join(stats_dir, f"{outlier_method}_Outliers_Removal_Report.txt"))
         parsed = None
@@ -1082,6 +1108,11 @@ def _add_step2_3_section(document: Any, project_dir: str, state: dict[str, Any],
             if col_stats:
                 add2_bi(" (Tabela 2)", " (Table 2)", False)
         add2(".", False)
+        if _latest_glob(os.path.join(stats_dir, f"{outlier_method}_Outliers_Removed.csv")):
+            add2_bi(f" A lista dos compostos removidos, com o motivo de cada remoção, foi salva em "
+                    f"RESULTS/STATISTICS/{outlier_method}_Outliers_Removed.csv.",
+                    f" The list of removed compounds, with the reason for each removal, was saved in "
+                    f"RESULTS/STATISTICS/{outlier_method}_Outliers_Removed.csv.", False)
 
         if col_stats:
             document.add_paragraph()
@@ -1536,8 +1567,8 @@ _STEP4_ML_TEXTS = {
     "external_eval_en": "The models were also applied to the external set, with {n} compounds of known experimental value, giving the metrics below:",
     "external_eval_refit_pt": " Para os modelos refit ({models}), Q²F1 e Q²F3 usam como referência a média e a variância de treino + teste, os dados em que esses modelos foram treinados.",
     "external_eval_refit_en": " For the refit models ({models}), Q²F1 and Q²F3 use the mean and variance of training + test, the data these models were trained on, as reference.",
-    "cv_columns_new_pt": "Na tabela, cada fold mostra o ajuste da cópia do modelo nos seus folds de treino (R2 Train ou Accuracy Train) e, nos compostos deixados de fora, as mesmas métricas usadas na validação externa (exceto Q²F1/Q²F3 e os critérios de Golbraikh-Tropsha, próprios de um conjunto externo); a linha Pooled reúne as predições out-of-fold de todos os folds (em regressão, seu Q2 corresponde ao Q² CV; R2/Accuracy Train e AUC são médias dos folds), e a linha Std Dev traz o desvio-padrão entre folds.",
-    "cv_columns_new_en": "In the table, each fold shows the fit of the model copy on its training folds (R2 Train or Accuracy Train) and, on the compounds left out, the same metrics used in the external validation (except Q²F1/Q²F3 and the Golbraikh-Tropsha criteria, which are specific to an external set); the Pooled row gathers the out-of-fold predictions of all folds (for regression, its Q2 corresponds to Q² CV; R2/Accuracy Train and AUC are means over folds), and the Std Dev row gives the standard deviation between folds.",
+    "cv_columns_new_pt": "Na tabela, cada fold mostra o ajuste da cópia do modelo nos seus folds de treino (R2 Train ou Accuracy Train) e, nos compostos deixados de fora, as mesmas métricas usadas na validação externa (exceto Q²F1/Q²F3 e os critérios de Golbraikh-Tropsha, próprios de um conjunto externo); a linha Pooled reúne as predições out-of-fold de todos os folds (em regressão, seu Q2 corresponde ao Q² CV; R2/Accuracy Train, ROC-AUC e PR-AUC são médias dos folds), e a linha Std Dev traz o desvio-padrão entre folds.",
+    "cv_columns_new_en": "In the table, each fold shows the fit of the model copy on its training folds (R2 Train or Accuracy Train) and, on the compounds left out, the same metrics used in the external validation (except Q²F1/Q²F3 and the Golbraikh-Tropsha criteria, which are specific to an external set); the Pooled row gathers the out-of-fold predictions of all folds (for regression, its Q2 corresponds to Q² CV; R2/Accuracy Train, ROC-AUC and PR-AUC are means over folds), and the Std Dev row gives the standard deviation between folds.",
     "cv_columns_pt": "Na tabela, R2 Val (ou Accuracy Val) é o desempenho em cada fold de validação, formado pelos compostos deixados de fora naquela rodada; a linha Pooled reúne as predições out-of-fold de todos os folds (em regressão, seu R2 Val corresponde ao Q² CV), e a linha Std Dev traz o desvio-padrão entre folds.",
     "cv_columns_en": "In the table, R2 Val (or Accuracy Val) is the performance on each validation fold, made up of the compounds left out in that round; the Pooled row gathers the out-of-fold predictions of all folds (for regression, its R2 Val corresponds to Q² CV), and the Std Dev row gives the standard deviation between folds.",
     "scope_full_cv_pt": " Por se tratar de um modelo refit, a validação cruzada foi feita sobre o conjunto interno completo (treino + teste, {n} compostos), os dados em que ele foi treinado.",
@@ -1576,6 +1607,10 @@ _STEP4_ML_TEXTS = {
     "between_folds_pt": "entre os folds", "between_folds_en": "between folds",
     "nested_params_pt": "A tabela a seguir resume os hiperparâmetros escolhidos pela busca interna nos {total} folds externos do Nested CV do modelo {model}, com o número e a porcentagem de folds em que cada combinação foi escolhida. Uma combinação predominante indica uma escolha estável; combinações muito variadas indicam que várias delas têm desempenho semelhante ou que a escolha é sensível à partição dos dados. O modelo final não é nenhum destes: ele resulta do Tuning, com a mesma busca, sobre todo o conjunto de treino.",
     "nested_params_en": "The table below summarizes the hyperparameters chosen by the inner search in the {total} outer folds of the Nested CV of the {model} model, with the number and percentage of folds in which each combination was chosen. A predominant combination indicates a stable choice; widely varying combinations indicate that several of them perform similarly or that the choice is sensitive to how the data are partitioned. The final model is none of these: it results from the Tuning, with the same search, on the whole training set.",
+    "cv_outliers_reg_pt": "A partir das predições out-of-fold dessa validação cruzada, os compostos do conjunto de treino (n = {n}) foram verificados quanto a outliers, que foram apenas sinalizados e mantidos no conjunto, conforme recomendado: {n_resp} outlier(s) de resposta, com resíduo padronizado (observado - predito out-of-fold, centrado na mediana e dividido por 1,4826 × MAD dos resíduos, escala robusta que não é inflada pelos próprios outliers) maior que 3 em valor absoluto, e {n_struct} outlier(s) estrutural(is), com leverage maior que o limite h* = 3(k+1)/n = {h_star}, calculado nos k = {k} primeiros componentes principais dos descritores autoescalados ({n_both} composto(s) nas duas condições). A tabela a seguir lista os compostos sinalizados (no máximo 30); a lista completa está em DATA/skl_cv_outliers_*.csv.",
+    "cv_outliers_reg_en": "From the out-of-fold predictions of this cross-validation, the training-set compounds (n = {n}) were checked for outliers, which were only flagged and kept in the set, as recommended: {n_resp} response outlier(s), with a standardized residual (observed - out-of-fold predicted, centred on the median and divided by 1.4826 × MAD of the residuals, a robust scale not inflated by the outliers themselves) greater than 3 in absolute value, and {n_struct} structural outlier(s), with leverage above the limit h* = 3(k+1)/n = {h_star}, computed on the first k = {k} principal components of the autoscaled descriptors ({n_both} compound(s) meeting both conditions). The table below lists the flagged compounds (at most 30); the full list is in DATA/skl_cv_outliers_*.csv.",
+    "cv_outliers_clf_pt": "Os compostos do conjunto de treino (n = {n}) foram verificados quanto a outliers estruturais, que foram apenas sinalizados e mantidos no conjunto: {n_struct} composto(s) com leverage maior que o limite h* = 3(k+1)/n = {h_star}, calculado nos k = {k} primeiros componentes principais dos descritores autoescalados. A tabela a seguir lista os compostos sinalizados (no máximo 30); a lista completa está em DATA/skl_cv_outliers_*.csv.",
+    "cv_outliers_clf_en": "The training-set compounds (n = {n}) were checked for structural outliers, which were only flagged and kept in the set: {n_struct} compound(s) with leverage above the limit h* = 3(k+1)/n = {h_star}, computed on the first k = {k} principal components of the autoscaled descriptors. The table below lists the flagged compounds (at most 30); the full list is in DATA/skl_cv_outliers_*.csv.",
     "cv_charts_pt": "As predições out-of-fold da validação cruzada do modelo {model} (conjunto de treino) são apresentadas a seguir:",
     "cv_charts_en": "The out-of-fold predictions from the cross-validation of the {model} model (training set) are presented below:",
     "repsplit_pt": "Para avaliar a estabilidade do modelo {model} em relação à divisão dos dados, foi realizada uma análise de divisões repetidas: o conjunto interno foi dividido {n} vezes ({method}, com {pct}% dos compostos separados como conjunto externo em cada divisão; a divisão 1 é a mesma usada no desenvolvimento do modelo). Em cada divisão, o modelo, com os mesmos hiperparâmetros, foi submetido à validação cruzada {folds}-fold repetida {repeats} vez(es) na parte de treino (linhas CV, média ± desvio-padrão) e avaliado na parte separada (linhas Ext), com as mesmas métricas da validação interna e da validação no conjunto teste. Cada coluna da tabela é uma divisão, e a última coluna traz a média ± desvio-padrão entre as divisões.",
@@ -2112,6 +2147,46 @@ def _add_step5_section(document: Any, project_dir: str, state: dict[str, Any], i
                         _para(document).add_run(texts[f"nested_params_{'pt' if lang == 'pt' else 'en'}"].format(
                             total=total, model=model_name))
                         _add_skl_results_table(document, np_df.drop(columns=["Total Folds"], errors="ignore"))
+
+                # Outliers do treino SINALIZADOS (não removidos) a partir das predições out-of-fold desta
+                # validação (CODRUG._skl_flag_training_outliers): estruturais (leverage) e, em regressão,
+                # de resposta (resíduo padronizado).
+                flags_meta = settings.get("outlier_flags") or {}
+                flags_df = _read_csv(_find_skl_csv(data_dir, "skl_cv_outliers", usi, model_name)) if flags_meta else None
+                if flags_df is not None and not flags_df.empty:
+                    sfx = "pt" if lang == "pt" else "en"
+                    resp_col = next((c for c in flags_df.columns if str(c).startswith("Response outlier")), None)
+                    struct_col = "Structural outlier (h > h*)"
+                    if resp_col:
+                        text = texts[f"cv_outliers_reg_{sfx}"].format(
+                            n_resp=flags_meta.get("n_response", 0), n_struct=flags_meta.get("n_structural", 0),
+                            n_both=flags_meta.get("n_both", 0), h_star=f"{flags_meta.get('h_star', 0):.3f}",
+                            k=flags_meta.get("n_components", "?"), n=flags_meta.get("n", len(flags_df)))
+                    else:
+                        text = texts[f"cv_outliers_clf_{sfx}"].format(
+                            n_struct=flags_meta.get("n_structural", 0), h_star=f"{flags_meta.get('h_star', 0):.3f}",
+                            k=flags_meta.get("n_components", "?"), n=flags_meta.get("n", len(flags_df)))
+                    _para(document).add_run(text)
+                    mask = flags_df[struct_col].astype(str).str.lower().eq("true") if struct_col in flags_df.columns else False
+                    if resp_col:
+                        mask = mask | flags_df[resp_col].astype(str).str.lower().eq("true")
+                    flagged = flags_df[mask]
+                    if not flagged.empty:
+                        if "Std. residual" in flagged.columns:
+                            flagged = flagged.reindex(flagged["Std. residual"].abs().sort_values(ascending=False).index)
+                        else:
+                            flagged = flagged.sort_values("Leverage", ascending=False)
+                        show_cols = [c for c in ("ID", "Observed", "Predicted (OOF)", "Std. residual", "Leverage") if c in flagged.columns]
+                        table = flagged[show_cols].head(30).copy()
+                        def _fmt3(v):
+                            try:
+                                return f"{float(v):.3f}"
+                            except (TypeError, ValueError):
+                                return str(v)
+                        for c in ("Observed", "Predicted (OOF)", "Std. residual", "Leverage"):
+                            if c in table.columns:
+                                table[c] = [_fmt3(v) for v in table[c]]
+                        _add_skl_results_table(document, table, highlight_col=0)
 
             # Gráficos da validação cruzada (predições out-of-fold, conjunto de treino): validação interna.
             cv_chart_paths = [

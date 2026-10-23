@@ -641,6 +641,23 @@ def _skl_force_single_thread_kwargs(cls, kwargs):
     return kwargs
 
 
+def _value_orders_of_magnitude(values):
+    """Quantas ordens de grandeza (log10 max/min) os valores numéricos positivos abrangem; None se
+    houver valores <= 0 ou menos de 3 valores (não é uma escala de concentração)."""
+    v = pd.to_numeric(pd.Series(values), errors="coerce").dropna()
+    if len(v) < 3 or (v <= 0).any():
+        return None
+    return float(np.log10(v.max() / v.min()))
+
+
+def _is_concentration_scale(values, min_orders=2.0):
+    """True se os valores parecem concentrações brutas (IC50/Ki/MIC em nM, µM...): todos positivos e
+    abrangendo >= min_orders ordens de grandeza (distribuição log-normal). Valores já em escala log
+    (pIC50, pKi...) ficam numa faixa estreita e não passam."""
+    orders = _value_orders_of_magnitude(values)
+    return orders is not None and orders >= min_orders
+
+
 def _skl_split_grid_values(values_text):
     """Splits a hyperparameter grid cell's raw text into individual candidate value strings, on
     commas at parenthesis depth 0 only. A naive text.split(",") would shatter a single
@@ -1917,6 +1934,81 @@ def _chembl_name_key(name):
     return re.sub(r"[\s_]+", " ", str(name).strip().lower())
 
 
+# "Explore by target" sem "Exact match": nº máximo de alvos (os mais relevantes) mantidos da busca
+# textual do ChEMBL - cada um ainda passa pela contagem de compostos testados (uma consulta por alvo).
+TARGET_SEARCH_MAX_RESULTS = 50
+
+
+# Índice Elasticsearch de alvos do ChEMBL - o mesmo da tabela "Targets" do portal web, com as
+# contagens de compostos e de atividades de cada alvo (_metadata.related_compounds/activities.count).
+CHEMBL_ES_TARGET_URL = "https://www.ebi.ac.uk/chembl/elk/es/chembl_target/_search"
+
+
+def _chembl_target_counts(target_ids, chunk=500):
+    """{target_chembl_id: (Compounds, Activities)} - as mesmas duas colunas da tabela de alvos do
+    portal do ChEMBL: nº de compostos distintos e nº de registros de atividade. Lidos do índice
+    Elasticsearch do portal, em lotes (uma requisição para até 'chunk' alvos). Se o índice não
+    responder, as atividades vêm do total da API REST (activity.json?limit=1, em paralelo) e os
+    compostos ficam vazios (None)."""
+    import requests
+    ids = [str(t) for t in target_ids]
+    counts = {}
+    try:
+        for i in range(0, len(ids), chunk):
+            part = ids[i:i + chunk]
+            body = {"size": len(part),
+                    "_source": ["target_chembl_id", "_metadata.related_compounds.count",
+                                "_metadata.related_activities.count"],
+                    "query": {"terms": {"target_chembl_id": part}}}
+            r = requests.post(CHEMBL_ES_TARGET_URL, json=body, timeout=60)
+            r.raise_for_status()
+            for hit in r.json().get("hits", {}).get("hits", []):
+                src = hit.get("_source", {})
+                meta = src.get("_metadata", {}) or {}
+                counts[src.get("target_chembl_id")] = (
+                    (meta.get("related_compounds") or {}).get("count"),
+                    (meta.get("related_activities") or {}).get("count"),
+                )
+    except Exception:
+        counts = {}
+    missing = [t for t in ids if t not in counts]
+    if missing:
+        for tid, n_act in zip(missing, _chembl_count_target_activities(missing)):
+            counts[tid] = (None, n_act)
+    return counts
+
+
+def _chembl_count_target_activities(target_ids, max_workers=8):
+    """Nº de registros de atividade de cada alvo, lido do total informado pela API REST do ChEMBL
+    (activity.json?limit=1 -> page_meta.total_count): uma requisição leve por alvo, em paralelo -
+    alternativa de _chembl_target_counts quando o índice Elasticsearch não responde. (O len() de um
+    QuerySet do cliente do ChEMBL baixava até MAX_LIMIT = 1000 registros só para obter esse total.)"""
+    import requests
+    from concurrent.futures import ThreadPoolExecutor
+    try:
+        from chembl_webresource_client.settings import Settings
+        base = Settings.Instance().NEW_CLIENT_URL.rstrip("/")
+    except Exception:
+        base = "https://www.ebi.ac.uk/chembl/api/data"
+
+    def _one(tid):
+        try:
+            r = requests.get(f"{base}/activity.json", params={"target_chembl_id": tid, "limit": 1}, timeout=60)
+            r.raise_for_status()
+            return int(r.json()["page_meta"]["total_count"])
+        except Exception:
+            try:
+                return len(get_chembl_client().activity.filter(target_chembl_id=tid).only(["molecule_chembl_id"]))
+            except Exception:
+                return None
+
+    ids = list(target_ids)
+    if not ids:
+        return []
+    with ThreadPoolExecutor(max_workers=max(1, min(int(max_workers), len(ids)))) as ex:
+        return list(ex.map(_one, ids))
+
+
 def _chembl_col(columns, concept):
     """Nome real (exatamente como está no DataFrame) da coluna do conceito 'concept' (um nome
     canônico da API, ex.: "canonical_smiles", "standard_units"), na ordem de preferência de
@@ -2748,17 +2840,8 @@ class SklScreeningWorker(QThread): # type: ignore
                     "Recall": _skl_recall(y_val, y_pred),
                     "MCC": float(matthews_corrcoef(y_val, y_pred)),
                     "Specificity": _specificity_score(y_val, y_pred),
-                    "AUC": float("nan"),
                 }
-                try:
-                    if hasattr(fold_model, "predict_proba"):
-                        proba = fold_model.predict_proba(x_val)
-                        if proba.shape[1] == 2:
-                            fold_row["AUC"] = float(roc_auc_score(y_val, proba[:, 1]))
-                        else:
-                            fold_row["AUC"] = float(roc_auc_score(y_val, proba, multi_class="ovr", average="weighted"))
-                except Exception:
-                    pass
+                fold_row["ROC-AUC"], fold_row["PR-AUC"] = _skl_roc_pr_auc(fold_model, x_val, y_val)
                 per_fold.append(fold_row)
 
         fold_df = pd.DataFrame(per_fold)
@@ -2774,7 +2857,9 @@ class SklScreeningWorker(QThread): # type: ignore
                 "Recall": _skl_recall(y_true_all, y_pred_all),
                 "MCC": float(matthews_corrcoef(y_true_all, y_pred_all)),
                 "Specificity": _specificity_score(y_true_all, y_pred_all),
-                "AUC": float(fold_df["AUC"].mean()),
+                # Probabilidades de modelos de folds diferentes não formam uma única curva: média dos folds.
+                "ROC-AUC": float(pd.to_numeric(fold_df["ROC-AUC"], errors="coerce").mean()),
+                "PR-AUC": float(pd.to_numeric(fold_df["PR-AUC"], errors="coerce").mean()),
             }
         out = {}
         for metric, value in pooled.items():
@@ -2863,16 +2948,7 @@ def _skl_external_classification_metrics(y_obs, y_pred, model=None, x=None):
     """Métricas de predictivity de um classificador sobre o conjunto de teste/externo. Mesma saída
     de _skl_external_regression_metrics: lista de (métrica, critério, valor)."""
     from sklearn.metrics import balanced_accuracy_score, cohen_kappa_score
-    auc = float("nan")
-    try:
-        if model is not None and x is not None and hasattr(model, "predict_proba"):
-            proba = model.predict_proba(x)
-            if proba.shape[1] == 2:
-                auc = float(roc_auc_score(y_obs, proba[:, 1]))
-            else:
-                auc = float(roc_auc_score(y_obs, proba, multi_class="ovr", average="weighted"))
-    except Exception:
-        pass
+    roc_auc, pr_auc = _skl_roc_pr_auc(model, x, y_obs)
     return [
         ("n", "", len(y_obs)),
         ("Accuracy", "", float(accuracy_score(y_obs, y_pred))),
@@ -2883,7 +2959,8 @@ def _skl_external_classification_metrics(y_obs, y_pred, model=None, x=None):
         ("F1", "", _skl_f1(y_obs, y_pred)),
         ("MCC", "", float(matthews_corrcoef(y_obs, y_pred))),
         ("Cohen's Kappa", "", float(cohen_kappa_score(y_obs, y_pred))),
-        ("AUC", "", auc),
+        ("ROC-AUC", "", roc_auc),
+        ("PR-AUC", "", pr_auc),
     ]
 
 
@@ -3150,6 +3227,75 @@ def _skl_make_cv(classification, folds, repeats=1, random_state=None):
     return cls(n_splits=folds, shuffle=True, random_state=random_state)
 
 
+def _skl_training_leverage(x, var_explained=0.90, max_components=50):
+    """Leverage (h) de cada composto do TREINO no espaço dos descritores e o corte h* = 3(k+1)/n
+    (convenção do Williams plot). Descritores autoescalados (colunas constantes descartadas, NaN ->
+    média) e projetados nos k primeiros componentes principais que explicam 'var_explained' da
+    variância (no máximo 'max_components' e n - 2): com milhares de bits de fingerprint (p >> n) o
+    leverage direto sobre os descritores fica degenerado (h -> 1 para todos). Nos escores (centrados e
+    ortogonais), h_i = 1/n + soma_k t_ik² / soma_i t_ik². Retorna (h, h_star, k)."""
+    a = np.asarray(pd.DataFrame(x).apply(pd.to_numeric, errors="coerce"), dtype=float)
+    n = a.shape[0]
+    col_mean = np.nanmean(a, axis=0)
+    a = np.where(np.isnan(a), col_mean, a)
+    std = a.std(axis=0)
+    keep = np.isfinite(std) & (std > 0)
+    if n < 4 or keep.sum() == 0:
+        return np.full(n, np.nan), float("nan"), 0
+    z = (a[:, keep] - a[:, keep].mean(axis=0)) / std[keep]
+    u, sv, _vt = np.linalg.svd(z, full_matrices=False)
+    var = sv ** 2
+    cum = np.cumsum(var) / var.sum()
+    k = int(np.searchsorted(cum, var_explained) + 1)
+    k = max(1, min(k, int(max_components), n - 2, len(sv)))
+    t = u[:, :k] * sv[:k]
+    h = 1.0 / n + ((t ** 2) / (t ** 2).sum(axis=0)).sum(axis=1)
+    return h, 3.0 * (k + 1) / n, k
+
+
+def _skl_training_outlier_flags(x, y_true, y_pred, positions, task, ids=None, resid_limit=3.0):
+    """Sinalização (NÃO remoção) de outliers do conjunto de treino, a partir das predições out-of-fold
+    da validação cruzada (cada composto previsto por um modelo que não o viu):
+    - estrutural (todas as tarefas): leverage h > h* no espaço dos descritores (_skl_training_leverage);
+    - de resposta (regressão): |resíduo padronizado| > resid_limit (3), resíduo = observado - predito
+      out-of-fold, padronizado de forma robusta (mediana e 1,4826 x MAD dos resíduos) - os dois eixos
+      do Williams plot.
+    A recomendação usual (OECD) é reportar e investigar esses compostos, não removê-los: removê-los
+    só porque o modelo os prevê mal melhora as métricas artificialmente. Retorna (DataFrame com uma
+    linha por composto do treino, resumo)."""
+    n = len(x)
+    pos = np.asarray(positions, dtype=int)
+    order = np.argsort(pos)
+    if len(pos) != n or len(np.unique(pos)) != n:
+        return None, None
+    y_obs = np.asarray(y_true, dtype=object)[order]
+    y_hat = np.asarray(y_pred, dtype=object)[order]
+    h, h_star, k = _skl_training_leverage(x)
+    out = pd.DataFrame({"ID": list(ids) if ids is not None else list(range(1, n + 1)),
+                        "Observed": y_obs, "Predicted (OOF)": y_hat})
+    out["Leverage"] = np.round(h, 4)
+    out["h*"] = round(h_star, 4)
+    out["Structural outlier (h > h*)"] = h > h_star
+    summary = {"n": int(n), "h_star": float(h_star), "n_components": int(k),
+               "n_structural": int(np.sum(h > h_star))}
+    if task == "regression":
+        # Escala ROBUSTA dos resíduos (1,4826 x MAD, equivale ao desvio-padrão sob normalidade): com a
+        # raiz do erro quadrático médio, um único resíduo enorme (ex.: um outlier estrutural que o
+        # modelo extrapola mal) infla a escala e "mascara" os demais outliers de resposta.
+        e = np.asarray(y_obs, dtype=float) - np.asarray(y_hat, dtype=float)
+        s = 1.4826 * float(np.median(np.abs(e - np.median(e))))
+        if not s or s != s:
+            s = float(np.sqrt(np.mean(e ** 2))) or float("nan")
+        std_res = (e - np.median(e)) / s
+        out["Residual"] = np.round(e, 4)
+        out["Std. residual"] = np.round(std_res, 3)
+        out[f"Response outlier (|std. residual| > {resid_limit:g})"] = np.abs(std_res) > resid_limit
+        summary["n_response"] = int(np.sum(np.abs(std_res) > resid_limit))
+        summary["n_both"] = int(np.sum((np.abs(std_res) > resid_limit) & (h > h_star)))
+        summary["resid_limit"] = float(resid_limit)
+    return out, summary
+
+
 def _skl_cv_summary_rows(fold_df, id_col, summaries, all_folds, n_val=None):
     """Linhas de resumo de uma validação cruzada (Cross-Validation, Nested CV), no fim da tabela:
     - all_folds (checkbox "All Folds" da Internal Validation): "Mean" e "Std Dev" calculados sobre
@@ -3346,6 +3492,80 @@ def _skl_positive_class(model, y_true):
     return classes[1], 1
 
 
+def _skl_roc_pr_auc(model, x, y_true):
+    """(ROC-AUC, PR-AUC) de um classificador a partir de predict_proba - ou, em problema binário, do
+    decision_function quando não há probabilidades (NaN se não houver nenhum dos dois em 3+ classes,
+    ou se só houver uma classe em y_true).
+    - Binária: ROC-AUC e PR-AUC da classe POSITIVA (_skl_positive_class: rótulo "de ativo", senão a
+      segunda classe) - o ROC-AUC não depende dessa escolha, o PR-AUC sim. PR-AUC = average precision
+      (estimativa padrão da área sob a curva precisão x revocação, sem interpolação trapezoidal); o
+      valor de referência de um classificador aleatório é a prevalência da classe positiva.
+    - 3+ classes: média ponderada one-vs-rest (ROC-AUC 'ovr' e average precision por classe)."""
+    from sklearn.metrics import average_precision_score
+    from sklearn.preprocessing import label_binarize
+    nan = float("nan")
+    if model is None or x is None:
+        return nan, nan
+    y_arr = np.asarray(y_true).ravel()
+    classes = list(getattr(model, "classes_", [])) or sorted(set(y_arr.tolist()))
+    if len(set(y_arr.tolist())) < 2:
+        return nan, nan
+    if not hasattr(model, "predict_proba"):
+        # Sem probabilidades (ex.: RidgeClassifier, SVC sem probability, SGD/PassiveAggressive com
+        # hinge): no caso binário, ROC-AUC e PR-AUC só dependem da ORDEM dos escores, então o
+        # decision_function (escore da classe classes_[1]) serve; em 3+ classes fica NaN.
+        if len(classes) != 2 or not hasattr(model, "decision_function"):
+            return nan, nan
+        try:
+            score = np.asarray(model.decision_function(x)).ravel()
+        except Exception:
+            return nan, nan
+        pos, idx = _skl_positive_class(model, y_arr)
+        if idx == 0:
+            score = -score
+        y_bin = (y_arr == pos).astype(int)
+        try:
+            return float(roc_auc_score(y_bin, score)), float(average_precision_score(y_bin, score))
+        except Exception:
+            return nan, nan
+    try:
+        proba = np.asarray(model.predict_proba(x))
+    except Exception:
+        return nan, nan
+    if proba.ndim == 2 and proba.shape[1] == 2 and len(classes) == 2:
+        pos, idx = _skl_positive_class(model, y_arr)
+        y_bin = (y_arr == pos).astype(int)
+        try:
+            roc = float(roc_auc_score(y_bin, proba[:, idx]))
+        except Exception:
+            roc = nan
+        try:
+            pr = float(average_precision_score(y_bin, proba[:, idx]))
+        except Exception:
+            pr = nan
+        return roc, pr
+    try:
+        roc = float(roc_auc_score(y_arr, proba, multi_class="ovr", average="weighted", labels=classes))
+    except Exception:
+        roc = nan
+    try:
+        y_bin = label_binarize(y_arr, classes=classes)
+        pr = float(average_precision_score(y_bin, proba, average="weighted"))
+    except Exception:
+        pr = nan
+    return roc, pr
+
+
+def _skl_roc_auc_scorer(estimator, x, y):
+    """Scorer (estimator, X, y) do ROC-AUC - mesmo cálculo das tabelas (_skl_roc_pr_auc)."""
+    return _skl_roc_pr_auc(estimator, x, y)[0]
+
+
+def _skl_pr_auc_scorer(estimator, x, y):
+    """Scorer (estimator, X, y) do PR-AUC (average precision da classe positiva) - _skl_roc_pr_auc."""
+    return _skl_roc_pr_auc(estimator, x, y)[1]
+
+
 def _skl_curve_compute_metric(metric, y_true, y_pred, model=None, x=None):
     """Calcula o valor de uma métrica (a mesma listada em 'Sort metric') para um par (y_true, y_pred),
     usado tanto no treino quanto no teste ao construir as curvas de Parameter/n_features."""
@@ -3369,16 +3589,10 @@ def _skl_curve_compute_metric(metric, y_true, y_pred, model=None, x=None):
         return float(matthews_corrcoef(y_true, y_pred))
     if metric == "Specificity":
         return _specificity_score(y_true, y_pred)
-    if metric == "AUC":
-        if model is None or x is None or not hasattr(model, "predict_proba"):
-            return float("nan")
-        try:
-            proba = model.predict_proba(x)
-            if proba.shape[1] == 2:
-                return float(roc_auc_score(y_true, proba[:, 1]))
-            return float(roc_auc_score(y_true, proba, multi_class="ovr", average="weighted"))
-        except Exception:
-            return float("nan")
+    if metric in ("ROC-AUC", "AUC"):  # "AUC": nome de USIs salvas antes do PR-AUC
+        return _skl_roc_pr_auc(model, x, y_true)[0]
+    if metric == "PR-AUC":
+        return _skl_roc_pr_auc(model, x, y_true)[1]
     return float("nan")
 
 
@@ -3588,14 +3802,14 @@ class SklEvaluateWorker(QThread): # type: ignore
         y_pred) out-of-fold). label_prefix numera os folds por repetição (ex.: "2-3" = repetição 2, fold 3)."""
         x_reset, y_reset, task = self.x_reset, self.y_reset, self.task
         rows = []
-        all_y_true, all_y_pred = [], []
+        all_y_true, all_y_pred, all_pos = [], [], []
         for fold_num, (train_idx, test_idx) in enumerate(split_iter, start=1):
             x_tr, x_te = x_reset.iloc[train_idx], x_reset.iloc[test_idx]
             y_tr, y_te = y_reset.iloc[train_idx], y_reset.iloc[test_idx]
             fold_model = clone(self.current_model)
             fold_model.fit(x_tr, y_tr)
             y_pred = fold_model.predict(x_te)
-            all_y_true.extend(list(y_te)); all_y_pred.extend(list(y_pred))
+            all_y_true.extend(list(y_te)); all_y_pred.extend(list(y_pred)); all_pos.extend(list(test_idx))
 
             # "n Val" e as métricas do fold de VALIDAÇÃO (as moléculas deixadas de fora nesta rodada) -
             # não o conjunto teste do Screening, que nunca entra na validação cruzada. Mesmos nomes da
@@ -3628,9 +3842,13 @@ class SklEvaluateWorker(QThread): # type: ignore
             summary[train_col] = float(cv_df[train_col].mean())
         summary.update(_skl_cv_metrics(task, all_y_true, all_y_pred))
         if task != "regression":
-            summary["AUC"] = float(pd.to_numeric(cv_df["AUC"], errors="coerce").mean()) if "AUC" in cv_df.columns else float("nan")
+            # ROC-AUC/PR-AUC: média dos folds (probabilidades de modelos diferentes não formam uma curva única).
+            for col in ("ROC-AUC", "PR-AUC"):
+                summary[col] = float(pd.to_numeric(cv_df[col], errors="coerce").mean()) if col in cv_df.columns else float("nan")
 
-        return cv_df, summary, (list(all_y_true), list(all_y_pred))
+        # OOF: (y_true, y_pred, posições em x_reset) - as posições ligam cada predição ao composto
+        # (sinalização de outliers do treino, _skl_training_outlier_flags).
+        return cv_df, summary, (list(all_y_true), list(all_y_pred), list(all_pos))
 
     def _run_standard(self):
         method = self.kwargs["method"]
@@ -3707,7 +3925,7 @@ class SklEvaluateWorker(QThread): # type: ignore
                 outer_splitter = KFold(n_splits=folds, shuffle=use_shuffle, random_state=seed if use_shuffle else None)
                 outer_split_iter = outer_splitter.split(x_reset)
 
-            oof_true, oof_pred = [], []
+            oof_true, oof_pred, oof_pos = [], [], []
             for fold_num, (train_idx, test_idx) in enumerate(outer_split_iter, start=1):
                 x_tr, x_te = x_reset.iloc[train_idx], x_reset.iloc[test_idx]
                 y_tr, y_te = y_reset.iloc[train_idx], y_reset.iloc[test_idx]
@@ -3717,21 +3935,22 @@ class SklEvaluateWorker(QThread): # type: ignore
                                             scoring=self.kwargs.get("scoring"))
                 inner_search.fit(x_tr, y_tr)
                 y_pred = inner_search.predict(x_te)
-                oof_true.extend(list(y_te)); oof_pred.extend(list(y_pred))
+                oof_true.extend(list(y_te)); oof_pred.extend(list(y_pred)); oof_pos.extend(list(test_idx))
                 label = f"{r + 1}-{fold_num}" if repeats > 1 else fold_num
                 row = {"Outer Fold": label, "n Val": len(y_te), "Best Params": str(inner_search.best_params_)}
                 row.update(_skl_cv_metrics(task, y_te, y_pred, inner_search.best_estimator_, x_te))
                 rows.append(row)
-                rep_aucs.append(row.get("AUC", float("nan")))
+                rep_aucs.append((row.get("ROC-AUC", float("nan")), row.get("PR-AUC", float("nan"))))
                 self._progress_tick()
             if r == 0:
-                self.oof = (oof_true, oof_pred)
+                self.oof = (oof_true, oof_pred, oof_pos)
             # Resumo agrupado desta repetição (mesmo critério do _standard_pass: métricas sobre as
             # predições out-of-fold juntas; AUC = média dos folds).
             summary = {"Outer Fold": "Pooled", "n Val": len(oof_true)}
             summary.update(_skl_cv_metrics(task, oof_true, oof_pred))
             if task != "regression":
-                summary["AUC"] = float(pd.to_numeric(pd.Series(rep_aucs), errors="coerce").mean())
+                summary["ROC-AUC"] = float(pd.to_numeric(pd.Series([a[0] for a in rep_aucs]), errors="coerce").mean())
+                summary["PR-AUC"] = float(pd.to_numeric(pd.Series([a[1] for a in rep_aucs]), errors="coerce").mean())
             summaries.append(summary)
         fold_df = pd.DataFrame(rows)
         extra = _skl_cv_summary_rows(fold_df, "Outer Fold", summaries, all_folds)
@@ -4983,6 +5202,11 @@ class MainWindow(QMainWindow):
         print(f"[INFO] Pasta do projeto criada/selecionada: {project_dir}")
         if load_previous_project_state:
             try:
+                # Limpa tudo antes de aplicar o estado do projeto carregado: _load_project_state_into_ui
+                # só preenche os campos que EXISTEM no arquivo desse projeto - sem a limpeza, os campos
+                # que ele não tem ficavam com os valores do projeto aberto antes (e podiam ser gravados
+                # nele no próximo salvamento).
+                self._reset_ui_for_new_project()
                 self._load_project_state_into_ui(project_dir)
             except Exception as e:
                 QMessageBox.warning(
@@ -5317,16 +5541,23 @@ class MainWindow(QMainWindow):
                     # setCurrentIndex(0) below would overwrite this back to the first item's
                     # text, so an editable combo is blanked instead of index-reset.
                     widget.setEditText("")
+                elif attr in self._SPEC_RESET_DEFAULTS and widget.findText(self._SPEC_RESET_DEFAULTS[attr]) >= 0:
+                    widget.setCurrentText(self._SPEC_RESET_DEFAULTS[attr])
                 elif widget.count() > 0:
                     widget.setCurrentIndex(0)
             elif isinstance(widget, QCheckBox):
                 widget.setChecked(False)
             elif isinstance(widget, QDoubleSpinBox):
-                widget.setValue(widget.minimum())
+                widget.setValue(self._SPEC_RESET_DEFAULTS.get(attr, widget.minimum()))
             elif isinstance(widget, QSpinBox):
-                widget.setValue(widget.minimum())
+                widget.setValue(self._SPEC_RESET_DEFAULTS.get(attr, widget.minimum()))
             elif isinstance(widget, (QLineEdit, QLabel)):
-                widget.setText("")
+                widget.setText(str(self._SPEC_RESET_DEFAULTS.get(attr, "")))
+
+    # Valores iniciais de widgets de field specs cujo valor "vazio" do reset genérico acima (mínimo do
+    # spinbox, 1º item do combo, texto em branco) não é o padrão da interface: ex. amplitude máxima das
+    # repetições discordantes = 1 unidade log (10x); detecção de outliers por IQR com limiar 1,5.
+    _SPEC_RESET_DEFAULTS = {"sp_rep_discordance": 1.0, "cb_outlier_method": "IQR", "threshold_outlier": "1.5"}
 
     def _collect_plain_attrs(self, attrs):
         """Like _collect_state_from_spec but for plain (non-widget) self attributes that a
@@ -5404,6 +5635,9 @@ class MainWindow(QMainWindow):
         ("outlier_column", "list_columns_outlier"),
         ("outlier_threshold", "threshold_outlier"),
         ("outlier_method", "cb_outlier_method"),
+        ("outlier_log_scale", "chk_outlier_log"),
+        ("rep_discordance_filter", "chk_rep_discordance"),
+        ("rep_discordance_max_log", "sp_rep_discordance"),
         # "Generating Categories" (movido de STEP3; "Generating Druggability Descriptors" foi para a
         # STEP 3 - campos druggability_* em STEP4_FIELD_SPEC):
         ("class_value_column", "list_columns_cat"),
@@ -6032,6 +6266,7 @@ class MainWindow(QMainWindow):
             "target_type": self.cb_target_type.currentText().strip() if hasattr(self, "cb_target_type") else "",
             "organism_name": self.ed_organism_name.text().strip() if hasattr(self, "ed_organism_name") else "",
             "target_pref_name": self.ed_target_pref_name.text().strip() if hasattr(self, "ed_target_pref_name") else "",
+            "target_exact_match": bool(self.chk_target_exact_match.isChecked()) if hasattr(self, "chk_target_exact_match") else False,
             "target_chembl_id": self.ed_target_chembl_id.text().strip() if hasattr(self, "ed_target_chembl_id") else "",
             "cell_chembl_id": self.ed_cell_chembl_id.text().strip() if hasattr(self, "ed_cell_chembl_id") else "",
             "cell_name": self.ed_cell_name.text().strip() if hasattr(self, "ed_cell_name") else "",
@@ -6072,6 +6307,8 @@ class MainWindow(QMainWindow):
             self.ed_organism_name.setText(str(state.get("organism_name", "") or ""))
         if hasattr(self, "ed_target_pref_name"):
             self.ed_target_pref_name.setText(str(state.get("target_pref_name", "") or ""))
+        if hasattr(self, "chk_target_exact_match"):
+            self.chk_target_exact_match.setChecked(bool(state.get("target_exact_match", False)))
         if hasattr(self, "ed_target_chembl_id"):
             self.ed_target_chembl_id.setText(str(state.get("target_chembl_id", "") or ""))
         if hasattr(self, "ed_cell_chembl_id"):
@@ -6171,13 +6408,25 @@ class MainWindow(QMainWindow):
             self.chk_validity_comment.setChecked(False)
         if hasattr(self, "chk_validity_description"):
             self.chk_validity_description.setChecked(False)
+        if hasattr(self, "chk_target_exact_match"):
+            self.chk_target_exact_match.setChecked(False)
 
     def _reset_ui_for_new_project(self):
-        """Clears every pipeline tab's fields when starting a brand New Project, so nothing
-        from a previously loaded job lingers in the UI (only the "load a previous job" path -
-        _load_project_state_into_ui - should ever populate fields with saved data). Called from the
-        "new job" branch of project_run(); loading a previous job is unaffected."""
+        """Clears every pipeline tab's fields so nothing from a previously opened job lingers in the
+        UI: when starting a brand New Project, and also right BEFORE loading a previous job (its
+        saved state only covers the fields it actually has - see project_run()). Besides the
+        widgets, the run-time "plain" attributes (last scaling/selection/projection/external split,
+        Compute AD reference, Consensus outputs, dataframe paths) and the in-memory STEP 4 session
+        and Compute AD results are cleared too - otherwise they would be saved into the next job."""
         self._clear_dataset_preparation_fields()
+        for plain_spec in (self.STEP2_PLAIN_SPEC, self.STATISTICS_PLAIN_SPEC, self.STEP4_PLAIN_SPEC,
+                           self.STEP7_PLAIN_SPEC, self.STEP8_PLAIN_SPEC):
+            for _key, attr in plain_spec:
+                setattr(self, attr, None)
+        if hasattr(self, "_ad_invalidate_result"):
+            self._ad_invalidate_result()
+        if hasattr(self, "_clear_skl_session"):
+            self._clear_skl_session()
 
         # Shared dataframes: null them out first and let the existing refresh helpers (which
         # already know how to handle "no dataframe selected") clear their derived combos/lists
@@ -6285,12 +6534,14 @@ class MainWindow(QMainWindow):
         pref_name = self.ed_target_pref_name.text().strip()
         target_type = self.cb_target_type.currentText().strip()
         target_chembl_id = self.ed_target_chembl_id.text().strip()
+        exact_match = bool(getattr(self, "chk_target_exact_match", None) and self.chk_target_exact_match.isChecked())
         # ── Verifica disponibilidade do servidor antes de disparar o worker ──
         if not self.ensure_chembl_available():
             return
         if not organism_name:
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Enter the name of the organism/target to search.")
             return
+        max_results = TARGET_SEARCH_MAX_RESULTS
 
         class TargetWorker(QThread):
             result_signal = pyqtSignal(object)
@@ -6311,18 +6562,43 @@ class MainWindow(QMainWindow):
                         filter_kwargs['target_type'] = target_type
                     if target_chembl_id:
                         filter_kwargs['target_chembl_id'] = target_chembl_id
-                    if pref_name:
-                        filter_kwargs['pref_name__icontains'] = pref_name
-                    target_list = target.filter(**filter_kwargs).only(['organism', 'pref_name', 'target_chembl_id', 'target_type'])
-                    ds_target = pd.DataFrame.from_dict(target_list)
-                    def count_compounds(target_chembl_id):
-                        activity = new_client.activity
-                        compounds = activity.filter(target_chembl_id=target_chembl_id).only(['molecule_chembl_id'])
-                        return len(compounds)
+                    cols = ['target_chembl_id', 'pref_name', 'organism', 'target_type']
+                    if pref_name and not exact_match:
+                        # Busca textual por relevância (mesmo mecanismo do buscador do site do ChEMBL):
+                        # procura o termo em nome, sinônimos e componentes do alvo e ordena pelo score.
+                        # Os demais campos filtram o resultado; só os max_results mais relevantes são
+                        # mantidos (a busca devolve milhares de alvos, a maioria pouco relevante).
+                        hits = target.search(pref_name)
+                        if filter_kwargs:
+                            hits = hits.filter(**filter_kwargs)
+                        ds_target = pd.DataFrame.from_dict(list(hits[:max_results]))
+                        cols = ['score'] + cols
+                    else:
+                        if pref_name:
+                            # Exact match: nome idêntico ao digitado, sem diferenciar maiúsculas.
+                            filter_kwargs['pref_name__iexact'] = pref_name
+                        target_list = target.filter(**filter_kwargs).only(['organism', 'pref_name', 'target_chembl_id', 'target_type'])
+                        ds_target = pd.DataFrame.from_dict(target_list)
+                    if not ds_target.empty:
+                        ds_target = ds_target[[c for c in cols if c in ds_target.columns]]
                     if not ds_target.empty and 'target_chembl_id' in ds_target.columns:
-                        ds_target['num_compounds_tested'] = ds_target['target_chembl_id'].apply(count_compounds)
-                        ds_target = ds_target.sort_values(by='num_compounds_tested', ascending=False)
-                        self.result_signal.emit(ds_target)
+                        # "Compounds" e "Activities": as mesmas colunas da tabela de alvos do portal do ChEMBL
+                        # (compostos distintos e registros de atividade) - antes havia só
+                        # "num_compounds_tested", que na verdade contava registros de atividade.
+                        counts = _chembl_target_counts(ds_target['target_chembl_id'])
+                        ds_target['Compounds'] = [counts.get(t, (None, None))[0] for t in ds_target['target_chembl_id']]
+                        ds_target['Activities'] = [counts.get(t, (None, None))[1] for t in ds_target['target_chembl_id']]
+                        ds_target['Compounds'] = pd.to_numeric(ds_target['Compounds'], errors='coerce').astype('Int64')
+                        ds_target['Activities'] = pd.to_numeric(ds_target['Activities'], errors='coerce').astype('Int64')
+                        if 'score' in ds_target.columns:
+                            # Busca por relevância: ordem do score (como no site); empates pelo nº de compostos.
+                            ds_target['score'] = pd.to_numeric(ds_target['score'], errors='coerce')
+                            ds_target = ds_target.sort_values(by=['score', 'Compounds', 'Activities'],
+                                                              ascending=[False, False, False], na_position='last')
+                        else:
+                            ds_target = ds_target.sort_values(by=['Compounds', 'Activities'],
+                                                              ascending=[False, False], na_position='last')
+                        self.result_signal.emit(ds_target.reset_index(drop=True))
                     else:
                         self.error_signal.emit("No data found for the term entered.")
                 except Exception as e:
@@ -8096,86 +8372,159 @@ class MainWindow(QMainWindow):
         self._save_statistics_state()
         self.show_output(output, report_name)
 
+    _OUTLIER_DEFAULT_THRESHOLDS = {"Z-Score": "3", "Robust Z-Score": "3.5", "IQR": "1.5", "SD": "3"}
+
+    def _on_outlier_method_changed(self, method):
+        """Troca o Threshold pelo valor sugerido do método escolhido - só se o campo ainda tiver o
+        valor sugerido de algum método (um valor digitado pelo usuário é mantido)."""
+        if not hasattr(self, "threshold_outlier"):
+            return
+        current = self.threshold_outlier.text().strip()
+        suggested = set(self._OUTLIER_DEFAULT_THRESHOLDS.values()) | {"3.0", ""}
+        if current in suggested and method in self._OUTLIER_DEFAULT_THRESHOLDS:
+            self.threshold_outlier.setText(self._OUTLIER_DEFAULT_THRESHOLDS[method])
+
     def run_outlier(self):
+        """Eliminação de outliers da coluna escolhida (STEP 2), por um dos métodos:
+        - Z-Score: |z| < Threshold (média/desvio-padrão);
+        - Robust Z-Score: |0,6745 (x - mediana) / MAD| < Threshold (Iglewicz & Hoaglin, 1993; 3,5) -
+          mediana e MAD não são inflados pelos próprios outliers;
+        - IQR: [Q1 - Threshold x IQR, Q3 + Threshold x IQR];
+        - SD: média ± Threshold x desvio-padrão.
+        "Log10 scale": a detecção é feita no log10 dos valores (concentrações são log-normais; na escala
+        bruta o "outlier" é quase sempre o composto fraco, não um erro) - os limites são relatados de
+        volta na unidade original. Sem o checkbox, se a coluna parecer concentração bruta (positiva,
+        >= 2 ordens de grandeza), o usuário é consultado. Em classificação, há um aviso: valores
+        extremos são compostos muito potentes/fracos legítimos, e removê-los altera as classes.
+        Os compostos removidos (com o motivo) ficam em RESULTS/STATISTICS/<método>_Outliers_Removed.csv."""
+        idioma = self._idioma
+        title = i18n.t("msg_title_attention", idioma)
         if getattr(self, "df_selecionado", None) is None:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "No DataFrame loaded.")
+            QMessageBox.warning(self, title, "No DataFrame loaded.")
             return
 
         col = self.list_columns_outlier.currentText()
         if not col or col not in self.df_selecionado.columns:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid column for outlier removal.")
+            QMessageBox.warning(self, title, "Select a valid column for outlier removal.")
             return
 
+        outlier_method = self.cb_outlier_method.currentText()
+        if outlier_method not in self._OUTLIER_DEFAULT_THRESHOLDS:
+            QMessageBox.warning(self, title, "Select a valid Outlier Detection method.")
+            return
         try:
             threshold = float(self.threshold_outlier.text().strip())
         except Exception:
-            threshold = 3.0  # padrão para z-score e SD
+            threshold = float(self._OUTLIER_DEFAULT_THRESHOLDS[outlier_method])
 
         df = self.df_selecionado.copy()
         data = pd.to_numeric(df[col], errors='coerce')
+        if data.notna().sum() < 3:
+            QMessageBox.warning(self, title, i18n.t("s2_msg_outlier_not_numeric", idioma, col=col))
+            return
+
+        # Classificação: valores extremos de atividade definem as classes - aviso antes de remover.
+        _reg, task = self._get_skl_registry()
+        if task == "classification":
+            answer = QMessageBox.question(self, title, i18n.t("s2_msg_outlier_classification", idioma, col=col),
+                                          QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if answer != QMessageBox.Yes:
+                return
+
+        use_log = bool(getattr(self, "chk_outlier_log", None) and self.chk_outlier_log.isChecked())
+        if not use_log and _is_concentration_scale(data):
+            orders = _value_orders_of_magnitude(data)
+            answer = QMessageBox.question(
+                self, title, i18n.t("s2_msg_outlier_suggest_log", idioma, col=col, orders=f"{orders:.1f}"),
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel, QMessageBox.Yes)
+            if answer == QMessageBox.Cancel:
+                return
+            if answer == QMessageBox.Yes:
+                use_log = True
+                if hasattr(self, "chk_outlier_log"):
+                    self.chk_outlier_log.setChecked(True)
+        if use_log and (data.dropna() <= 0).any():
+            QMessageBox.warning(self, title, i18n.t("s2_msg_outlier_log_nonpositive", idioma, col=col))
+            return
+
+        values = np.log10(data) if use_log else data
+        back = (lambda v: 10 ** v) if use_log else (lambda v: v)
+        scale_label = "log10" if use_log else "original"
 
         project_dir = self.project_dir
         target_chembl_id = self.ed_target_chembl_id.text().strip()
         target_organism = self.ed_organism_name.text().strip()
         output_dir = os.path.join(project_dir, "DATA", "INTERNAL_DATA")
         output = []
-
-        outlier_method = self.cb_outlier_method.currentText()
+        score = pd.Series(np.nan, index=df.index)
+        lower = upper = None
 
         if outlier_method == "Z-Score":
-            # nan_policy='omit' is required here: scipy's default ('propagate') makes the mean/std
-            # (and therefore every z-score, not just the missing ones) NaN as soon as `data` has a
-            # single NaN - extremely common after pd.to_numeric(..., errors='coerce') on real
-            # bioactivity data with blank/non-numeric cells. With every z-score NaN, the filter
-            # below ("> -threshold" and "< threshold") is False for every row, silently producing
-            # an empty dataset (the bug being fixed here). Rows where `data` itself is NaN still
-            # end up excluded from df_out below, same as the IQR/SD branches.
-            df['z_score'] = zscore(data, nan_policy='omit')
-            outliers_below = df[df['z_score'] < -threshold]
-            outliers_above = df[df['z_score'] > threshold]
-            n_below = len(outliers_below)
-            n_above = len(outliers_above)
-            output.append("============= Z-Score Method ================")
-            output.append(f"{n_below} below,\n {n_above} above\n by threshold {threshold}\n")
-            df_out = df[(df['z_score'] > -threshold) & (df['z_score'] < threshold)].reset_index(drop=True)
-            df_out = df_out.drop(columns=['z_score'])
-            file_path = os.path.join(output_dir, f'df2_TratOutliers_Z_{target_chembl_id}_{target_organism}.csv')
-            df_out.to_csv(file_path, index=False)
-
+            # nan_policy='omit': com o padrão ('propagate') um único NaN deixava TODOS os z-scores NaN
+            # e o filtro abaixo esvaziava o dataset.
+            score = pd.Series(zscore(values, nan_policy='omit'), index=df.index)
+            keep = (score > -threshold) & (score < threshold)
+            header, suffix = "============= Z-Score Method ================", "Z"
+        elif outlier_method == "Robust Z-Score":
+            med = values.median()
+            mad = (values - med).abs().median()
+            if not mad or mad != mad:
+                QMessageBox.warning(self, title, i18n.t("s2_msg_outlier_mad_zero", idioma, col=col))
+                return
+            score = 0.6745 * (values - med) / mad
+            keep = (score > -threshold) & (score < threshold)
+            header, suffix = "======= Robust Z-Score (MAD) Method ========", "RZ"
         elif outlier_method == "IQR":
-            Q1 = data.quantile(0.25)
-            Q3 = data.quantile(0.75)
-            IQR = Q3 - Q1
-            lower = Q1 - threshold * IQR
-            upper = Q3 + threshold * IQR
-            outliers_below = df[data < lower]
-            outliers_above = df[data > upper]
-            n_below = len(outliers_below)
-            n_above = len(outliers_above)
-            output.append("============= IQR Method ================")
-            output.append(f"{n_below} below,\n {n_above} above\n by interval [{lower:.2e}, {upper:.2e}]\n")
-            df_out = df[(data >= lower) & (data <= upper)].reset_index(drop=True)
-            file_path = os.path.join(output_dir, f'df2_TratOutliers_IQR_{target_chembl_id}_{target_organism}.csv')
-            df_out.to_csv(file_path, index=False)
+            q1, q3 = values.quantile(0.25), values.quantile(0.75)
+            iqr = q3 - q1
+            lower, upper = q1 - threshold * iqr, q3 + threshold * iqr
+            keep = (values >= lower) & (values <= upper)
+            header, suffix = "============= IQR Method ================", "IQR"
+        else:  # SD
+            mean, std = values.mean(), values.std(ddof=0)
+            lower, upper = mean - threshold * std, mean + threshold * std
+            keep = (values >= lower) & (values <= upper)
+            header, suffix = "======== Standard Deviation Method =========", "SD"
 
-        elif outlier_method == "SD":
-            mean = data.mean()
-            std = data.std(ddof=0)
-            lower = mean - threshold * std
-            upper = mean + threshold * std
-            outliers_below = df[data < lower]
-            outliers_above = df[data > upper]
-            n_below = len(outliers_below)
-            n_above = len(outliers_above)
-            output.append("======== Standard Deviation Method =========")
-            output.append(f"{n_below} below,\n {n_above} above\n by interval [{lower:.2e}, {upper:.2e}]\n")
-            df_out = df[(data >= lower) & (data <= upper)].reset_index(drop=True)
-            file_path = os.path.join(output_dir, f'df2_TratOutliers_SD_{target_chembl_id}_{target_organism}.csv')
-            df_out.to_csv(file_path, index=False)
-
+        keep = keep.fillna(False) & values.notna()
+        if lower is None:
+            below = (score <= -threshold) & values.notna()
+            above = (score >= threshold) & values.notna()
         else:
-            QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Select a valid Outlier Detection method.")
-            return
+            below = (values < lower) & values.notna()
+            above = (values > upper) & values.notna()
+        n_below, n_above = int(below.sum()), int(above.sum())
+        n_missing = int(values.isna().sum())
+
+        output.append(header)
+        if lower is None:
+            output.append(f"{n_below} below,\n {n_above} above\n by threshold {threshold}\n")
+        else:
+            output.append(f"{n_below} below,\n {n_above} above\n by interval [{back(lower):.2e}, {back(upper):.2e}]\n")
+        output.append(f"Scale: {scale_label}" + (" (bounds reported back in the original units)" if use_log and lower is not None else ""))
+        if n_missing:
+            output.append(f"{n_missing} row(s) without a numeric value in '{col}' were also removed.")
+
+        df_out = df[keep].reset_index(drop=True)
+        file_path = os.path.join(output_dir, f'df2_TratOutliers_{suffix}_{target_chembl_id}_{target_organism}.csv')
+        df_out.to_csv(file_path, index=False)
+
+        # Compostos removidos, com o motivo (rastreabilidade - relatório/artigo).
+        removed = df[~keep].copy()
+        if not removed.empty:
+            reason = pd.Series("missing or non-numeric value", index=df.index)
+            reason[below] = "below the lower limit"
+            reason[above] = "above the upper limit"
+            removed["outlier_method"] = outlier_method
+            removed["outlier_scale"] = scale_label
+            removed["outlier_threshold"] = threshold
+            if lower is None:
+                removed["outlier_score"] = score[~keep]
+            else:
+                removed["outlier_lower_limit"] = back(lower)
+                removed["outlier_upper_limit"] = back(upper)
+            removed["outlier_reason"] = reason[~keep]
+        output.append(f"Removed compounds: {len(removed)} (listed in {outlier_method}_Outliers_Removed.csv)")
 
         # === atualiza exibição do DataFrame e saída ===
         self.df_selecionado = df_out
@@ -8189,6 +8538,7 @@ class MainWindow(QMainWindow):
             os.makedirs(stats_dir, exist_ok=True)
             with open(os.path.join(stats_dir, f"{report_name}.txt"), "w", encoding="utf-8") as handle:
                 handle.write("\n".join(output))
+            removed.to_csv(os.path.join(stats_dir, f"{outlier_method}_Outliers_Removed.csv"), index=False)
         except OSError:
             pass
         self._save_step2_state()
@@ -8570,14 +8920,45 @@ class MainWindow(QMainWindow):
             return
 
         df = self.df_selecionado.copy()
+        idioma = self._idioma
+        # Escala dos valores: concentração bruta (nM, µM...: positiva, >= 2 ordens de grandeza) ->
+        # comparações em log10; já em escala log (pIC50...) -> diferenças diretas.
+        values_all = pd.to_numeric(df[col_type], errors="coerce")
+        concentration = _is_concentration_scale(values_all)
+
+        def _log_scale(values):
+            v = pd.to_numeric(values, errors="coerce")
+            return np.log10(v.where(v > 0)) if concentration else v
+
+        # Repetições discordantes: compostos cujas medidas variam mais que o limite em unidades log
+        # (max - min) são removidos inteiros, antes da agregação - a média/mediana de medidas que
+        # discordam em ordens de grandeza não representa o composto (Kramer et al., 2012;
+        # Landrum & Riniker, 2024).
+        discordant_removed = None
+        max_log = float(self.sp_rep_discordance.value()) if hasattr(self, "sp_rep_discordance") else 1.0
+        if getattr(self, "chk_rep_discordance", None) is not None and self.chk_rep_discordance.isChecked():
+            logv = _log_scale(df[col_type])
+            spread = logv.groupby(df[col_rep]).transform(lambda v: v.max() - v.min() if v.notna().sum() >= 2 else 0.0)
+            bad = spread > max_log
+            if bad.any():
+                discordant_removed = df[bad].copy()
+                discordant_removed["log_spread"] = spread[bad].round(3)
+                discordant_removed["max_log_spread"] = max_log
+                discordant_removed["value_scale"] = "concentration (log10)" if concentration else "log units"
+                discordant_removed["removal_reason"] = "discordant replicate measurements"
+                df = df[~bad].copy()
 
         def remove_outliers(values):
-            # Usando IQR para remover outliers
-            q1 = values.quantile(0.25)
-            q3 = values.quantile(0.75)
+            # IQR (1,5) dentro do composto, na escala log quando os valores são concentrações. Só com
+            # >= 4 medidas: com 2-3 valores o IQR não identifica nada de forma confiável (mediana simples).
+            v = pd.to_numeric(values, errors="coerce").dropna()
+            if len(v) < 4:
+                return v
+            lv = _log_scale(v)
+            q1, q3 = lv.quantile(0.25), lv.quantile(0.75)
             iqr = q3 - q1
-            mask = (values >= (q1 - 1.5 * iqr)) & (values <= (q3 + 1.5 * iqr))
-            return values[mask]
+            mask = (lv >= (q1 - 1.5 * iqr)) & (lv <= (q3 + 1.5 * iqr))
+            return v[mask]
 
         agg_func = None
 
@@ -8621,6 +9002,24 @@ class MainWindow(QMainWindow):
         # Salva o dataframe e exibe:
         file_path = os.path.join(project_dir, "DATA", "INTERNAL_DATA", f'df2_TratRepetitions_{target_chembl_id}_{target_organism}.csv')
         df_result.to_csv(file_path, index=False)
+        stats_dir = os.path.join(project_dir, "RESULTS", "STATISTICS")
+        removed_path = os.path.join(stats_dir, "Discordant_Replicates_Removed.csv")
+        if discordant_removed is not None:
+            try:
+                os.makedirs(stats_dir, exist_ok=True)
+                discordant_removed.to_csv(removed_path, index=False)
+            except OSError:
+                pass
+            n_comp = discordant_removed[col_rep].nunique()
+            QMessageBox.information(self, i18n.t("msg_title_attention", idioma), i18n.t(
+                "s2_msg_rep_discordance_done", idioma, n_comp=n_comp, n_rows=len(discordant_removed),
+                limit=f"{max_log:.1f}", path=removed_path))
+        elif os.path.isfile(removed_path):
+            # Sem discordantes nesta execução: o arquivo de uma execução anterior não vale mais.
+            try:
+                os.remove(removed_path)
+            except OSError:
+                pass
         self.df_selecionado = df_result
         self.show_dataframe(df_result)
         self.df_name_view.setText(os.path.basename(file_path))
@@ -19357,8 +19756,15 @@ class MainWindow(QMainWindow):
             btn_by_target.setFixedWidth(150)
             btn_by_target.setProperty("role", "secondary")
             btn_by_target.clicked.connect(self.run_by_target)
+            # "Exact match": marcado = Pref. name idêntico ao nome do alvo (sem diferenciar maiúsculas);
+            # desmarcado = busca textual por relevância, como o buscador do site do ChEMBL (score).
+            self.chk_target_exact_match = QCheckBox(); self._tr("s1_chk_exact_match", self.chk_target_exact_match.setText)
+            self._tr("s1_tooltip_exact_match", self.chk_target_exact_match.setToolTip)
+            self.chk_target_exact_match.setChecked(False)
             target_btn.addStretch(1)
             target_btn.addWidget(btn_by_target)
+            target_btn.addSpacing(10)
+            target_btn.addWidget(self.chk_target_exact_match)
             target_btn.addStretch(1)
             g1_target_layout.addLayout(target_btn)
 
@@ -19774,6 +20180,14 @@ class MainWindow(QMainWindow):
             btn_method_rep.setProperty("role", "primary")
             btn_method_rep.setFixedWidth(150); btn_method_rep.clicked.connect(self.run_method_rep)
             gL10.addWidget(label_select_method_rep,0,0); gL10.addWidget(self.list_methods_rep,0,1); gL10.addWidget(btn_method_rep,0,2)
+            # Repetições discordantes: remove o composto inteiro quando suas medidas variam mais que
+            # o limite (em unidades log10) - aplicado antes da agregação, por "Run Method".
+            self.chk_rep_discordance = QCheckBox(); self._tr("s2_chk_rep_discordance", self.chk_rep_discordance.setText)
+            self._tr("s2_tooltip_rep_discordance", self.chk_rep_discordance.setToolTip)
+            self.sp_rep_discordance = QDoubleSpinBox(); self.sp_rep_discordance.setRange(0.1, 5.0); self.sp_rep_discordance.setSingleStep(0.1)
+            self.sp_rep_discordance.setDecimals(1); self.sp_rep_discordance.setValue(1.0); self.sp_rep_discordance.setFixedWidth(70)
+            self._tr("s2_tooltip_rep_discordance", self.sp_rep_discordance.setToolTip)
+            gL10.addWidget(self.chk_rep_discordance,1,0,1,2); gL10.addWidget(self.sp_rep_discordance,1,2, alignment=Qt.AlignLeft)
             gL10.setColumnStretch(0, 1); gL10.setColumnStretch(1, 1); gL10.setColumnStretch(2, 1)
 
             # Segundo grid B (coluna de relação + valores de relação a remover, ex.: medidas
@@ -19893,9 +20307,17 @@ class MainWindow(QMainWindow):
             label_outlier = self._trL("s2_lbl_outlier_detection")
             label_outlier.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
             self.cb_outlier_method = QComboBox()
-            self.cb_outlier_method.addItems(["Z-Score", "IQR", "SD"])
+            self.cb_outlier_method.addItems(["Z-Score", "Robust Z-Score", "IQR", "SD"])
             self.cb_outlier_method.setCurrentText("IQR")
+            self._tr("s2_tooltip_outlier_method", self.cb_outlier_method.setToolTip)
             self.threshold_outlier = QLineEdit(); self.threshold_outlier.setFixedSize(80, 25); self.threshold_outlier.setAlignment(Qt.AlignCenter); self.threshold_outlier.setText("1.5")
+            # Limiar sugerido de cada método - trocado ao mudar o método só se o campo ainda tiver o
+            # valor sugerido de outro método (um valor digitado pelo usuário é mantido).
+            self.cb_outlier_method.currentTextChanged.connect(self._on_outlier_method_changed)
+            # Detecção em log10: concentrações (nM...) são log-normais; na escala bruta o "outlier"
+            # quase sempre é o composto fraco (valor alto), não um erro.
+            self.chk_outlier_log = QCheckBox(); self._tr("s2_chk_outlier_log", self.chk_outlier_log.setText)
+            self._tr("s2_tooltip_outlier_log", self.chk_outlier_log.setToolTip)
             self.btn_run_outlier = QPushButton()
             self._tr("s2_btn_outlier_elimination", self.btn_run_outlier.setText)
             self.btn_run_outlier.setProperty("role", "danger")
@@ -19909,7 +20331,8 @@ class MainWindow(QMainWindow):
             gL15.addWidget(self.threshold_outlier, 0, 3, alignment=Qt.AlignLeft)
             gL15.addWidget(label_outlier, 1, 0, alignment=Qt.AlignRight)
             gL15.addWidget(self.cb_outlier_method, 1, 1, alignment=Qt.AlignLeft)
-            gL15.addWidget(self.btn_run_outlier, 1, 2, alignment=Qt.AlignLeft)
+            gL15.addWidget(self.chk_outlier_log, 1, 2, alignment=Qt.AlignLeft)
+            gL15.addWidget(self.btn_run_outlier, 1, 3, alignment=Qt.AlignLeft)
             gL15.setColumnStretch(0, 1); gL15.setColumnStretch(1, 1); gL15.setColumnStretch(2, 1); gL15.setColumnStretch(3, 1)
             gL15.setVerticalSpacing(35)
             g9_main_layout.addWidget(gL15_widget)
@@ -23661,7 +24084,10 @@ class MainWindow(QMainWindow):
             "Recall": make_scorer(_skl_recall),
             "MCC": "matthews_corrcoef",
             "Specificity": make_scorer(_specificity_score),
-            "AUC": "roc_auc_ovr_weighted",
+            # ROC-AUC/PR-AUC: mesmo cálculo das tabelas (classe positiva = ativos; ver _skl_roc_pr_auc).
+            "ROC-AUC": _skl_roc_auc_scorer,
+            "PR-AUC": _skl_pr_auc_scorer,
+            "AUC": _skl_roc_auc_scorer,  # nome de USIs salvas antes do PR-AUC
         }
         scoring = metric_scoring_map.get(selected_metric)
         # scoring pode ser um objeto scorer (make_scorer), não só uma string nativa do sklearn -
@@ -23926,7 +24352,8 @@ class MainWindow(QMainWindow):
         screening_settings = config.get("screening_settings", {}) or {}
         if hasattr(self, "cb_skl_metric") and screening_settings.get("sort_metric"):
             # "R2 Test"/"Accuracy Test": nomes de USIs salvas antes do Screening ranquear por CV no treino.
-            sort_metric = {"R2 Test": "R2", "Accuracy Test": "Accuracy"}.get(
+            # "AUC": nome de antes da divisão em ROC-AUC e PR-AUC.
+            sort_metric = {"R2 Test": "R2", "Accuracy Test": "Accuracy", "AUC": "ROC-AUC"}.get(
                 screening_settings["sort_metric"], screening_settings["sort_metric"])
             idx = self.cb_skl_metric.findText(sort_metric)
             if idx != -1:
@@ -24114,7 +24541,7 @@ class MainWindow(QMainWindow):
         if task == "regression":
             self.cb_skl_metric.addItems(["R2", "RMSE", "MAE", "MSE"])
         elif task == "classification":
-            self.cb_skl_metric.addItems(["Accuracy", "F1", "Precision", "Recall", "Specificity", "MCC", "AUC"])
+            self.cb_skl_metric.addItems(["Accuracy", "F1", "Precision", "Recall", "Specificity", "MCC", "ROC-AUC", "PR-AUC"])
         elif task == "clustering":
             self.cb_skl_metric.addItems(["Silhouette", "Davies-Bouldin", "Calinski-Harabasz"])
 
@@ -25027,6 +25454,7 @@ class MainWindow(QMainWindow):
                 return
 
             method = self.cb_skl_cv_method.currentText()
+            self._skl_evaluate_x_index = list(x.index)  # linhas do Internal DataFrame (IDs dos outliers sinalizados)
             x_reset = x.reset_index(drop=True)
             y_reset = y.reset_index(drop=True)
 
@@ -25166,6 +25594,7 @@ class MainWindow(QMainWindow):
         self._save_step6_sklearn_state()
 
         stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        self._skl_flag_training_outliers(worker, oof, cv_task, eval_model_name, stamp)
         try:
             out_path = os.path.join(self.skl_out_data, f"skl_cv_{eval_model_name}_{self.skl_usi_key}_{stamp}.csv")
             # Mesmo formato transposto da tabela da interface, com "Best Params" (Nested CV).
@@ -25247,6 +25676,50 @@ class MainWindow(QMainWindow):
         except Exception as e:
             import traceback; traceback.print_exc()
             QMessageBox.critical(self, i18n.t("msg_title_plot_error", idioma), str(e))
+
+    def _skl_flag_training_outliers(self, worker, oof, task, model_name, stamp):
+        """Depois do Run Cross-Validation: sinaliza (sem remover) os outliers do treino - estruturais
+        (leverage h > h*) e, em regressão, de resposta (|resíduo padronizado out-of-fold| > 3) - ver
+        _skl_training_outlier_flags. Grava DATA/skl_cv_outliers_<modelo>_<USI>_<data>.csv (uma linha por
+        composto, com ID/SMILES do Internal DataFrame), o resumo nas configurações da validação (lido
+        pelo relatório) e uma nota no grupo. Só quando há uma predição out-of-fold por composto (não
+        em Leave-P-Out com p > 1 nem Bootstrap); a 1ª repetição é usada."""
+        settings = (getattr(self, "_skl_validation_settings", None) or {}).get(model_name)
+        if settings is not None:
+            settings.pop("outlier_flags", None)
+        if worker is None or not oof or len(oof) < 3:
+            return
+        try:
+            x_index = list(getattr(self, "_skl_evaluate_x_index", []) or [])
+            df_int = getattr(self, "df_int", None)
+            ids = smiles = None
+            if df_int is not None and x_index and all(i in df_int.index for i in x_index):
+                id_col = _chembl_col(df_int.columns, "molecule_chembl_id")
+                if not id_col:
+                    obj = [c for c in df_int.columns if df_int[c].dtype == object]
+                    id_col = obj[0] if obj else None
+                if id_col:
+                    ids = df_int.loc[x_index, id_col].tolist()
+                smi_col = _chembl_col(df_int.columns, "canonical_smiles")
+                if smi_col:
+                    smiles = df_int.loc[x_index, smi_col].tolist()
+            flags, summary = _skl_training_outlier_flags(worker.x_reset, oof[0], oof[1], oof[2], task, ids=ids)
+            if flags is None:
+                return
+            if smiles is not None:
+                flags.insert(1, "SMILES", smiles)
+            path = os.path.join(self.skl_out_data, f"skl_cv_outliers_{model_name}_{self.skl_usi_key}_{stamp}.csv")
+            flags.to_csv(path, index=False)
+            if settings is not None:
+                settings["outlier_flags"] = summary
+                self._save_skl_session_config()
+            if hasattr(self, "lbl_skl_cv_note"):
+                key = "s6_note_cv_outliers_reg" if task == "regression" else "s6_note_cv_outliers_clf"
+                note = i18n.t(key, self._idioma, n_resp=summary.get("n_response", 0), n_struct=summary["n_structural"],
+                              h_star=f"{summary['h_star']:.3f}", k=summary["n_components"], file=os.path.basename(path))
+                self.lbl_skl_cv_note.setText(note)
+        except Exception:
+            import traceback; traceback.print_exc()
 
     def _skl_eval_progress_start(self, fmt_key, maximum=100):
         """Reinicia a barra de progresso da Internal Validation (Run Cross-Validation / Run

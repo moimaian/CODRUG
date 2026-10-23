@@ -228,6 +228,19 @@ _TEXTOS = {
     "s1_lbl_pref_name": {"en": "Pref. Name:", "pt": "Nome Preferencial:"},
     "s1_lbl_target_chembl_id": {"en": "Target ChEMBL ID:", "pt": "Target ChEMBL ID:"},
     "s1_btn_explore_target": {"en": "Explore by target", "pt": "Explorar por alvo"},
+    "s1_chk_exact_match": {"en": "Exact match", "pt": "Correspondência exata"},
+    "s1_tooltip_exact_match": {
+        "en": "How 'Pref. name' is searched by 'Explore by target'.\n"
+              "Checked: only targets whose preferred name is exactly the text typed (case-insensitive).\n"
+              "Unchecked: relevance search like the ChEMBL website search box - the term is looked up in the target "
+              "name, synonyms and components, and the results are ranked by the 'score' column (top 50 kept). "
+              "Organism, Target type and Target ChEMBL ID still filter the results.",
+        "pt": "Como o 'Pref. name' é buscado pelo 'Explorar por alvo'.\n"
+              "Marcado: só os alvos cujo nome preferencial é exatamente o texto digitado (sem diferenciar maiúsculas).\n"
+              "Desmarcado: busca por relevância, como a caixa de busca do site do ChEMBL - o termo é procurado no nome, "
+              "sinônimos e componentes do alvo, e os resultados são ordenados pela coluna 'score' (os 50 primeiros). "
+              "Organismo, Tipo de alvo e Target ChEMBL ID continuam filtrando os resultados.",
+    },
     "s1_btn_generate_by_activity": {"en": "Generate Dataset by activity", "pt": "Gerar Dataset por atividade"},
     "s1_chk_web_scraping": {"en": "Web Scraping", "pt": "Web Scraping"},
     "s1_tooltip_web_scraping": {
@@ -337,6 +350,81 @@ _TEXTOS = {
         "pt": "Eliminar valores inválidos, infinitos \nou que excedam o intervalo \npermitido em float64",
     },
     "s2_grp_outlier_elimination": {"en": "Outlier Elimination", "pt": "Eliminação de Outliers"},
+    "s2_chk_outlier_log": {"en": "Log10 scale", "pt": "Escala log10"},
+    "s2_tooltip_outlier_log": {
+        "en": "Detect outliers on the log10 of the values (bounds reported back in the original units). Recommended for "
+              "raw concentrations (IC50, Ki, MIC in nM, µM...), which are log-normal: on the raw scale the 'outliers' are "
+              "almost always the weak compounds (high values), not errors. Not needed for values already on a log scale (pIC50...).",
+        "pt": "Detecta outliers no log10 dos valores (os limites são relatados de volta na unidade original). Recomendado para "
+              "concentrações brutas (IC50, Ki, MIC em nM, µM...), que são log-normais: na escala bruta os 'outliers' são quase "
+              "sempre os compostos fracos (valores altos), não erros. Desnecessário para valores já em escala log (pIC50...).",
+    },
+    "s2_tooltip_outlier_method": {
+        "en": "Z-Score: |z| < Threshold (mean/SD; suggested 3).\n"
+              "Robust Z-Score: |0.6745 (x - median) / MAD| < Threshold (Iglewicz & Hoaglin; suggested 3.5) - median and MAD "
+              "are not inflated by the outliers themselves.\n"
+              "IQR: [Q1 - Threshold x IQR, Q3 + Threshold x IQR] (suggested 1.5).\n"
+              "SD: mean ± Threshold x SD (suggested 3).\n"
+              "The removed compounds, with the reason, are saved in RESULTS/STATISTICS/<method>_Outliers_Removed.csv.",
+        "pt": "Z-Score: |z| < Threshold (média/DP; sugerido 3).\n"
+              "Robust Z-Score: |0,6745 (x - mediana) / MAD| < Threshold (Iglewicz & Hoaglin; sugerido 3,5) - mediana e MAD não "
+              "são inflados pelos próprios outliers.\n"
+              "IQR: [Q1 - Threshold x IQR, Q3 + Threshold x IQR] (sugerido 1,5).\n"
+              "SD: média ± Threshold x DP (sugerido 3).\n"
+              "Os compostos removidos, com o motivo, ficam em RESULTS/STATISTICS/<método>_Outliers_Removed.csv.",
+    },
+    "s2_msg_outlier_classification": {
+        "en": "This project is a CLASSIFICATION task. Extreme values of '{col}' are usually legitimate compounds (very potent or "
+              "very weak) and they define the classes - removing them changes the class balance (weak compounds are the "
+              "inactives). Outlier elimination on the activity is generally not recommended in classification.\n\n"
+              "Remove outliers anyway?",
+        "pt": "Este projeto é de CLASSIFICAÇÃO. Valores extremos de '{col}' costumam ser compostos legítimos (muito potentes ou "
+              "muito fracos) e são eles que definem as classes - removê-los altera o equilíbrio das classes (os compostos fracos "
+              "são os inativos). A eliminação de outliers na atividade em geral não é recomendada em classificação.\n\n"
+              "Remover os outliers mesmo assim?",
+    },
+    "s2_msg_outlier_suggest_log": {
+        "en": "The values of '{col}' are all positive and span {orders} orders of magnitude - they look like raw concentrations "
+              "(nM, µM...), which are log-normal. On this raw scale the detected 'outliers' would be mostly the weak compounds.\n\n"
+              "Detect outliers on the log10 scale instead? (Yes = log10, No = raw scale)",
+        "pt": "Os valores de '{col}' são todos positivos e abrangem {orders} ordens de grandeza - parecem concentrações brutas "
+              "(nM, µM...), que são log-normais. Nessa escala bruta os 'outliers' detectados seriam principalmente os compostos fracos.\n\n"
+              "Detectar os outliers na escala log10? (Sim = log10, Não = escala bruta)",
+    },
+    "s2_msg_outlier_log_nonpositive": {
+        "en": "'{col}' has zero or negative values - the log10 scale needs positive values. Uncheck 'Log10 scale' or remove those values first.",
+        "pt": "'{col}' tem valores zero ou negativos - a escala log10 exige valores positivos. Desmarque 'Escala log10' ou remova esses valores antes.",
+    },
+    "s2_msg_outlier_not_numeric": {
+        "en": "'{col}' has fewer than 3 numeric values - select the column with the activity values.",
+        "pt": "'{col}' tem menos de 3 valores numéricos - selecione a coluna com os valores de atividade.",
+    },
+    "s2_msg_outlier_mad_zero": {
+        "en": "The median absolute deviation (MAD) of '{col}' is zero (more than half of the values are equal) - the Robust Z-Score "
+              "cannot be computed. Use IQR or Z-Score.",
+        "pt": "O desvio absoluto mediano (MAD) de '{col}' é zero (mais da metade dos valores são iguais) - o Robust Z-Score não pode "
+              "ser calculado. Use IQR ou Z-Score.",
+    },
+    "s2_chk_rep_discordance": {"en": "Remove discordant replicates - max. spread (log units):",
+                               "pt": "Remover repetições discordantes - amplitude máx. (unid. log):"},
+    "s2_tooltip_rep_discordance": {
+        "en": "Before aggregating the repetitions with 'Run Method', removes the WHOLE compound when its measurements disagree by "
+              "more than this spread (max - min) in log10 units - e.g. 1.0 = one order of magnitude (10x). Raw concentrations "
+              "(nM...) are compared on log10; values already on a log scale (pIC50...) directly. The mean or median of values "
+              "that disagree by orders of magnitude does not represent the compound (Kramer et al., 2012). Removed rows: "
+              "RESULTS/STATISTICS/Discordant_Replicates_Removed.csv.",
+        "pt": "Antes de agregar as repetições com 'Run Method', remove o composto INTEIRO quando suas medidas discordam mais que "
+              "esta amplitude (máx - mín) em unidades log10 - ex.: 1,0 = uma ordem de grandeza (10x). Concentrações brutas (nM...) "
+              "são comparadas em log10; valores já em escala log (pIC50...), diretamente. A média ou mediana de valores que "
+              "discordam em ordens de grandeza não representa o composto (Kramer et al., 2012). Linhas removidas: "
+              "RESULTS/STATISTICS/Discordant_Replicates_Removed.csv.",
+    },
+    "s2_msg_rep_discordance_done": {
+        "en": "{n_comp} compound(s) ({n_rows} rows) with replicate measurements spreading more than {limit} log unit(s) were "
+              "removed before aggregation.\nList: {path}",
+        "pt": "{n_comp} composto(s) ({n_rows} linhas) com medidas repetidas com amplitude maior que {limit} unidade(s) log foram "
+              "removidos antes da agregação.\nLista: {path}",
+    },
     "s2_btn_view_descriptive_stats": {"en": "View descritive \nStatistics", "pt": "Ver Estatística \nDescritiva"},
     "s2_lbl_select_chart": {"en": "Select chart:", "pt": "Selecione o gráfico:"},
     "s2_btn_view_dist_chart": {"en": "View distribution \nchart", "pt": "Ver gráfico de \ndistribuição"},
@@ -829,6 +917,16 @@ _TEXTOS = {
     "s6_fmt_screening_progress": {"en": "Screening: %p%", "pt": "Seleção: %p%"},
     "s6_fmt_tune_progress": {"en": "Tuning: %p%", "pt": "Ajuste: %p%"},
     "s6_fmt_repsplit_progress": {"en": "Repeated Splits: %p%", "pt": "Divisões Repetidas: %p%"},
+    "s6_note_cv_outliers_reg": {
+        "en": "Flagged (not removed): {n_resp} response outlier(s) (|std. residual| > 3) and {n_struct} structural outlier(s) "
+              "(leverage > h* = {h_star}, {k} PCs) in the training set - see DATA/{file}.",
+        "pt": "Sinalizados (não removidos): {n_resp} outlier(s) de resposta (|resíduo padronizado| > 3) e {n_struct} "
+              "estrutural(is) (leverage > h* = {h_star}, {k} CPs) no treino - ver DATA/{file}.",
+    },
+    "s6_note_cv_outliers_clf": {
+        "en": "Flagged (not removed): {n_struct} structural outlier(s) (leverage > h* = {h_star}, {k} PCs) in the training set - see DATA/{file}.",
+        "pt": "Sinalizados (não removidos): {n_struct} outlier(s) estrutural(is) (leverage > h* = {h_star}, {k} CPs) no treino - ver DATA/{file}.",
+    },
     "s6_fmt_cv_progress": {"en": "Cross-Validation: %p%", "pt": "Validação Cruzada: %p%"},
     "s6_fmt_yrand_progress": {"en": "Y-Scrambling: %p%", "pt": "Y-Scrambling: %p%"},
     "btn_select_all": {"en": "Select All", "pt": "Selecionar Tudo"},
@@ -921,7 +1019,7 @@ _TEXTOS = {
               "training folds. The other rows: the compounds left out (n Val), never the Screening test set - the "
               "same metrics as the external validation (without Q²F1/Q²F3 and Golbraikh-Tropsha, specific to an "
               "external set). Pooled: metrics over all out-of-fold predictions together (for regression, Q2 = Q² CV); "
-              "Train and AUC are means over folds; with Repeats > 1, the mean across repetitions of each repetition's "
+              "Train, ROC-AUC and PR-AUC are means over folds; with Repeats > 1, the mean across repetitions of each repetition's "
               "pooled value. Std Dev: standard deviation between folds (Repeats = 1) or BETWEEN repetitions.\n"
               "With 'All Folds' checked: Mean and Std Dev over ALL folds (k x Repeats) instead.\n"
               "Nested CV: one column per outer fold; the hyperparameters chosen by each inner search (Best Params) "
@@ -933,7 +1031,7 @@ _TEXTOS = {
               "da rodada. As demais linhas: os compostos deixados de fora (n Val), nunca o conjunto teste do "
               "Screening - as mesmas métricas da validação externa (sem Q²F1/Q²F3 e Golbraikh-Tropsha, próprios de "
               "um conjunto externo). Pooled: métricas sobre todas as predições out-of-fold juntas (em regressão, "
-              "Q2 = Q² CV); Train e AUC são médias dos folds; com Repetições > 1, a média, entre repetições, do valor "
+              "Q2 = Q² CV); Train, ROC-AUC e PR-AUC são médias dos folds; com Repetições > 1, a média, entre repetições, do valor "
               "agrupado de cada uma. Std Dev: desvio-padrão entre folds (Repetições = 1) ou ENTRE repetições.\n"
               "Com 'All Folds' marcado: Mean e Std Dev sobre TODOS os folds (k x Repetições).\n"
               "Nested CV: uma coluna por fold externo; os hiperparâmetros escolhidos por cada busca interna (Best "

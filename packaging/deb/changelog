@@ -247,6 +247,53 @@ codrug (1.2.0-1) unstable; urgency=low
     faixas por quantis) nos dois conjuntos; exige a coluna Y e ao menos 2
     compostos por classe/faixa. Tooltips e relatório descrevem o método
     (BIN/rational_split.py, CODRUG.py, BIN/i18n.py, BIN/module_report.py).
+  * STEP 1, Explore by target: novo checkbox "Exact match". Marcado, o
+    Pref. name precisa ser idêntico ao nome do alvo (sem diferenciar
+    maiúsculas); desmarcado (padrão), a busca é por relevância, como a do
+    site do ChEMBL (nome, sinônimos e componentes; coluna score; os 50 alvos
+    mais relevantes), com Organism/Target type/ChEMBL ID filtrando o
+    resultado. Antes a busca era por "contém o texto". A coluna
+    num_compounds_tested (que contava registros de atividade) foi trocada
+    por "Compounds" (compostos distintos) e "Activities" (registros de
+    atividade), as mesmas da tabela de alvos do portal do ChEMBL, lidas do
+    índice do portal numa única consulta (antes ~3 s por alvo); sem o
+    índice, as atividades vêm do total da API REST (CODRUG.py, BIN/i18n.py).
+  * Classificação: a métrica "AUC" foi substituída por ROC-AUC e PR-AUC
+    (average precision) em todo o STEP 4 - Sort metric (Screening, Tuning,
+    busca interna do Nested CV, Y-Scrambling, curvas), tabelas e CSVs do
+    Screening, validação interna, Validate on Test Set, Predict com Y e
+    Repeated Splits, e relatório. Em problema binário, ambas são da classe
+    positiva (ativos); em 3+ classes, média ponderada one-vs-rest. Modelos
+    sem predict_proba usam o decision_function no caso binário (antes o AUC
+    ficava vazio). USIs salvas com Sort metric "AUC" passam a ROC-AUC
+    (CODRUG.py, BIN/i18n.py, BIN/module_report.py).
+  * Outliers (STEP 2): detecção em escala log10 (checkbox "Log10 scale";
+    sugerida automaticamente quando a coluna parece concentração bruta,
+    positiva e com >= 2 ordens de grandeza); aviso em classificação, onde
+    valores extremos são compostos legítimos que definem as classes; novo
+    método Robust Z-Score (mediana/MAD, Iglewicz & Hoaglin; limiar 3,5) e
+    limiar sugerido por método; compostos removidos, com o motivo, em
+    RESULTS/STATISTICS/<método>_Outliers_Removed.csv.
+  * Repetições (STEP 2): filtro opcional de repetições discordantes - remove
+    o composto inteiro quando suas medidas variam mais que N unidades log10
+    (padrão 1,0), antes da agregação (lista em
+    RESULTS/STATISTICS/Discordant_Replicates_Removed.csv); "Median(without
+    outliers)" passa a usar o IQR em log10 e só com >= 4 medidas.
+  * Validação interna (STEP 4): sinalização, sem remoção, de outliers do
+    treino a partir das predições out-of-fold - estruturais (leverage > h* =
+    3(k+1)/n nos componentes principais dos descritores) e, em regressão, de
+    resposta (|resíduo padronizado robusto| > 3); CSV skl_cv_outliers_*,
+    nota no grupo e parágrafo/tabela no relatório. Relatório da STEP 2
+    descreve escala log, método robusto, discordância e arquivos dos
+    removidos (CODRUG.py, BIN/i18n.py, BIN/module_report.py).
+  * Correção: ao carregar um projeto na aba CONFIG, a interface é limpa
+    antes de aplicar o estado salvo - antes, os campos que o projeto não
+    tinha ficavam com os valores do projeto aberto anteriormente (e podiam
+    ser gravados nele). A limpeza também zera os atributos internos (últimos
+    métodos/arquivos de escalonamento, seleção, projeção, divisão externa,
+    Compute AD, Consensus), a sessão da STEP 4 em memória e os resultados do
+    Compute AD; campos voltam aos padrões da interface (ex.: outliers por IQR
+    com limiar 1,5) (CODRUG.py).
 
  -- Moisés Maia Neto <moimaian@gmail.com>  Tue, 13 Oct 2026 03:18:10 -0300
 
