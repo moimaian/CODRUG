@@ -294,6 +294,21 @@ codrug (1.2.0-1) unstable; urgency=low
     Compute AD, Consensus), a sessão da STEP 4 em memória e os resultados do
     Compute AD; campos voltam aos padrões da interface (ex.: outliers por IQR
     com limiar 1,5) (CODRUG.py).
+  * Interpretability Tools (STEP 5): nos gráficos Permutation - by group e
+    SHAP - by group, o eixo Y mostra só o nome do grupo (ex.: G012), sem a
+    lista de membros que ficava cortada com "..." (os membros continuam na
+    tabela da aba e no CSV); em SHAP - substructures, todo o texto de cada
+    painel (descritor, mean|SHAP|/efeito e composto de exemplo) fica acima
+    do quadro, com mais espaço entre as linhas de quadros, sem sobreposição
+    (BIN/module_interpretability.py).
+  * STEP 3, descritores: nova opção "RDKit 2D descriptors" no tipo 1D/2D -
+    todos os descritores de rdkit.Chem.Descriptors.descList (208 no RDKit
+    2022.09; o mesmo conjunto do "RDKitDescriptors" do PoseidonQ), com o
+    prefixo RDKit_, calculados pelo próprio CODRUG (com "Remove salt", usa o
+    maior fragmento) e combinados por Name com os demais descritores. O
+    relatório passa a indicar o software de cada descritor (PaDEL ou RDKit,
+    com versão) e só descreve "códigos binários" quando são só fingerprints
+    (CODRUG.py, BIN/module_report.py).
 
  -- Moisés Maia Neto <moimaian@gmail.com>  Tue, 13 Oct 2026 03:18:10 -0300
 

@@ -496,7 +496,9 @@ def substructure_figure(records, title, n_cols=4):
     n = len(panels)
     n_cols = min(n_cols, n)
     n_rows = int(np.ceil(n / n_cols))
-    fig = Figure(figsize=(3.3 * n_cols, 3.45 * n_rows + 0.6))
+    # Altura por linha maior que a do quadro: o texto (3 linhas) fica todo ACIMA de cada quadro, e o
+    # espaço extra separa o quadro de cima do texto do quadro de baixo.
+    fig = Figure(figsize=(3.3 * n_cols, 4.0 * n_rows + 0.6))
     arrows = {"raises prediction": "\u2191 raises", "lowers prediction": "\u2193 lowers", "neutral": "\u2194 neutral"}
     for k, (rec, img) in enumerate(panels):
         ax = fig.add_subplot(n_rows, n_cols, k + 1)
@@ -507,10 +509,12 @@ def substructure_figure(records, title, n_cols=4):
             sp.set_linewidth(2.0)
         tag = arrows.get(rec["direction"], "?")
         approx = "" if rec["exact"] else " (approx.)"
-        ax.set_title(f"{rec['descriptor']}{approx}\nmean|SHAP|={rec['mean_abs_shap']:.3g}  {tag}", fontsize=9)
-        ax.set_xlabel(f"{_short(rec['example_name'], 28)} ({rec['example_source'].split()[0]})", fontsize=7)
+        # Todo o texto acima do quadro (fora da imagem): descritor, mean|SHAP| e efeito, e o composto
+        # de exemplo cuja estrutura é desenhada.
+        ax.set_title(f"{rec['descriptor']}{approx}\nmean|SHAP|={rec['mean_abs_shap']:.3g}  {tag}\n"
+                     f"{_short(rec['example_name'], 34)} ({rec['example_source'].split()[0]})", fontsize=8.5)
     fig.suptitle(title, fontsize=11)
-    fig.tight_layout(rect=(0, 0, 1, 0.97))
+    fig.tight_layout(rect=(0, 0, 1, 0.97), h_pad=2.2)
     return fig
 
 
@@ -622,11 +626,14 @@ def _short(text, n=42):
 
 
 def _row_labels(df, label_col):
+    """Rótulos do eixo Y dos gráficos de barras. Grupos de descritores (Permutation/SHAP - by group):
+    só o nome do grupo (ex.: G012) - a lista de membros, longa demais para o eixo (ficava cortada com
+    "…"), está na tabela da aba e no CSV (coluna Members). Grupos de um único descritor levam o
+    nome dele."""
     labels = []
     for _, r in df.iterrows():
         if "Members" in df.columns and int(r.get("N_features", 1)) > 1:
-            members = str(r["Members"]).split(";")
-            labels.append(_short(f"{r[label_col]} ({len(members)}): {', '.join(members[:2])}…", 52))
+            labels.append(str(r[label_col]))
         else:
             labels.append(_short(r[label_col], 52))
     return labels

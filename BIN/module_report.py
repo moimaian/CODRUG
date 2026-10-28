@@ -1201,6 +1201,13 @@ _DESCRIPTOR_CATEGORY_LABELS = {
     "descriptors_fingerprint": {"pt": "Fingerprints", "en": "Fingerprints"},
 }
 
+# Itens de "Select Descriptors" calculados pelo próprio CODRUG com o RDKit (CODRUG.MainWindow.
+# RDKIT_FP_ITEMS + RDKIT_2D_ITEMS); os demais vêm do PaDEL-Descriptor.
+_RDKIT_DESCRIPTOR_ITEMS = frozenset({
+    "ECFP4 (RDkit classic)", "FCFP6 (RDkit)", "ECFP4 counting (without 1D2D)", "Avalon FP (RDKit)",
+    "Topological Torsion (RDKit)", "Pattern FP (RDKit)", "Atom Pair (RDKit)", "RDKit 2D descriptors",
+})
+
 _PREP_FLAG_LABELS = {
     "prep_remove_salt": {"pt": "remoção de sais", "en": "salt removal"},
     "prep_aromaticity": {"pt": "detecção de aromaticidade", "en": "aromaticity detection"},
@@ -1367,16 +1374,34 @@ def _add_step4_section(document: Any, project_dir: str, state: dict[str, Any], i
         _join_bold_list_bi(add, categories, lang)
         add(", ", False)
         _join_bold_list_bi(add, descriptors["selected"], lang)
-        add_bi(", gerado através do Padelpy", ", generated via PaDELPy", False)
-        try:
-            import importlib.metadata as _importlib_metadata
-            padelpy_version = _importlib_metadata.version("padelpy")
-        except Exception:
-            padelpy_version = None
-        if padelpy_version:
-            add_bi(" (PaDEL-Descriptor versão ", " (PaDEL-Descriptor version ", False)
-            add(padelpy_version, True)
-            add(")", False)
+        # Software de cada descritor: os itens RDKit (fingerprints e "RDKit 2D descriptors") são
+        # calculados pelo próprio CODRUG com o RDKit; os demais, pelo PaDEL-Descriptor via PaDELPy.
+        selected_desc = list(descriptors.get("selected") or [])
+        rdkit_selected = [d for d in selected_desc if d in _RDKIT_DESCRIPTOR_ITEMS]
+        padel_selected = [d for d in selected_desc if d not in _RDKIT_DESCRIPTOR_ITEMS]
+        if padel_selected:
+            add_bi(", gerado através do Padelpy", ", generated via PaDELPy", False)
+            try:
+                import importlib.metadata as _importlib_metadata
+                padelpy_version = _importlib_metadata.version("padelpy")
+            except Exception:
+                padelpy_version = None
+            if padelpy_version:
+                add_bi(" (PaDEL-Descriptor versão ", " (PaDEL-Descriptor version ", False)
+                add(padelpy_version, True)
+                add(")", False)
+        if rdkit_selected:
+            add_bi(" e " if padel_selected else ", ", " and " if padel_selected else ", ", False)
+            add_bi("calculado com o RDKit" + (" (" + ", ".join(rdkit_selected) + ")" if padel_selected else ""),
+                   "computed with RDKit" + (" (" + ", ".join(rdkit_selected) + ")" if padel_selected else ""), False)
+            try:
+                from rdkit import __version__ as _rdkit_version
+            except Exception:
+                _rdkit_version = None
+            if _rdkit_version:
+                add_bi(" (versão ", " (version ", False)
+                add(str(_rdkit_version), True)
+                add(")", False)
         prep_labels = [_PREP_FLAG_LABELS[key][lang] for key in _PREP_FLAG_LABELS if step4.get(key)]
         if prep_labels:
             add_bi(" com ", " with ", False)
@@ -1391,7 +1416,19 @@ def _add_step4_section(document: Any, project_dir: str, state: dict[str, Any], i
                     step4.get("bioactivity_column"), step4.get("class_column"),
                 }
                 descriptor_cols = [c for c in desc_df.columns if c not in exclude]
-                if descriptor_cols:
+                rdkit2d_cols = [c for c in descriptor_cols if str(c).startswith("RDKit_")]
+                if rdkit2d_cols:
+                    add_bi("O conjunto RDKit 2D descriptors reúne ", "The RDKit 2D descriptors set comprises ", False)
+                    add(f"{len(rdkit2d_cols):,}", True)
+                    add_bi(" descritores físico-químicos e topológicos 2D da lista Descriptors.descList do RDKit "
+                           "(por exemplo, massa molecular, logP de Crippen, TPSA, índices de conectividade Chi e Kappa, "
+                           "descritores de superfície *_VSA e contagens de grupos funcionais fr_*), identificados pelo "
+                           "prefixo RDKit_. ",
+                           " 2D physicochemical and topological descriptors from RDKit's Descriptors.descList (e.g. "
+                           "molecular weight, Crippen logP, TPSA, Chi and Kappa connectivity indices, *_VSA surface "
+                           "descriptors and fr_* functional-group counts), identified by the RDKit_ prefix. ", False)
+                only_fingerprints = bool(selected_desc) and not step4.get("descriptors_1d2d") and not step4.get("descriptors_3d")
+                if descriptor_cols and only_fingerprints:
                     add_bi(
                         "Este descritor fornece códigos binários que identificam a presença (1) ou "
                         "ausência (0) de ",

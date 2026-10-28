@@ -12053,6 +12053,11 @@ class MainWindow(QMainWindow):
         "Atom Pair (RDKit)",
     ]
     RDKIT_FP_BITS_MODES = frozenset(RDKIT_FP_ITEMS)
+    # Descritores 1D/2D calculados pelo RDKit (não pelo PaDEL): o conjunto completo de
+    # rdkit.Chem.Descriptors.descList (MolWt, MolLogP, TPSA, Chi/Kappa, *_VSA, fr_*...) - o mesmo
+    # que o PoseidonQ usa na opção "RDKitDescriptors". Aparece na lista do tipo 1D/2D.
+    RDKIT_2D_ITEMS = ["RDKit 2D descriptors"]
+    RDKIT_2D_SET = frozenset(RDKIT_2D_ITEMS)
 
     def _init_descriptor_checkbox_logic(self):
         """
@@ -12084,8 +12089,9 @@ class MainWindow(QMainWindow):
             )
             one_two_d, three_d, fps = [], [], []
 
-        # 3) Catálogo no formato usado pelos handlers
-        self._padel_catalog = {"1D2D": one_two_d, "3D": three_d, "FP": fps}
+        # 3) Catálogo no formato usado pelos handlers (+ descritores 2D do RDKit no tipo 1D/2D)
+        self._padel_catalog = {"1D2D": list(dict.fromkeys(list(self.RDKIT_2D_ITEMS) + list(one_two_d))),
+                               "3D": three_d, "FP": fps}
 
         # após construir `fps` a partir do descriptors.xml (PaDEL)
         rdkit_fp_items = self.RDKIT_FP_ITEMS
@@ -13212,6 +13218,21 @@ class MainWindow(QMainWindow):
             # ================== Loop por descritor ==================
             csv_paths = []
             for dname in selected_names:
+                if dname in self.RDKIT_2D_SET:
+                    # Descritores 2D do RDKit (Descriptors.descList): CSV próprio, mesmo merge por 'Name'.
+                    if not use_1d2d:
+                        continue
+                    try:
+                        remove_salt = bool(getattr(self, "chk_salt", None) and self.chk_salt.isChecked())
+                        df_rd = self._compute_rdkit_2d_descriptors(structure_col, name_col, remove_salt=remove_salt)
+                        out_dir_rd = os.path.join(self.project_dir, "DATA", "DESCRIPTORS", "1D2D")
+                        os.makedirs(out_dir_rd, exist_ok=True)
+                        csv_out = os.path.join(out_dir_rd, "df_desc_RDKit_2D_descriptors.csv")
+                        df_rd.to_csv(csv_out, index=False)
+                        csv_paths.append((dname, csv_out, "1D2D"))
+                    except Exception as e:
+                        QMessageBox.warning(self, "RDKit 2D descriptors", f"{dname}: {e}")
+                    continue  # não deixa cair no bloco do PaDEL
                 if dname in rdkit_fp_set:
                     # gera um CSV para este fingerprint com RDKit e adiciona a csv_paths
                     try:
@@ -14407,6 +14428,41 @@ class MainWindow(QMainWindow):
             msg += (f"\n\n{skipped} compound(s) were skipped ({missing_smiles} with no SMILES found, "
                     f"{invalid_smiles} with an unparseable SMILES).")
         QMessageBox.information(self, i18n.t("msg_title_attention", self._idioma), msg)
+
+    def _compute_rdkit_2d_descriptors(self, structure_col, name_col, remove_salt=False):
+        """Todos os descritores de rdkit.Chem.Descriptors.descList (físico-químicos, topológicos,
+        *_VSA, contagens de fragmentos fr_*...) para cada composto de self.df_selecionado - o mesmo
+        conjunto do "RDKitDescriptors" do PoseidonQ. Colunas com o prefixo "RDKit_" (evita colisão com
+        nomes do PaDEL, ex. TPSA) e "Name" para o merge. "Remove salt" marcado: usa só o maior
+        fragmento. SMILES inválido -> linha toda NaN (removida no merge); valores infinitos -> NaN."""
+        from rdkit import Chem
+        from rdkit.Chem import Descriptors
+        from rdkit.ML.Descriptors import MoleculeDescriptors
+        names_desc = [d[0] for d in Descriptors._descList]
+        calc = MoleculeDescriptors.MolecularDescriptorCalculator(names_desc)
+        chooser = None
+        if remove_salt:
+            try:
+                from rdkit.Chem.MolStandardize import rdMolStandardize
+                chooser = rdMolStandardize.LargestFragmentChooser()
+            except Exception:
+                chooser = None
+
+        df = self.df_selecionado.dropna(subset=[structure_col]).copy()
+        names = df[name_col].astype(str).tolist()
+        rows = []
+        for smi in df[structure_col].astype(str).tolist():
+            try:
+                mol = Chem.MolFromSmiles(smi)
+                if mol is not None and chooser is not None:
+                    mol = chooser.choose(mol)
+                rows.append(list(calc.CalcDescriptors(mol)) if mol is not None else [np.nan] * len(names_desc))
+            except Exception:
+                rows.append([np.nan] * len(names_desc))
+        out = pd.DataFrame(rows, columns=[f"RDKit_{n}" for n in names_desc]).apply(pd.to_numeric, errors="coerce")
+        out = out.replace([np.inf, -np.inf], np.nan)
+        out.insert(0, "Name", names)
+        return out
 
     def _compute_rdkit_fp_single_mode(self, mode, structure_col, name_col, fp_bits=2048, fp_chirality=True):
 
