@@ -164,6 +164,37 @@ _TEXTOS = {
     "cfg_label_previous_run": {"en": "Select:", "pt": "Selecione:"},
     "cfg_placeholder_previous_run": {"en": "Select a previous project", "pt": "Selecione um projeto anterior"},
     "cfg_btn_set_run_folder": {"en": "Set project folder", "pt": "Definir pasta do projeto"},
+    "cfg_btn_remove_project": {"en": "Remove Project", "pt": "Remover Projeto"},
+    "cfg_tooltip_remove_project": {
+        "en": "Deletes, after confirmation, the whole folder of the project selected in Previous Project. "
+              "Only a line in PROJECTS/projects_history.log is kept.",
+        "pt": "Apaga, após confirmação, a pasta inteira do projeto selecionado em Projeto Anterior. "
+              "Fica apenas um registro em PROJECTS/projects_history.log.",
+    },
+    "cfg_msg_remove_project_title": {"en": "Remove Project", "pt": "Remover Projeto"},
+    "cfg_msg_remove_project_none": {
+        "en": "Click Previous Project and select an existing project to remove (current: '{project}').",
+        "pt": "Clique em Projeto Anterior e selecione um projeto existente para remover (atual: '{project}').",
+    },
+    "cfg_msg_remove_project_confirm": {
+        "en": "Permanently delete project '{project}'?\n\n{n_files} file(s), {size} MB will be removed:\n{path}\n\n"
+              "{open_note}This cannot be undone. Only a record in PROJECTS/projects_history.log will be kept.",
+        "pt": "Apagar definitivamente o projeto '{project}'?\n\n{n_files} arquivo(s) e {size} MB serão removidos:\n"
+              "{path}\n\n{open_note}Esta ação não pode ser desfeita. Fica apenas um registro em "
+              "PROJECTS/projects_history.log.",
+    },
+    "cfg_msg_remove_project_open_note": {
+        "en": "This is the project currently open - all tabs will be cleared.\n\n",
+        "pt": "Este é o projeto aberto no momento - todas as abas serão limpas.\n\n",
+    },
+    "cfg_msg_remove_project_done": {
+        "en": "Project '{project}' was removed. The record was added to:\n{log}",
+        "pt": "O projeto '{project}' foi removido. O registro foi adicionado a:\n{log}",
+    },
+    "cfg_msg_remove_project_error": {
+        "en": "Could not remove project '{project}' completely:\n{error}",
+        "pt": "Não foi possível remover completamente o projeto '{project}':\n{error}",
+    },
     "btn_back": {"en": " << BACK ", "pt": " << VOLTAR "},
     "btn_next": {"en": " NEXT >> ", "pt": " AVANÇAR >> "},
     "msg_cfg_build_error": {
@@ -930,6 +961,38 @@ _TEXTOS = {
     "s6_fmt_cv_progress": {"en": "Cross-Validation: %p%", "pt": "Validação Cruzada: %p%"},
     "s6_fmt_yrand_progress": {"en": "Y-Scrambling: %p%", "pt": "Y-Scrambling: %p%"},
     "btn_select_all": {"en": "Select All", "pt": "Selecionar Tudo"},
+    "btn_open_dir": {"en": "Open Dir", "pt": "Abrir Pasta"},
+    "s1_tooltip_open_dir_internal": {
+        "en": "Opens the project's internal data folder (DATA/INTERNAL_DATA) in the file manager.",
+        "pt": "Abre no gerenciador de arquivos a pasta de dados internos do projeto (DATA/INTERNAL_DATA).",
+    },
+    "s6_tooltip_open_dir_data": {
+        "en": "Opens the DATA folder of the current USI (RESULTS/USI/<USI>/DATA), where the screening, tuning "
+              "and validation results are saved.",
+        "pt": "Abre a pasta DATA da USI atual (RESULTS/USI/<USI>/DATA), onde são salvos os resultados de "
+              "screening, tuning e validação.",
+    },
+    "s6_tooltip_open_dir_midia": {
+        "en": "Opens the MIDIA folder of the current USI (RESULTS/USI/<USI>/MIDIA), where the chart images are saved.",
+        "pt": "Abre a pasta MIDIA da USI atual (RESULTS/USI/<USI>/MIDIA), onde são salvas as imagens dos gráficos.",
+    },
+    "msg_open_dir_title": {"en": "Open Dir", "pt": "Abrir Pasta"},
+    "msg_open_dir_no_project": {
+        "en": "Set a project folder first (CONFIG tab).",
+        "pt": "Defina primeiro a pasta do projeto (aba CONFIG).",
+    },
+    "msg_open_dir_no_usi": {
+        "en": "Select a USI first.",
+        "pt": "Selecione primeiro uma USI.",
+    },
+    "msg_open_dir_missing": {
+        "en": "This folder does not exist yet (nothing has been saved there):\n{path}",
+        "pt": "Esta pasta ainda não existe (nada foi salvo nela):\n{path}",
+    },
+    "msg_open_dir_error": {
+        "en": "Could not open the folder:\n{path}",
+        "pt": "Não foi possível abrir a pasta:\n{path}",
+    },
     "s6_btn_view_train_test_freq": {"en": "View Split", "pt": "Ver Divisão"},
     "s6_btn_view_rank": {"en": "View Rank", "pt": "Ver Ranking"},
     "s6_lbl_cv_repeats": {"en": "Repeats:", "pt": "Repetições:"},
@@ -1721,7 +1784,9 @@ _TEXTOS = {
     },
     "req_chk_chembl": {"en": "Install chembl_webresource_client", "pt": "Instalar chembl_webresource_client"},
     "req_chk_padelpy": {"en": "Install padelpy (PaDEL-Descriptor launcher)", "pt": "Instalar padelpy (executor do PaDEL-Descriptor)"},
-    "req_chk_rdkit": {"en": "Install RDKit (rdkit-pypi)", "pt": "Instalar RDKit (rdkit-pypi)"},
+    "req_chk_rdkit": {"en": "Install RDKit (rdkit)", "pt": "Instalar RDKit (rdkit)"},
+    "req_log_removing_old_rdkit": {"en": "Removing the old 'rdkit-pypi' package (replaced by 'rdkit')...",
+                                   "pt": "Removendo o pacote antigo 'rdkit-pypi' (substituído por 'rdkit')..."},
     "req_chk_openbabel": {"en": "Install OpenBabel (openbabel-wheel)", "pt": "Instalar OpenBabel (openbabel-wheel)"},
     "req_tooltip_openbabel": {
         "en": "Optional. Used by STEP 3 'Or Select Structures File' to read .mol2/.pdb/.pdbqt (and similar) structure files, preserving their original 3D coordinates for 3D descriptors. Not required for .smi/.sdf, which RDKit already reads.",

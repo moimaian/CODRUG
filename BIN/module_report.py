@@ -1220,7 +1220,8 @@ _PREP_FLAG_LABELS = {
 # for each Selection/Projection method. Kept as a parallel list here (report generator has no
 # PyQt/CODRUG.py import) rather than shared code - if those dicts change, update both.
 _SELECTION_METHOD_PARAMS = {
-    "Variance Threshold": ["Variance threshold"],
+    # "Variance threshold": rótulo antigo (linha única compartilhada com a Projection).
+    "Variance Threshold": ["min_variance", "Variance threshold"],
     "Correlation Threshold": ["corr_threshold"],
     "SelectKBest (ANOVA F-test)": ["top_k"],
     "SelectKBest (Chi2)": ["top_k"],
@@ -1259,9 +1260,11 @@ def _col_count(path: Optional[str]) -> Optional[int]:
 
 def _param_label(key: str) -> str:
     """Number of Components / Variance threshold are already human-readable; the rest
-    (top_k, corr_threshold, alpha, kernel, gamma, ...) are raw table-row keys."""
+    (top_k, corr_threshold, min_variance, alpha, kernel, gamma, ...) are raw table-row keys."""
     if key in ("Number of Components", "Variance threshold"):
         return key
+    if key == "min_variance":
+        return "Minimum feature variance"
     return key.replace("_", " ").title()
 
 

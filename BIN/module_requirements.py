@@ -595,7 +595,9 @@ def recommend_installer_defaults(hw: Optional[dict] = None) -> dict:
         "scikitlearn_version": "1.4.2",
         "chembl_version": "0.10.9",
         "padelpy_version": "0.1.13",
-        "rdkit_version": "2022.9.5",
+        # Pacote "rdkit" (o nome "rdkit-pypi" parou na 2022.9.5). 2023.9.6: mesmos resultados nas funções
+        # do CODRUG (fingerprints, descritores, 3D, desenhos) + AvgIpc/SPS em Descriptors.descList.
+        "rdkit_version": "2023.9.6",
         "openbabel_version": "",
         "matplotlib_version": "3.7.5",
         "seaborn_version": "0.13.2",
@@ -611,6 +613,14 @@ def recommend_installer_defaults(hw: Optional[dict] = None) -> dict:
         "cuml_available": cuml_info["available"],
         "cuml_reason": cuml_info["reason"],
     }
+
+def _pip_has(python_bin: str, dist_name: str) -> bool:
+    """True se a distribuição 'dist_name' está instalada no Python do venv (pip show)."""
+    try:
+        return _run([python_bin, "-m", "pip", "show", dist_name]).returncode == 0
+    except Exception:
+        return False
+
 
 def _pip_install(python_bin: str, pkgs: List[str]) -> subprocess.CompletedProcess:
     """
@@ -975,11 +985,19 @@ class RequirementsInstaller(cast(Any, QWidget)):
                 if not ok: return self._abort("padelpy")
 
             if self.check_rdkit.isChecked():
-                self.log_signal.emit(i18n.t("req_log_installing", self._idioma, name="RDKit (rdkit-pypi)"))
-                spec = self._version_spec("rdkit-pypi", self.rb_rdkit_latest, self.rdkit_version)
-                ok = self.install_pkg(pybin, spec)
+                self.log_signal.emit(i18n.t("req_log_installing", self._idioma, name="RDKit (rdkit)"))
+                # O antigo "rdkit-pypi" e o "rdkit" instalam o mesmo módulo (rdkit/) - remove o antigo
+                # antes, para os arquivos das duas distribuições não se misturarem no venv.
+                if _pip_has(pybin, "rdkit-pypi"):
+                    self.log_signal.emit(i18n.t("req_log_removing_old_rdkit", self._idioma))
+                    _run([pybin, "-m", "pip", "uninstall", "-y", "rdkit-pypi"])
+                spec = self._version_spec("rdkit", self.rb_rdkit_latest, self.rdkit_version)
+                # RDKit 2023.9 foi compilado contra o NumPy 1.x e quebra com o NumPy 2 ("_ARRAY_API not
+                # found"); o pip não impede isso sozinho (o rdkit pede só "numpy"). Fixado no mesmo comando.
+                extra = ["numpy<2"] if not self.rb_rdkit_latest.isChecked() else None
+                ok = self.install_pkg(pybin, spec, extra)
                 step += 1; self.progress_signal.emit(step)
-                if not ok: return self._abort("rdkit-pypi")
+                if not ok: return self._abort("rdkit")
 
             if self.check_openbabel.isChecked():
                 self.log_signal.emit(i18n.t("req_log_installing", self._idioma, name="OpenBabel (openbabel-wheel)"))
@@ -1080,8 +1098,9 @@ class RequirementsInstaller(cast(Any, QWidget)):
         self.log_signal.emit(i18n.t("req_log_pkg_installed", self._idioma, spec=pkg))
         return True
 
-    def install_pkg(self, pybin: str, spec: str) -> bool:
-        res = _pip_install(pybin, [spec])
+    def install_pkg(self, pybin: str, spec: str, extra: Optional[List[str]] = None) -> bool:
+        """pip install <spec> (+ 'extra': restrições instaladas no mesmo comando, ex. numpy<2)."""
+        res = _pip_install(pybin, [spec] + list(extra or []))
         if res.returncode != 0:
             self.log_signal.emit(res.stdout + "\n")
             return False

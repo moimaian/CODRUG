@@ -198,6 +198,15 @@ def apply_recommended_selection(
     # ======================= MÉTODOS DE FILTRO ======================= #
 
     if method_name == "Variance Threshold":
+        # variance_threshold é a variância mínima de cada descritor (na unidade dos dados), não
+        # uma fração - com nenhum descritor acima dela, explica em vez do erro genérico do sklearn.
+        max_var = float(np.nanmax(np.var(np.asarray(X, dtype=float), axis=0))) if X.shape[1] else 0.0
+        if max_var <= variance_threshold:
+            raise ValueError(
+                f"No feature has variance above min_variance = {variance_threshold:g} "
+                f"(highest feature variance: {max_var:.4g}). min_variance is the minimum variance "
+                f"of each feature in the data's own units, not a fraction - e.g. 0.01 for binary "
+                f"fingerprints (bit variance <= 0.25), 0 to drop only constant columns.")
         selector = VarianceThreshold(threshold=variance_threshold)
         mask = selector.fit(X).get_support()
         selected_cols = [c for c, keep in zip(X_cols, mask) if keep]

@@ -97,8 +97,8 @@ print("")
 try:
     import PyQt5
     print("✅ PyQt5 imported successfully.")
-    from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject, QTimer, QDir, QProcess, QPoint, QRect, QEvent, QSettings, QSize, QEventLoop
-    from PyQt5.QtGui import QPixmap, QGuiApplication, QIcon, QIntValidator, QFont, QPainter, QPen, QColor, QBrush
+    from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject, QTimer, QDir, QProcess, QPoint, QRect, QEvent, QSettings, QSize, QEventLoop, QUrl
+    from PyQt5.QtGui import QPixmap, QGuiApplication, QIcon, QIntValidator, QFont, QPainter, QPen, QColor, QBrush, QDesktopServices
     from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QTabWidget, QTabBar, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QTextEdit, QAction, QMessageBox, QLineEdit, QFormLayout,
@@ -5046,6 +5046,110 @@ class MainWindow(QMainWindow):
             self.previous_project_name.clear()
             self.previous_project_name.addItem(i18n.t("cfg_no_folder_found", self._idioma))
 
+    PROJECTS_HISTORY_LOG = "projects_history.log"
+
+    def _log_project_history(self, action, project_name, project_dir, details=""):
+        """Acrescenta uma linha a PROJECTS/projects_history.log (histórico de criação/remoção das
+        pastas de projeto): data e hora | ação | projeto | pasta | detalhes. Retorna o caminho do log
+        (None se não foi possível gravar)."""
+        log_path = os.path.join(self._projects_root(), self.PROJECTS_HISTORY_LOG)
+        line = " | ".join([datetime.now().strftime("%Y-%m-%d %H:%M:%S"), action, project_name, project_dir, details])
+        try:
+            os.makedirs(self._projects_root(), exist_ok=True)
+            with open(log_path, "a", encoding="utf-8") as handle:
+                handle.write(line.rstrip(" |") + "\n")
+            return log_path
+        except OSError:
+            return None
+
+    @staticmethod
+    def _folder_size_stats(folder):
+        """(número de arquivos, bytes) de uma pasta, recursivamente."""
+        n_files, n_bytes = 0, 0
+        for root, _dirs, files in os.walk(folder):
+            for f in files:
+                n_files += 1
+                try:
+                    n_bytes += os.path.getsize(os.path.join(root, f))
+                except OSError:
+                    pass
+        return n_files, n_bytes
+
+    def remove_project(self):
+        """Botão "Remove Project" (CONFIG, ao lado de "Set project folder"): apaga, após confirmação,
+        a pasta inteira do projeto selecionado em Previous Project e registra a remoção em
+        PROJECTS/projects_history.log. Se for o projeto aberto, as abas são limpas e o app volta ao
+        estado sem projeto (como ao iniciar)."""
+        idioma = self._idioma
+        title = i18n.t("cfg_msg_remove_project_title", idioma)
+        name = self.previous_project_name.currentText().strip() if self.previous_project_name.isEnabled() else ""
+        folder = self._resolve_project_dir(name) if name else ""
+        roots = {os.path.realpath(self._projects_root()), os.path.realpath(self._legacy_jobs_root())}
+        # Só remove uma pasta que esteja de fato diretamente dentro de PROJECTS/ (ou JOBS/) - nunca um
+        # caminho digitado com "..", "/" etc. no combobox editável, nem o placeholder "No folder found".
+        if (not name or os.sep in name or name in (".", "..") or not os.path.isdir(folder)
+                or os.path.dirname(os.path.realpath(folder)) not in roots):
+            QMessageBox.warning(self, title, i18n.t("cfg_msg_remove_project_none", idioma, project=name or "-"))
+            return
+
+        n_files, n_bytes = self._folder_size_stats(folder)
+        current = getattr(self, "project_dir", "") or ""
+        is_open = bool(current) and os.path.realpath(current) == os.path.realpath(folder)
+        open_note = i18n.t("cfg_msg_remove_project_open_note", idioma) if is_open else ""
+        answer = QMessageBox.warning(
+            self, title,
+            i18n.t("cfg_msg_remove_project_confirm", idioma, project=name, n_files=n_files,
+                   size=f"{n_bytes / 1048576:.1f}", path=folder, open_note=open_note),
+            QMessageBox.Ok | QMessageBox.Cancel, QMessageBox.Cancel,
+        )
+        if answer != QMessageBox.Ok:
+            return
+
+        details = f"{n_files} files, {n_bytes / 1048576:.1f} MB"
+        try:
+            shutil.rmtree(folder)
+        except Exception as e:
+            self._log_project_history("REMOVE FAILED", name, folder, f"{details}; {e}")
+            QMessageBox.critical(self, title, i18n.t("cfg_msg_remove_project_error", idioma, project=name, error=str(e)))
+            self.previous_project()
+            return
+        log_path = self._log_project_history("REMOVED", name, folder, details)
+
+        if is_open:
+            # Volta ao estado sem projeto (como ao iniciar): sem project_dir, nada é salvo/recriado na
+            # pasta removida.
+            self._reset_ui_for_new_project()
+            if hasattr(self, "project_dir"):
+                del self.project_dir
+            self.ed_run_folder.setText("")
+        self.previous_project()
+        QMessageBox.information(self, title, i18n.t(
+            "cfg_msg_remove_project_done", idioma, project=name,
+            log=log_path or os.path.join(self._projects_root(), self.PROJECTS_HISTORY_LOG)))
+
+    def _open_project_dir(self, *parts, usi_sub=None):
+        """Botões "Open Dir": abre no gerenciador de arquivos a pasta <project_dir>/<parts...> ou, com
+        usi_sub ("DATA"/"MIDIA"), RESULTS/USI/<USI atual>/<usi_sub>. Não cria a pasta: se ela ainda
+        não existe (nada foi salvo), apenas avisa."""
+        idioma = self._idioma
+        title = i18n.t("msg_open_dir_title", idioma)
+        project_dir = getattr(self, "project_dir", "") or ""
+        if not project_dir or not os.path.isdir(project_dir):
+            QMessageBox.warning(self, title, i18n.t("msg_open_dir_no_project", idioma))
+            return
+        if usi_sub:
+            code = self.ed_skl_USI.currentText().strip() if hasattr(self, "ed_skl_USI") else ""
+            if not code or os.sep in code or code in (".", ".."):
+                QMessageBox.warning(self, title, i18n.t("msg_open_dir_no_usi", idioma))
+                return
+            parts = ("RESULTS", "USI", _normalize_usi_key(code), usi_sub)
+        path = os.path.join(project_dir, *parts)
+        if not os.path.isdir(path):
+            QMessageBox.information(self, title, i18n.t("msg_open_dir_missing", idioma, path=path))
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(path)):
+            QMessageBox.warning(self, title, i18n.t("msg_open_dir_error", idioma, path=path))
+
     def show_requirements_installer(self):
         self.req_win = RequirementsInstaller(None, idioma=self._idioma)
         self.req_win.setWindowModality(Qt.ApplicationModal)
@@ -5152,6 +5256,8 @@ class MainWindow(QMainWindow):
         # Cria (ou abre) a pasta do projeto em PROJECTS/ - um projeto anterior que tenha ficado na
         # pasta antiga JOBS/ é aberto de lá (ver _resolve_project_dir).
         project_dir = self._resolve_project_dir(project_name) if load_previous_project_state else os.path.join(self._projects_root(), project_name)
+        if not os.path.isdir(project_dir):
+            self._log_project_history("CREATED", project_name, project_dir)
         os.makedirs(project_dir, exist_ok=True)
         # Projeto anterior com a subpasta antiga DATA_BASES: renomeia para DATA antes de criar as
         # subpastas (normalmente já feito na inicialização - ver BIN/splash_screen.migrate_project_layout).
@@ -5837,7 +5943,7 @@ class MainWindow(QMainWindow):
         "Parameters:" table, keyed by the row's (permanent) parameter name rather than by
         row index. Row order has already changed more than once as parameters were added -
         keying by index would silently apply an old job's values to the wrong parameter
-        after such a reorder (e.g. a saved "kernel" value landing on "Variance threshold"
+        after such a reorder (e.g. a saved "kernel" value landing on "Cumulative variance"
         just because both once shared the same index). Keying by name survives reorders."""
         if not hasattr(self, "tbl_proj_params"):
             return None
@@ -5850,7 +5956,7 @@ class MainWindow(QMainWindow):
             return None
         return values
 
-    def _apply_proj_table_state(self, values):
+    def _apply_proj_table_state(self, values, last_selection_method=None):
         if not hasattr(self, "tbl_proj_params") or not isinstance(values, dict):
             return
         label_to_row = {self._proj_table_row_label(row): row for row in self.PROJ_ROWS_PERSISTED}
@@ -5858,6 +5964,15 @@ class MainWindow(QMainWindow):
             row = label_to_row.get(label)
             if row is not None and value:
                 self._proj_table_set_value(row, value)
+        # Projetos antigos (linha única "Variance threshold") - ver PROJ_TABLE_LEGACY_VAR_LABEL.
+        legacy = values.get(self.PROJ_TABLE_LEGACY_VAR_LABEL)
+        if legacy:
+            cum_label = self._proj_table_row_label(self.PROJ_ROW_CUM_VARIANCE)
+            min_label = self._proj_table_row_label(self.PROJ_ROW_MIN_VARIANCE)
+            if cum_label not in values:
+                self._proj_table_set_value(self.PROJ_ROW_CUM_VARIANCE, legacy)
+            if min_label not in values and last_selection_method == "Variance Threshold":
+                self._proj_table_set_value(self.PROJ_ROW_MIN_VARIANCE, legacy)
 
     def _collect_step4_state(self):
         state = self._collect_state_from_spec(self.STEP4_FIELD_SPEC)
@@ -5886,7 +6001,8 @@ class MainWindow(QMainWindow):
                 pass
         self._apply_state_from_spec(self.STEP4_FIELD_SPEC, state)
         self._apply_plain_attrs(self.STEP4_PLAIN_SPEC, state)
-        self._apply_proj_table_state(state.get("projection_parameters_table"))
+        self._apply_proj_table_state(state.get("projection_parameters_table"),
+                                     state.get("last_selection_method"))
         # _set_list_widget_items_and_selection (acima, via STEP4_FIELD_SPEC's "descriptors_selected")
         # restaura a seleção de list_descriptors com blockSignals - itemSelectionChanged não
         # dispara, então "Bits number" não seria reabilitado sozinho mesmo que a seleção
@@ -11813,8 +11929,8 @@ class MainWindow(QMainWindow):
         """Heuristic for identifying the descriptors column range in a dataframe: ignore Name,
         SMILES, Class and bioactivity-metric columns (IC50, pIC50, MIC, pMIC...), then prefer the
         span of columns whose name contains "FP" - fingerprint descriptors are the most commonly
-        used kind here. Falls back to the span of every other remaining column when there are no
-        "FP" columns. Returns (first_idx, last_idx), or None if it can't be determined (e.g. no
+        used kind here - or starts with "RDKit_" (RDKit 2D descriptors). Falls back to the span of
+        every other remaining column when there are no such columns. Returns (first_idx, last_idx), or None if it can't be determined (e.g. no
         dataframe yet).
 
         Originally built for STEP 4's "Feature Columns Range" (applied to self.df_selecionado,
@@ -11841,7 +11957,10 @@ class MainWindow(QMainWindow):
         bio_terms_upper = {t.upper() for t in self._bioactivity_candidate_terms()}
         excluded.update(c for c in cols if c.strip().upper() in bio_terms_upper)
 
-        fp_indices = [i for i, c in enumerate(cols) if c not in excluded and "fp" in c.lower()]
+        # Colunas "RDKit_" (opção "RDKit 2D descriptors" da STEP 3) também são descritores; sem
+        # isso, só RDKit_FpDensityMorgan1/2/3 (que contêm "fp") seriam tomadas como o intervalo.
+        fp_indices = [i for i, c in enumerate(cols)
+                      if c not in excluded and ("fp" in c.lower() or c.startswith(self.RDKIT_2D_PREFIX))]
         if fp_indices:
             return min(fp_indices), max(fp_indices)
 
@@ -12012,7 +12131,7 @@ class MainWindow(QMainWindow):
             # Ajusta "Feature Columns Range" com base nas colunas de Name/SMILES/Class/
             # bioatividade já identificadas acima: ignora essas e, como descritores de
             # fingerprint são os mais usados, prefere o intervalo de colunas cujo nome
-            # contém "FP"; sem colunas "FP", usa o intervalo de tudo que sobrar. Mantém o
+            # contém "FP" ou começa com "RDKit_"; sem elas, usa o intervalo de tudo que sobrar. Mantém o
             # fallback anterior (ncols-3) se a heurística não conseguir determinar nada.
             detected_range = self._detect_feature_column_range()
             if detected_range is not None:
@@ -12054,9 +12173,26 @@ class MainWindow(QMainWindow):
     ]
     RDKIT_FP_BITS_MODES = frozenset(RDKIT_FP_ITEMS)
     # Descritores 1D/2D calculados pelo RDKit (não pelo PaDEL): o conjunto completo de
-    # rdkit.Chem.Descriptors.descList (MolWt, MolLogP, TPSA, Chi/Kappa, *_VSA, fr_*...) - o mesmo
-    # que o PoseidonQ usa na opção "RDKitDescriptors". Aparece na lista do tipo 1D/2D.
+    # rdkit.Chem.Descriptors.descList (MolWt, MolLogP, TPSA, Chi/Kappa, *_VSA, fr_*...). Aparece na
+    # lista do tipo 1D/2D; as colunas geradas levam o prefixo RDKIT_2D_PREFIX.
     RDKIT_2D_ITEMS = ["RDKit 2D descriptors"]
+    RDKIT_2D_PREFIX = "RDKit_"
+    # Classes do PaDEL que só funcionam com Java 8 (ver _init_descriptor_checkbox_logic).
+    PADEL_JAVA8_ONLY = frozenset({"IPMolecularLearning"})
+
+    @staticmethod
+    def _java_major_version():
+        """Versão principal do Java usado pelo PaDEL (java -version: "1.8.0_x" -> 8, "17.0.x" -> 17);
+        None se o Java não for encontrado."""
+        try:
+            out = subprocess.run(["java", "-version"], capture_output=True, text=True, timeout=10)
+            m = re.search(r'version "(\d+)(?:\.(\d+))?', (out.stderr or "") + (out.stdout or ""))
+            if not m:
+                return None
+            major = int(m.group(1))
+            return int(m.group(2) or 0) if major == 1 else major
+        except Exception:
+            return None
     RDKIT_2D_SET = frozenset(RDKIT_2D_ITEMS)
 
     def _init_descriptor_checkbox_logic(self):
@@ -12089,7 +12225,12 @@ class MainWindow(QMainWindow):
             )
             one_two_d, three_d, fps = [], [], []
 
-        # 3) Catálogo no formato usado pelos handlers (+ descritores 2D do RDKit no tipo 1D/2D)
+        # 3) Catálogo no formato usado pelos handlers (+ descritores 2D do RDKit no tipo 1D/2D).
+        # IPMolecularLearning (CDK) não roda em Java >= 9 (IllegalAccessError no parser XML interno,
+        # por causa do sistema de módulos) - oculto nesse caso, em vez de falhar ao gerar.
+        java_major = self._java_major_version()
+        if java_major is not None and java_major >= 9:
+            one_two_d = [d for d in one_two_d if d not in self.PADEL_JAVA8_ONLY]
         self._padel_catalog = {"1D2D": list(dict.fromkeys(list(self.RDKIT_2D_ITEMS) + list(one_two_d))),
                                "3D": three_d, "FP": fps}
 
@@ -13198,23 +13339,6 @@ class MainWindow(QMainWindow):
                 tree.write(dst_xml, encoding="utf-8", xml_declaration=True)
                 return dst_xml
 
-            # ============ Worker para rodar PaDEL em thread (não travar UI) ============
-            class PaDELWorker(QThread):
-                finished_signal = pyqtSignal(str)  # csv_path
-                error_signal = pyqtSignal(str)
-
-                def __init__(self, padel_kwargs: dict):
-                    super().__init__()
-                    self.padel_kwargs = padel_kwargs
-
-                def run(self):
-                    try:
-                        from padelpy import padeldescriptor
-                        padeldescriptor(**self.padel_kwargs)
-                        self.finished_signal.emit(self.padel_kwargs.get("d_file", ""))
-                    except Exception as e:
-                        self.error_signal.emit(str(e))
-
             # ================== Loop por descritor ==================
             csv_paths = []
             for dname in selected_names:
@@ -13315,7 +13439,12 @@ class MainWindow(QMainWindow):
                     detectaromaticity=bool(aromaticity),
                     standardizenitro=bool(nitro_std),
                     standardizetautomers=bool(tautomers),
-                    threads=os.cpu_count() or 8,
+                    # 1 thread por processo: com várias threads o PaDEL/CDK calcula errado, ao acaso,
+                    # parte dos compostos em ~17 classes 2D (Weight, TPSA, Crippen, Autocorrelation,
+                    # Constitutional, EStateAtomType...) - mesmo arquivo de entrada, resultados
+                    # diferentes a cada execução. O paralelismo vem de rodar vários processos de 1
+                    # thread ao mesmo tempo (classes e partes do arquivo - ver _run_padel_jobs_parallel).
+                    threads=1,
                     removesalt=bool(removesalt),
                     log=True,
                     retainorder=True,
@@ -13337,93 +13466,39 @@ class MainWindow(QMainWindow):
                 elif group in ("fingerprint", "Fingerprint"):
                     kwargs["fingerprints"] = True
 
-                # ====== Barra de progresso para ESTE descritor ======
-                progress = QProgressDialog(f"Running PaDEL-Descriptor for {dname}...", None, 0, 100, self)
-                progress.setWindowTitle("PaDEL running")
-                progress.setWindowModality(Qt.ApplicationModal)
-                progress.setMinimumDuration(0)
-                progress.setCancelButton(None)
-                progress.setAutoClose(False)
-                progress.setAutoReset(False)
-                progress.setValue(0)
+                # Enfileira: todas as classes PaDEL rodam juntas depois do laço, em processos de 1
+                # thread em paralelo (_run_padel_jobs_parallel). O marcador mantém a posição de cada
+                # descritor em csv_paths (ordem das colunas no resultado final).
+                csv_paths.append({"padel_job": True, "dname": dname, "csv_out": csv_out, "group": group,
+                                  "kwargs": kwargs, "conf_weights": conf_weights,
+                                  "chunkable": group in ("1D2D", "fingerprint") and not use_codrug_3d})
+                continue
 
-                # mostrar % dentro da barra
-                bar = progress.findChild(QProgressBar)
-                if bar is not None:
-                    bar.setTextVisible(True)
-                    bar.setFormat("%p%")
-
-                progress.show()
-                QApplication.processEvents()
-
-                # Timer para ler o .log e atualizar
-                pat = re.compile(r"\((\d+)\s*/\s*(\d+)\)")
-                _last_percent = [0]
-
-                def _update_from_log():
-                    if not os.path.exists(log_path):
-                        return
-                    try:
-                        with open(log_path, "rb") as f:
-                            data = f.read().decode(errors="ignore")
-                        m_all = pat.findall(data)
-                        if not m_all:
-                            return
-                        cur, tot = m_all[-1]
-                        cur = int(cur); tot = int(tot)
-                        if tot <= 0:
-                            return
-                        percent = max(0, min(100, int(round((cur * 100.0) / tot))))
-                        if percent >= _last_percent[0]:
-                            _last_percent[0] = percent
-                            progress.setValue(percent)
-                            progress.setLabelText(f"PaDEL {dname}... {cur}/{tot} ({percent}%)")
-                        QApplication.processEvents()
-                    except Exception:
-                        pass
-
-                timer = QTimer(progress)
-                timer.timeout.connect(_update_from_log)
-                timer.start(300)
-
-                # Dispara PaDEL em worker e espera terminar mantendo UI responsiva
-                worker = PaDELWorker(kwargs)
-                loop = QEventLoop()
-
-                def _done(_csv):
-                    timer.stop()
-                    progress.setValue(100)
-                    progress.setLabelText(f"PaDEL {dname}... done (100%)")
-                    progress.close()
-                    loop.quit()
-
-                def _err(msg):
-                    timer.stop()
-                    progress.close()
-                    QMessageBox.critical(self, "PaDEL error", f"{dname}: {msg}")
-                    loop.quit()
-
-                worker.finished_signal.connect(_done)
-                worker.error_signal.connect(_err)
-                worker.start()
-                loop.exec_()
-
-
-                # Verifica saída
-                if not os.path.exists(csv_out) or os.path.getsize(csv_out) == 0:
-                    QMessageBox.warning(self, i18n.t("msg_title_warning", self._idioma), f"PaDEL did not produce CSV for: {dname}\nCheck XML and .smi.")
+            # ================== PaDEL: execução paralela ==================
+            padel_jobs = [j for j in csv_paths if isinstance(j, dict)]
+            if padel_jobs:
+                failures = self._run_padel_jobs_parallel(padel_jobs)
+                for dname_f, msg in failures:
+                    QMessageBox.warning(self, "PaDEL error", f"{dname_f}: {msg}")
+            resolved = []
+            for item in csv_paths:
+                if not isinstance(item, dict):
+                    resolved.append(item)
                     continue
-
+                csv_out = item["csv_out"]
+                if not os.path.exists(csv_out) or os.path.getsize(csv_out) == 0:
+                    if not item.get("failed"):
+                        QMessageBox.warning(self, i18n.t("msg_title_warning", self._idioma),
+                                            f"PaDEL did not produce CSV for: {item['dname']}\nCheck XML and .smi.")
+                    continue
                 # Compostos sem 3D nativo tiveram VÁRIAS conformações (ensemble) escritas sob o
-                # mesmo Name em mol_dir_group - o PaDEL calculou o descritor 3D para cada uma
-                # (retainorder=True preserva a correspondência 1:1 com as linhas de conf_weights).
-                # Colapsa de volta para 1 linha por composto via média ponderada por Boltzmann
-                # antes de seguir para o merge por 'Name' - o resto do pipeline nunca precisa saber
-                # que existiu um ensemble.
-                if conf_weights is not None:
-                    self._aggregate_3d_descriptor_csv(csv_out, conf_weights)
-
-                csv_paths.append((dname, csv_out, group))
+                # mesmo Name - o PaDEL calculou o descritor 3D para cada uma (retainorder=True
+                # preserva a correspondência 1:1 com as linhas de conf_weights). Colapsa de volta
+                # para 1 linha por composto via média ponderada por Boltzmann antes do merge.
+                if item["conf_weights"] is not None:
+                    self._aggregate_3d_descriptor_csv(csv_out, item["conf_weights"])
+                resolved.append((item["dname"], csv_out, item["group"]))
+            csv_paths = resolved
 
             if not csv_paths:
                 QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "No descriptor CSV was produced.")
@@ -14429,10 +14504,162 @@ class MainWindow(QMainWindow):
                     f"{invalid_smiles} with an unparseable SMILES).")
         QMessageBox.information(self, i18n.t("msg_title_attention", self._idioma), msg)
 
+    # Nº máximo de processos do PaDEL (1 thread cada) rodando ao mesmo tempo, e o tamanho mínimo de
+    # cada parte quando uma classe 2D/fingerprint é dividida em partes do arquivo de entrada.
+    PADEL_MAX_PARALLEL = 12
+    PADEL_MIN_CHUNK = 60
+
+    @staticmethod
+    def _split_sdf_records(path):
+        """Blocos de um SDF exatamente como estão no arquivo (cada um terminando em '$$$$')."""
+        with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+            text = fh.read()
+        records, current = [], []
+        for line in text.splitlines(keepends=True):
+            current.append(line)
+            if line.strip() == "$$$$":
+                records.append("".join(current))
+                current = []
+        if "".join(current).strip():
+            records.append("".join(current))
+        return records
+
+    def _run_padel_jobs_parallel(self, jobs):
+        """Executa as classes PaDEL enfileiradas por run_generate_descriptors em vários processos do
+        PaDEL ao mesmo tempo, cada um com 1 thread (com várias threads o PaDEL/CDK erra ao acaso em
+        parte dos compostos de várias classes). Classes 2D/fingerprint com muitos compostos são
+        divididas em partes do SDF de entrada (blocos copiados sem alteração), uma por processo, e as
+        saídas são concatenadas na ordem original. Uma barra de progresso única soma os compostos
+        processados (logs do PaDEL). Retorna [(descritor, mensagem de erro)] e marca job["failed"]."""
+        import math
+        import threading as _th
+        from concurrent.futures import ThreadPoolExecutor
+        from PyQt5.QtWidgets import QProgressDialog, QProgressBar, QApplication
+        from PyQt5.QtCore import QEventLoop, QTimer
+
+        n_cpu = os.cpu_count() or 4
+        max_par = max(1, min(self.PADEL_MAX_PARALLEL, n_cpu))
+        tasks = []   # (job, kwargs da parte, log, nº de compostos)
+        for job in jobs:
+            kw = dict(job["kwargs"])
+            mol_dir = kw.get("mol_dir", "")
+            records = None
+            if job.get("chunkable") and isinstance(mol_dir, str) and mol_dir.lower().endswith(".sdf") and os.path.isfile(mol_dir):
+                records = self._split_sdf_records(mol_dir)
+            n_parts = 1
+            if records and len(records) >= 2 * self.PADEL_MIN_CHUNK:
+                n_parts = max(1, min(max_par, math.ceil(len(records) / self.PADEL_MIN_CHUNK)))
+            job["parts"] = []
+            if n_parts == 1:
+                kw["d_file"] = job["csv_out"]
+                n_mol = len(records) if records else 0
+                job["parts"].append(job["csv_out"])
+                tasks.append((job, kw, job["csv_out"] + ".log", n_mol))
+                continue
+            part_dir = os.path.join(os.path.dirname(job["csv_out"]), f"_parts_{os.path.basename(job['csv_out'])[:-4]}")
+            shutil.rmtree(part_dir, ignore_errors=True)
+            os.makedirs(part_dir, exist_ok=True)
+            size = math.ceil(len(records) / n_parts)
+            for k in range(n_parts):
+                chunk = records[k * size:(k + 1) * size]
+                if not chunk:
+                    continue
+                sdf_k = os.path.join(part_dir, f"part_{k:03d}.sdf")
+                with open(sdf_k, "w", encoding="utf-8") as fh:
+                    fh.write("".join(chunk))
+                kw_k = dict(kw, mol_dir=sdf_k, d_file=os.path.join(part_dir, f"part_{k:03d}.csv"))
+                job["parts"].append(kw_k["d_file"])
+                tasks.append((job, kw_k, kw_k["d_file"] + ".log", len(chunk)))
+        for _job, _kw, log, _n in tasks:
+            try:
+                if os.path.exists(log):
+                    os.remove(log)
+            except OSError:
+                pass
+
+        total_mol = sum(t[3] for t in tasks) or 0
+        progress = QProgressDialog("Running PaDEL-Descriptor...", None, 0, 100, self)
+        progress.setWindowTitle("PaDEL running")
+        progress.setWindowModality(Qt.ApplicationModal)
+        progress.setMinimumDuration(0)
+        progress.setCancelButton(None)
+        progress.setAutoClose(False)
+        progress.setAutoReset(False)
+        bar = progress.findChild(QProgressBar)
+        if bar is not None:
+            bar.setTextVisible(True)
+            bar.setFormat("%p%")
+        progress.show()
+        QApplication.processEvents()
+
+        pat = re.compile(r"\((\d+)\s*/\s*(\d+)\)")
+        errors, lock = [], _th.Lock()
+
+        def _run(task):
+            job, kw, _log, _n = task
+            try:
+                from padelpy import padeldescriptor
+                padeldescriptor(**kw)
+            except Exception as e:
+                with lock:
+                    job["failed"] = True
+                    errors.append((job["dname"], str(e)[:500]))
+
+        executor = ThreadPoolExecutor(max_workers=min(max_par, len(tasks)) or 1)
+        futures = [executor.submit(_run, t) for t in tasks]
+        loop = QEventLoop()
+        n_classes = len(jobs)
+
+        def _poll():
+            done_mol = 0
+            for _job, _kw, log, n in tasks:
+                try:
+                    with open(log, "rb") as fh:
+                        found = pat.findall(fh.read().decode(errors="ignore"))
+                    if found:
+                        done_mol += min(int(found[-1][0]), int(found[-1][1]))
+                except OSError:
+                    pass
+            finished = sum(f.done() for f in futures)
+            if total_mol:
+                progress.setValue(int(round(100.0 * min(done_mol, total_mol) / total_mol)))
+            else:
+                progress.setValue(int(round(100.0 * finished / max(1, len(futures)))))
+            progress.setLabelText(f"PaDEL-Descriptor: {n_classes} descriptor class(es), {len(tasks)} process(es) "
+                                  f"of 1 thread ({min(max_par, len(tasks))} at a time)... {finished}/{len(tasks)} done")
+            if finished == len(futures):
+                timer.stop()
+                loop.quit()
+
+        timer = QTimer(progress)
+        timer.timeout.connect(_poll)
+        timer.start(300)
+        loop.exec_()
+        executor.shutdown(wait=True)
+        progress.setValue(100)
+        progress.close()
+
+        # Junta as partes de cada classe na ordem original.
+        for job in jobs:
+            if job.get("failed") or len(job.get("parts", [])) <= 1:
+                continue
+            frames = []
+            for part_csv in job["parts"]:
+                if not os.path.exists(part_csv) or os.path.getsize(part_csv) == 0:
+                    job["failed"] = True
+                    errors.append((job["dname"], f"PaDEL did not produce {os.path.basename(part_csv)}"))
+                    frames = []
+                    break
+                frames.append(pd.read_csv(part_csv))
+            if frames:
+                pd.concat(frames, ignore_index=True).to_csv(job["csv_out"], index=False)
+                shutil.rmtree(os.path.dirname(job["parts"][0]), ignore_errors=True)
+        return errors
+
     def _compute_rdkit_2d_descriptors(self, structure_col, name_col, remove_salt=False):
         """Todos os descritores de rdkit.Chem.Descriptors.descList (físico-químicos, topológicos,
-        *_VSA, contagens de fragmentos fr_*...) para cada composto de self.df_selecionado - o mesmo
-        conjunto do "RDKitDescriptors" do PoseidonQ. Colunas com o prefixo "RDKit_" (evita colisão com
+        *_VSA, contagens de fragmentos fr_*...) para cada composto de self.df_selecionado.
+        Colunas com o prefixo "RDKit_" (evita colisão com
         nomes do PaDEL, ex. TPSA) e "Name" para o merge. "Remove salt" marcado: usa só o maior
         fragmento. SMILES inválido -> linha toda NaN (removida no merge); valores infinitos -> NaN."""
         from rdkit import Chem
@@ -14459,7 +14686,7 @@ class MainWindow(QMainWindow):
                 rows.append(list(calc.CalcDescriptors(mol)) if mol is not None else [np.nan] * len(names_desc))
             except Exception:
                 rows.append([np.nan] * len(names_desc))
-        out = pd.DataFrame(rows, columns=[f"RDKit_{n}" for n in names_desc]).apply(pd.to_numeric, errors="coerce")
+        out = pd.DataFrame(rows, columns=[f"{self.RDKIT_2D_PREFIX}{n}" for n in names_desc]).apply(pd.to_numeric, errors="coerce")
         out = out.replace([np.inf, -np.inf], np.nan)
         out.insert(0, "Name", names)
         return out
@@ -15697,7 +15924,7 @@ class MainWindow(QMainWindow):
     # cb_recommended_selection: light blue = used by the current method, gray = not used.
     PROJ_ROW_N_COMPONENTS = 0     # Projection (all methods) - always enabled
     PROJ_ROW_TOP3_VARIANCE = 1    # read-only, Projection (PCA) result
-    PROJ_ROW_VAR_THRESHOLD = 2    # Projection (all methods) + Selection's "Variance Threshold" - always enabled
+    PROJ_ROW_CUM_VARIANCE = 2     # Projection (all methods): cumulative explained variance for auto n_components - always enabled
     PROJ_ROW_KERNEL = 3           # Kernel PCA
     PROJ_ROW_GAMMA = 4            # Kernel PCA
     PROJ_ROW_PERPLEXITY = 5       # t-SNE
@@ -15708,20 +15935,26 @@ class MainWindow(QMainWindow):
     PROJ_ROW_AFFINITY = 10        # Spectral Embedding
     PROJ_ROW_TOP_K = 11           # Selection: most methods (see SELECTION_METHOD_ROWS)
     PROJ_ROW_CORR_THRESHOLD = 12  # Selection: "Correlation Threshold"
-    PROJ_ROW_ALPHA = 13           # Selection: Lasso (L1)/Ridge (L2)/Elastic Net
+    PROJ_ROW_MIN_VARIANCE = 13    # Selection: "Variance Threshold" (minimum variance per feature)
+    PROJ_ROW_ALPHA = 14           # Selection: Lasso (L1)/Ridge (L2)/Elastic Net
 
-    # Linhas sempre visíveis quando a tabela está fechada (0, 1, 2 - até "Variance
-    # threshold"); as demais (método-específicas) só aparecem com a tabela aberta.
-    PROJ_TABLE_COLLAPSED_VISIBLE_ROWS = PROJ_ROW_VAR_THRESHOLD + 1
+    # Linhas sempre visíveis quando a tabela está fechada (0, 1, 2 - até "Cumulative
+    # variance"); as demais (método-específicas) só aparecem com a tabela aberta.
+    PROJ_TABLE_COLLAPSED_VISIBLE_ROWS = PROJ_ROW_CUM_VARIANCE + 1
 
     # Todas as linhas editáveis (persistidas no job state) - exclui apenas a linha
     # somente-leitura PROJ_ROW_TOP3_VARIANCE.
     PROJ_ROWS_PERSISTED = [
-        PROJ_ROW_N_COMPONENTS, PROJ_ROW_VAR_THRESHOLD,
+        PROJ_ROW_N_COMPONENTS, PROJ_ROW_CUM_VARIANCE,
         PROJ_ROW_KERNEL, PROJ_ROW_GAMMA, PROJ_ROW_PERPLEXITY, PROJ_ROW_LEARNING_RATE,
         PROJ_ROW_N_ITER, PROJ_ROW_N_NEIGHBORS, PROJ_ROW_MIN_DIST, PROJ_ROW_AFFINITY,
-        PROJ_ROW_TOP_K, PROJ_ROW_CORR_THRESHOLD, PROJ_ROW_ALPHA,
+        PROJ_ROW_TOP_K, PROJ_ROW_CORR_THRESHOLD, PROJ_ROW_MIN_VARIANCE, PROJ_ROW_ALPHA,
     ]
+    # Em versões anteriores uma única linha "Variance threshold" servia à Projection (variância
+    # acumulada, ~0.90) e ao método de Selection "Variance Threshold" (variância mínima por
+    # descritor, ~0.01). Projetos salvos com esse rótulo: o valor vai para "Cumulative
+    # variance" (e para "min_variance" se a última seleção foi "Variance Threshold").
+    PROJ_TABLE_LEGACY_VAR_LABEL = "Variance threshold"
 
     # Catálogos completos de métodos de Scaling/Selection/Projection (STEP 4). Usados por
     # update_recommendations (que os filtra conforme Features Types/Attribute Options/
@@ -15771,7 +16004,7 @@ class MainWindow(QMainWindow):
     # em cb_recommended_selection. Métodos ausentes daqui (SelectPercentile, Stepwise
     # AIC/BIC) não usam nenhuma dessas linhas.
     SELECTION_METHOD_ROWS = {
-        "Variance Threshold": [],
+        "Variance Threshold": [PROJ_ROW_MIN_VARIANCE],
         "Correlation Threshold": [PROJ_ROW_CORR_THRESHOLD],
         "SelectKBest (ANOVA F-test)": [PROJ_ROW_TOP_K],
         "SelectKBest (Chi2)": [PROJ_ROW_TOP_K],
@@ -15785,7 +16018,7 @@ class MainWindow(QMainWindow):
         "Tree-based Importance (RandomForest)": [PROJ_ROW_TOP_K],
         "GB Importance": [PROJ_ROW_TOP_K],
     }
-    SELECTION_METHOD_ROWS_ALL = [PROJ_ROW_TOP_K, PROJ_ROW_CORR_THRESHOLD, PROJ_ROW_ALPHA]
+    SELECTION_METHOD_ROWS_ALL = [PROJ_ROW_TOP_K, PROJ_ROW_CORR_THRESHOLD, PROJ_ROW_MIN_VARIANCE, PROJ_ROW_ALPHA]
 
     # Destaque de parâmetro usado pelo método atual: apenas o texto muda (azul mais
     # intenso + negrito) - o fundo da célula nunca é alterado (permanece o padrão da
@@ -15863,8 +16096,8 @@ class MainWindow(QMainWindow):
 
     def _apply_proj_table_visibility(self):
         """Shows/hides tbl_proj_params' rows and resizes it to match, according to
-        self._proj_table_expanded. Collapsed: only rows up to PROJ_ROW_VAR_THRESHOLD
-        (Number of Components/Top 3 Cumulative Variance/Variance threshold) stay visible -
+        self._proj_table_expanded. Collapsed: only rows up to PROJ_ROW_CUM_VARIANCE
+        (Number of Components/Top 3 Cumulative Variance/Cumulative variance) stay visible -
         every method-specific row (Kernel PCA's kernel/gamma, t-SNE's perplexity, Lasso's
         alpha, etc.) is hidden until the user opens the table or picks a method that needs
         one of them (see _auto_expand_proj_table_if_needed). Hiding a row only affects
@@ -15907,7 +16140,7 @@ class MainWindow(QMainWindow):
         Scaling/Selection/Projection) and finds the "knee" of the explained-variance-ratio
         curve, using the same kneedle-style heuristic as Selection's top_k='auto'
         (_elbow_k_from_scores in BIN/recommended_selection.py). Returns None (leaving
-        the field for the existing Variance-threshold auto-fallback) if it can't be
+        the field for the existing Cumulative-variance auto-fallback) if it can't be
         computed - e.g. not enough numeric feature columns yet."""
         try:
             df = getattr(self, "df_selecionado", None)
@@ -16156,7 +16389,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), "Define first and last feature columns.")
             return
 
-        # ------------- obter top_k, corr_threshold, alpha e variance threshold -------------
+        # ------------- obter top_k, corr_threshold, alpha e min_variance -------------
         # Todos lidos da tabela compartilhada "Parameters:" (tbl_proj_params), a mesma
         # usada por Recommended Projection.
         top_k_str = self._proj_table_value(self.PROJ_ROW_TOP_K)
@@ -16177,10 +16410,10 @@ class MainWindow(QMainWindow):
         except (AttributeError, ValueError):
             alpha = 1.0
 
-        # A linha "Variance threshold" (compartilhada com Recommended Projection) também
-        # é usada aqui pelo método "Variance Threshold".
+        # Método "Variance Threshold": variância mínima de cada descritor (linha própria,
+        # min_variance - não é a variância acumulada da Projection). Vazio -> 0 (só constantes).
         try:
-            val = self._proj_table_value(self.PROJ_ROW_VAR_THRESHOLD)
+            val = self._proj_table_value(self.PROJ_ROW_MIN_VARIANCE)
             var_thr = float(val) if val else 0.0
         except (AttributeError, ValueError):
             var_thr = 0.0
@@ -16445,7 +16678,7 @@ class MainWindow(QMainWindow):
             max_variance = 0.90
         else:
             try:
-                max_variance = float(self._proj_table_value(self.PROJ_ROW_VAR_THRESHOLD))
+                max_variance = float(self._proj_table_value(self.PROJ_ROW_CUM_VARIANCE))
             except (AttributeError, ValueError):
                 max_variance = 0.90
 
@@ -16536,7 +16769,7 @@ class MainWindow(QMainWindow):
                         msg = "N/A"
                     self._proj_table_set_value(self.PROJ_ROW_TOP3_VARIANCE, msg)
                     # Reflete o número de componentes efetivamente usado (o método pode
-                    # ter recalculado/limitado o valor, ex.: auto via Variance threshold,
+                    # ter recalculado/limitado o valor, ex.: auto via Cumulative variance,
                     # ou clamp por n_classes-1 em LDA/PLS-DA, ou máx. 3 em t-SNE).
                     if proj_cols:
                         self._proj_table_set_value(self.PROJ_ROW_N_COMPONENTS, str(len(proj_cols)))
@@ -16576,8 +16809,8 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, i18n.t("msg_title_done", self._idioma),
                     f"Projection '{method}' completed.\n"
                     f"Projected columns: {', '.join(proj_cols)}\n"
-                    f"Variance Threshold: {max_variance*100:.1f}%\n"
-                    f"Number of components: {n_components}"
+                    + (f"Cumulative variance: {max_variance*100:.1f}%\n" if not n_components_str else "")
+                    + f"Number of components: {n_components}\n"
                     f"File saved to:\n{out_path}{msg_eval}"
                 )
 
@@ -19565,7 +19798,19 @@ class MainWindow(QMainWindow):
             run_project_btn.setFixedSize(200,25)
             run_project_btn.setProperty("role", "primary")
             run_project_btn.clicked.connect(self.project_run)
-            l1.addWidget(run_project_btn, alignment=Qt.AlignCenter)
+            # "Remove Project": apaga a pasta do projeto selecionado em Previous Project (estilo "danger").
+            remove_project_btn = QPushButton()
+            self._tr("cfg_btn_remove_project", remove_project_btn.setText)
+            self._tr("cfg_tooltip_remove_project", remove_project_btn.setToolTip)
+            remove_project_btn.setFixedSize(150, 25)
+            remove_project_btn.setProperty("role", "danger")
+            remove_project_btn.clicked.connect(self.remove_project)
+            run_project_row = QHBoxLayout()
+            run_project_row.addStretch()
+            run_project_row.addWidget(run_project_btn)
+            run_project_row.addWidget(remove_project_btn)
+            run_project_row.addStretch()
+            l1.addLayout(run_project_row)
 
             ed_run_folder = QLabel()
             ed_run_folder.setAlignment(Qt.AlignCenter)
@@ -20023,7 +20268,9 @@ class MainWindow(QMainWindow):
             self.btn_update_internal_dataset = QPushButton(); self._tr("btn_update", self.btn_update_internal_dataset.setText); self.btn_update_internal_dataset.setFixedWidth(80); self.btn_update_internal_dataset.setProperty("role", "secondary"); self.btn_update_internal_dataset.clicked.connect(self.update_internal_dataset)
             self.cb_columns_list = QComboBox(); self.cb_columns_list.addItems([""]); self.cb_columns_list.setEditable(True)
             self.btn_view_graph = QPushButton(); self._tr("s1_btn_view_graph", self.btn_view_graph.setText); self.btn_view_graph.setFixedWidth(140); self.btn_view_graph.setProperty("role", "select"); self.btn_view_graph.clicked.connect(self.run_view_graph)
-            gL5.addWidget(self._trL("s1_lbl_internal_dataset_list"),0,0); gL5.addWidget(self._trL("s1_lbl_columns"),0,2);
+            # "Open Dir" (acima de View Graph): abre DATA/INTERNAL_DATA do projeto.
+            self.btn_open_internal_dir = QPushButton(); self._tr("btn_open_dir", self.btn_open_internal_dir.setText); self._tr("s1_tooltip_open_dir_internal", self.btn_open_internal_dir.setToolTip); self.btn_open_internal_dir.setFixedWidth(140); self.btn_open_internal_dir.setProperty("role", "secondary"); self.btn_open_internal_dir.clicked.connect(lambda: self._open_project_dir("DATA", "INTERNAL_DATA"))
+            gL5.addWidget(self._trL("s1_lbl_internal_dataset_list"),0,0); gL5.addWidget(self._trL("s1_lbl_columns"),0,2); gL5.addWidget(self.btn_open_internal_dir,0,3)
             gL5.addWidget(self.cb_internal_dataset_list,1,0); gL5.addWidget(self.btn_update_internal_dataset,1,1); gL5.addWidget(self.cb_columns_list,1,2); gL5.addWidget(self.btn_view_graph,1,3)
             gL5.setColumnStretch(0, 3); gL5.setColumnStretch(1, 1); gL5.setColumnStretch(2, 1); gL5.setColumnStretch(3, 1)
             g2_main_layout.addWidget(gL5_widget)
@@ -21096,9 +21343,9 @@ class MainWindow(QMainWindow):
             # não usado), via _update_projection_param_rows/_update_selection_param_rows.
             # Apenas "Top 3 Cumulative Variance (%)" nunca é editável (é um resultado).
             proj_param_rows = [
-                ("Number of Components", True, "Number of Components (int). Pre-filled via the elbow method once a dataframe is loaded; stays editable. Leave empty to auto-select via Variance threshold instead.", ""),
+                ("Number of Components", True, "Number of Components (int). Pre-filled via the elbow method once a dataframe is loaded; stays editable. Leave empty to auto-select via Cumulative variance instead.", ""),
                 ("Top 3 Cumulative Variance (%)", False, "Cumulative variance explained by the first 3 PCA components - filled in after Run Projection.", ""),
-                ("Variance threshold", True, "Variance threshold (float, e.g. 0.90). Also used by Recommended Selection's 'Variance Threshold' method.", "0.90"),
+                ("Cumulative variance", True, "Cumulative variance (float, 0-1, e.g. 0.90 = 90%): Recommended Projection keeps the fewest components whose cumulative explained variance reaches this fraction. Only used when Number of Components is empty. Not used by Recommended Selection (see min_variance).", "0.90"),
                 ("kernel", True, "kernel (str): linear, poly, rbf, sigmoid or cosine. Used by Kernel PCA.", "rbf"),
                 ("gamma", True, "gamma (float): kernel coefficient for rbf, poly and sigmoid. Used by Kernel PCA.", "0.1"),
                 ("perplexity", True, "perplexity (float): balance between local and global aspects of the data. Used by t-SNE.", "30"),
@@ -21109,6 +21356,7 @@ class MainWindow(QMainWindow):
                 ("affinity", True, "affinity (str): 'nearest_neighbors', 'rbf' or 'precomputed'. Used by Spectral Embedding.", "nearest_neighbors"),
                 ("top_k", True, "top_k (int or 'auto'): number of top features to keep. Used by SelectKBest, Mutual Information, RFE, SFS, Lasso/Ridge/Elastic Net, Tree-based/GB Importance.", "20"),
                 ("corr_threshold", True, "corr_threshold (float, 0-1): used by 'Correlation Threshold' - features correlated above this value are dropped.", "0.95"),
+                ("min_variance", True, "min_variance (float, >= 0): used by 'Variance Threshold' - features whose variance is not above this value are dropped. Absolute value in the data's own units (not a fraction): binary fingerprint bits have variance p(1-p) <= 0.25, so 0.01 drops bits present in fewer than ~1% (or more than ~99%) of the compounds; 0 drops only constant columns. Run it before Recommended Scaling - after standardization every feature has variance 1.", "0.01"),
                 ("alpha", True, "alpha (float): regularization strength. Used by Lasso (L1), Ridge (L2) and Elastic Net.", "1.0"),
             ]
             self.tbl_proj_params.setRowCount(len(proj_param_rows))
@@ -21124,7 +21372,7 @@ class MainWindow(QMainWindow):
                 if tooltip:
                     value_item.setToolTip(tooltip)
                 self.tbl_proj_params.setItem(row, 1, value_item)
-            # Fechada por padrão (só N.Components/Top3 Variance/Variance threshold visíveis) -
+            # Fechada por padrão (só N.Components/Top3 Variance/Cumulative variance visíveis) -
             # ver _apply_proj_table_visibility. Expande sozinha se o método selecionado
             # precisar de uma linha escondida (_auto_expand_proj_table_if_needed).
             self._apply_proj_table_visibility()
@@ -21138,10 +21386,10 @@ class MainWindow(QMainWindow):
             pca_layout_parameters.addLayout(pca_header_layout)
             pca_layout_parameters.addWidget(self.tbl_proj_params)
 
-            # Number of Components/Variance threshold ficam sempre habilitadas/azuis
-            # (usadas por todos os métodos de Projection; a segunda também por Selection).
+            # Number of Components/Cumulative variance ficam sempre habilitadas/azuis
+            # (usadas por todos os métodos de Projection).
             self._set_param_row_enabled(self.PROJ_ROW_N_COMPONENTS, True)
-            self._set_param_row_enabled(self.PROJ_ROW_VAR_THRESHOLD, True)
+            self._set_param_row_enabled(self.PROJ_ROW_CUM_VARIANCE, True)
 
             self.cb_recommended_projection.currentTextChanged.connect(self._update_projection_param_rows)
             self.cb_recommended_selection.currentTextChanged.connect(self._update_selection_param_rows)
@@ -21741,6 +21989,13 @@ class MainWindow(QMainWindow):
             self.btn_skl_view_rank.setEnabled(False)
             self.btn_skl_view_rank.clicked.connect(self.run_view_skl_screening_rank)
             screen_btns_row.addWidget(self.btn_skl_view_rank)
+            # "Open Dir": abre RESULTS/USI/<USI>/DATA (screening, tuning e validação da USI atual).
+            self.btn_skl_open_data_dir = QPushButton(); self._tr("btn_open_dir", self.btn_skl_open_data_dir.setText)
+            self._tr("s6_tooltip_open_dir_data", self.btn_skl_open_data_dir.setToolTip)
+            self.btn_skl_open_data_dir.setProperty("role", "secondary")
+            self.btn_skl_open_data_dir.setFixedWidth(120)
+            self.btn_skl_open_data_dir.clicked.connect(lambda: self._open_project_dir(usi_sub="DATA"))
+            screen_btns_row.addWidget(self.btn_skl_open_data_dir)
             screen_btns_row.addStretch()
 
             self.btn_skl_run_screening = QPushButton(); self._tr("s6_btn_run_screening", self.btn_skl_run_screening.setText)
@@ -22093,6 +22348,13 @@ class MainWindow(QMainWindow):
             self.btn_skl_plot.setProperty("role", "primary")
             self.btn_skl_plot.setFixedWidth(120)
             btn_col_skl_charts.addWidget(self.btn_skl_plot, alignment=Qt.AlignCenter)
+            # "Open Dir": abre RESULTS/USI/<USI>/MIDIA (imagens dos gráficos da USI atual).
+            self.btn_skl_open_midia_dir = QPushButton(); self._tr("btn_open_dir", self.btn_skl_open_midia_dir.setText)
+            self._tr("s6_tooltip_open_dir_midia", self.btn_skl_open_midia_dir.setToolTip)
+            self.btn_skl_open_midia_dir.setProperty("role", "secondary")
+            self.btn_skl_open_midia_dir.setFixedWidth(120)
+            self.btn_skl_open_midia_dir.clicked.connect(lambda: self._open_project_dir(usi_sub="MIDIA"))
+            btn_col_skl_charts.addWidget(self.btn_skl_open_midia_dir, alignment=Qt.AlignCenter)
             self.chk_skl_metric_legend = QCheckBox(); self._tr("s6_chk_metric_legend", self.chk_skl_metric_legend.setText)
             self.chk_skl_metric_legend.setChecked(True)
             self._tr(
@@ -24504,14 +24766,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, title, i18n.t("s6_msg_remove_usi_none", idioma, usi=code or "-"))
             return
 
-        n_files, n_bytes = 0, 0
-        for root, _dirs, files in os.walk(folder):
-            for f in files:
-                n_files += 1
-                try:
-                    n_bytes += os.path.getsize(os.path.join(root, f))
-                except OSError:
-                    pass
+        n_files, n_bytes = self._folder_size_stats(folder)
         models_dir = os.path.join(folder, "MODELS")
         n_models = len([f for f in os.listdir(models_dir) if f.endswith(".joblib")]) if os.path.isdir(models_dir) else 0
         answer = QMessageBox.question(

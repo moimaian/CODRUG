@@ -309,6 +309,59 @@ codrug (1.2.0-1) unstable; urgency=low
     relatório passa a indicar o software de cada descritor (PaDEL ou RDKit,
     com versão) e só descreve "códigos binários" quando são só fingerprints
     (CODRUG.py, BIN/module_report.py).
+  * Correção (STEP 3, PaDEL): o PaDEL passa a rodar com 1 thread por
+    processo. Com várias threads (antes: todos os núcleos) ele calculava
+    errado, ao acaso, alguns compostos em 17 das 57 classes 2D testadas
+    (Weight, TPSA, Crippen, Autocorrelation, Constitutional, EStateAtomType,
+    KierHallSmarts, HBondDonorCount, APol/BPol, McGowanVolume...) - mesma
+    entrada, resultados diferentes a cada execução. A velocidade vem de
+    vários processos de 1 thread em paralelo (até 12): um por classe e, nas
+    classes 2D/fingerprint com muitos compostos, um por parte do SDF de
+    entrada (blocos copiados sem alteração, saídas juntadas na ordem), com
+    uma barra de progresso única. IPMolecularLearning, que não roda em
+    Java >= 9, é ocultada da lista nesse caso. Descritores PaDEL gerados
+    antes devem ser regerados (CODRUG.py).
+  * Instalação de dependências: RDKit pelo pacote "rdkit" 2023.9.6 (o nome
+    "rdkit-pypi" parou na 2022.9.5); o "rdkit-pypi" antigo é removido antes
+    e o NumPy é mantido < 2 (o RDKit 2023.9 não funciona com o NumPy 2).
+    Testado: todas as funções do CODRUG que usam o RDKit dão os mesmos
+    resultados da 2022.9.5; Descriptors.descList ganha AvgIpc e SPS (210)
+    (BIN/module_requirements.py, BIN/i18n.py).
+  * Correção (detecção automática do intervalo de descritores - "Feature
+    Columns Range" da STEP 4 e "X range" da STEP 6): colunas com o prefixo
+    RDKit_ passam a ser reconhecidas como descritores. Antes, só
+    RDKit_FpDensityMorgan1/2/3 (que contêm "Fp") entravam no intervalo
+    (CODRUG.py).
+  * STEP 4, tabela "Parameters:": a linha "Variance threshold", que servia a
+    duas grandezas diferentes, foi separada em duas - "Cumulative variance"
+    (Projection: fração da variância explicada acumulada para escolher o
+    número de componentes quando Number of Components está vazio; padrão
+    0.90) e "min_variance" (Selection, método "Variance Threshold":
+    variância mínima de cada descritor, na unidade dos dados; padrão 0.01).
+    Antes, o 0.90 da Projection era usado também na seleção e eliminava
+    todos os bits de fingerprints (variância máxima 0.25). Projetos antigos:
+    o valor salvo vai para "Cumulative variance" e, se a última seleção foi
+    "Variance Threshold", também para "min_variance". Sem nenhum descritor
+    acima do limite, a seleção explica o motivo; a mensagem final da
+    Projection só mostra a variância acumulada quando ela foi usada; o
+    relatório cita "Minimum feature variance" (CODRUG.py,
+    BIN/recommended_selection.py, BIN/module_report.py).
+  * CONFIG: novo botão "Remove Project" (vermelho, ao lado de "Set project
+    folder"): após confirmação (OK/Cancel, com número de arquivos e
+    tamanho), apaga a pasta inteira do projeto selecionado em Previous
+    Project. Se for o projeto aberto, as abas são limpas e o app volta ao
+    estado sem projeto. Só aceita pastas diretamente dentro de PROJECTS
+    (ou JOBS). Novo PROJECTS/projects_history.log com o histórico das
+    pastas de projeto: uma linha por projeto criado (CREATED) ou removido
+    (REMOVED / REMOVE FAILED), com data e hora, nome, caminho, arquivos e
+    MB (CODRUG.py, BIN/i18n.py).
+  * Botões "Open Dir", que abrem a pasta no gerenciador de arquivos: STEP 1
+    (acima de View Graph) -> DATA/INTERNAL_DATA do projeto; STEP 4, Model
+    Screening (ao lado de View Rank) -> RESULTS/USI/<USI>/DATA (screening,
+    tuning e validação); STEP 4, Performance Charts (abaixo de Plot Model)
+    -> RESULTS/USI/<USI>/MIDIA (imagens dos gráficos). A pasta não é
+    criada: sem projeto, sem USI ou com a pasta ainda inexistente, só
+    avisa (CODRUG.py, BIN/i18n.py).
 
  -- Moisés Maia Neto <moimaian@gmail.com>  Tue, 13 Oct 2026 03:18:10 -0300
 
