@@ -603,6 +603,42 @@ _TEXTOS = {
               "que de outra forma cairiam nos mesmos bits; desmarque para o comportamento padrão "
               "do próprio RDKit (aquiral).",
     },
+    "s4_lbl_smarts_file": {"en": "SMARTS file:", "pt": "Arquivo SMARTS:"},
+    "s4_tooltip_smarts_file": {
+        "en": "Pattern file for 'SMARTS file FP (RDKit)': a substructure-dictionary fingerprint "
+              "with one bit per SMARTS pattern (1 = the molecule contains the pattern, via RDKit "
+              "substructure matching). Plain text with one SMARTS per line, optionally followed by "
+              "a TAB and a pattern name; blank lines and lines starting with '#' are ignored. Bit "
+              "SMARTSFP_<i> is the i-th pattern (counting from 0). A copy of the patterns "
+              "(smarts_fp_patterns.tsv) is saved in DATA/DESCRIPTORS/fingerprint so the "
+              "substructure behind each bit can be shown in Feature Importance and SHAP. Enabled "
+              "only when 'SMARTS file FP (RDKit)' is selected.",
+        "pt": "Arquivo de padrões do 'SMARTS file FP (RDKit)': fingerprint por dicionário de "
+              "subestruturas, com um bit por padrão SMARTS (1 = a molécula contém o padrão, por "
+              "busca de subestrutura do RDKit). Texto simples com um SMARTS por linha, "
+              "opcionalmente seguido de TAB e um nome para o padrão; linhas em branco e iniciadas "
+              "por '#' são ignoradas. O bit SMARTSFP_<i> é o i-ésimo padrão (contando a partir de "
+              "0). Uma cópia dos padrões (smarts_fp_patterns.tsv) é salva em "
+              "DATA/DESCRIPTORS/fingerprint para que a subestrutura de cada bit apareça em Feature "
+              "Importance e SHAP. Habilitado só quando 'SMARTS file FP (RDKit)' está selecionado.",
+    },
+    "s4_dlg_smarts_file": {"en": "Select SMARTS pattern file", "pt": "Selecione o arquivo de padrões SMARTS"},
+    "s4_msg_smarts_file_missing": {
+        "en": "'SMARTS file FP (RDKit)' is selected, but the SMARTS file was not found:\n{path}\n\n"
+              "Choose the pattern file in the 'SMARTS file' field.",
+        "pt": "'SMARTS file FP (RDKit)' está selecionado, mas o arquivo SMARTS não foi encontrado:\n{path}\n\n"
+              "Escolha o arquivo de padrões no campo 'Arquivo SMARTS'.",
+    },
+    "s4_msg_smarts_file_invalid": {
+        "en": "{n} invalid SMARTS pattern(s) in {path} (line: pattern):\n\n{lines}\n\n"
+              "Fix or remove these lines - each bit must correspond to a valid pattern.",
+        "pt": "{n} padrão(ões) SMARTS inválido(s) em {path} (linha: padrão):\n\n{lines}\n\n"
+              "Corrija ou remova essas linhas - cada bit precisa corresponder a um padrão válido.",
+    },
+    "s4_msg_smarts_file_empty": {
+        "en": "No SMARTS pattern found in {path}.",
+        "pt": "Nenhum padrão SMARTS encontrado em {path}.",
+    },
     "s4_lbl_select_structure_column": {"en": "Structure \nColumn:", "pt": "Coluna \nde Estrutura:"},
     "s4_btn_select_structures_file": {"en": "Or Select \nStructures File", "pt": "Ou Selecione o \nArquivo de Estruturas"},
     "s4_tooltip_select_structures_file": {

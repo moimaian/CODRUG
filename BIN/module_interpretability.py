@@ -367,11 +367,12 @@ def shap_importance(values, columns, groups=None) -> np.ndarray:
 # SHAP x structure: which substructures drive the prediction (bitInfo / DrawMorganBit)
 # --------------------------------------------------------------------------------------------------
 def structure_records(values, X_rows, rows_pos, columns, X_train, smiles_train, smiles_test, names_train,
-                      names_test, preferred_bits=2048, preferred_chirality=True, n_show=12, max_candidates=80):
+                      names_test, preferred_bits=2048, preferred_chirality=True, n_show=12, max_candidates=80,
+                      smarts_patterns_path=None):
     """Pairs the most important descriptors (mean |SHAP|) with the substructure each fingerprint bit
     encodes. Circular fingerprints (ECFP4/FCFP6/counts): RDKit bitInfo, only after the fpSize/
     chirality were VERIFIED by recomputing the stored fingerprints; MACCS/PubChem keys: their
-    reference SMARTS. The example molecule is the explained test compound where the descriptor
+    reference SMARTS; SMARTS file FP bits: the pattern itself (smarts_patterns_path). The example molecule is the explained test compound where the descriptor
     contributes most (largest |SHAP| among those that have it), else a training compound.
     Returns (records, note_codes)."""
     try:
@@ -419,7 +420,7 @@ def structure_records(values, X_rows, rows_pos, columns, X_train, smiles_train, 
             continue
         smarts_ref, exact, note_ref = None, True, ""
         if family not in mfs.MORGAN_FAMILIES:
-            ref = mfs.resolve_feature(cols[j])
+            ref = mfs.resolve_feature(cols[j], smarts_patterns_path=smarts_patterns_path)
             if ref is None or not ref.get("smarts"):
                 continue
             smarts_ref, exact, note_ref = ref["smarts"], bool(ref.get("exact", False)), ref.get("note", "")
@@ -540,7 +541,7 @@ def run_analysis(model, task, X_train, X_test, y_test, scoring, methods, modalit
                  n_repeats=5, shap_max_rows=100, n_jobs=0, seed=123, progress_cb=None, structures=None):
     """methods: subset of {"shap", "permutation"}; modalities: subset of {"individual", "group"}.
     structures (optional dict: smiles_train, smiles_test, names_train, names_test, fp_bits,
-    fp_chirality, n_show): when given together with SHAP, also pairs the top descriptors with the
+    fp_chirality, n_show, smarts_patterns_path): when given together with SHAP, also pairs the top descriptors with the
     substructures they encode (res["structures"])."""
     def _p(frac, msg=""):
         if progress_cb:
@@ -586,7 +587,8 @@ def run_analysis(model, task, X_train, X_test, y_test, scoring, methods, modalit
             recs, snotes = structure_records(
                 sh["values"], sh["X_rows"], rows_pos, cols, X_train, structures["smiles_train"],
                 structures["smiles_test"], structures["names_train"], structures["names_test"],
-                structures.get("fp_bits", 2048), structures.get("fp_chirality", True), structures.get("n_show", 12))
+                structures.get("fp_bits", 2048), structures.get("fp_chirality", True), structures.get("n_show", 12),
+                smarts_patterns_path=structures.get("smarts_patterns_path"))
             res["structures"] = recs
             res["notes"] += snotes
         _p(base_pct + span * w_shap, "shap")

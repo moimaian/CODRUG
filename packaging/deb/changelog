@@ -362,6 +362,32 @@ codrug (1.2.0-1) unstable; urgency=low
     -> RESULTS/USI/<USI>/MIDIA (imagens dos gráficos). A pasta não é
     criada: sem projeto, sem USI ou com a pasta ainda inexistente, só
     avisa (CODRUG.py, BIN/i18n.py).
+  * Correção (New Project / abrir projeto): a limpeza dos campos feita
+    antes de criar ou abrir um projeto esvaziava 55 campos que têm valor
+    padrão na interface - ex. Threshold 1.5 do teste de normalidade da
+    STATS, testes post-hoc e alpha/power/confiança, nomes das classes da
+    STEP 2, filtros de druggability e opções de padronização da STEP 3,
+    parâmetros do AD (k = 5, percentil 95...). Projetos novos, ou
+    projetos sem esses valores salvos, ficavam com os campos vazios ou
+    no mínimo. Agora o valor inicial de cada campo é guardado ao montar a
+    interface e restaurado na limpeza; valores salvos no projeto
+    continuam tendo prioridade (CODRUG.py).
+  * STEP 3: o Random State, se estiver vazio ao carregar o dataframe
+    (apagado ou salvo vazio num projeto), passa a ser preenchido com 123,
+    o mesmo padrão da STEP 4; um valor digitado é mantido (CODRUG.py).
+  * Novo fingerprint "SMARTS file FP (RDKit)" no Descriptors Builder: um
+    bit por padrão SMARTS de um arquivo escolhido no novo campo "SMARTS
+    file" (um SMARTS por linha, nome opcional após TAB, '#' comenta),
+    1 se a molécula contém o padrão (busca de subestrutura do RDKit).
+    Colunas SMARTSFP_<i>, com i = posição do padrão no arquivo, a partir
+    de 0. "Bits number"/"Chirality" não se aplicam. O arquivo é validado
+    antes do cálculo: arquivo ausente, vazio ou com SMARTS inválidos (as
+    linhas são listadas) bloqueia a geração. Uma cópia dos padrões
+    (DATA/DESCRIPTORS/fingerprint/smarts_fp_patterns.tsv) permite mostrar
+    a subestrutura exata de cada bit em Feature Importance e SHAP. O
+    relatório descreve o fingerprint e o arquivo usado (CODRUG.py,
+    BIN/module_feature_structures.py, BIN/module_interpretability.py,
+    BIN/module_report.py, BIN/i18n.py).
 
  -- Moisés Maia Neto <moimaian@gmail.com>  Tue, 13 Oct 2026 03:18:10 -0300
 

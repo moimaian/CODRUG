@@ -4211,6 +4211,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.tabs)
         self._build_tabs()
         self._apply_legacy_palette_fixes(self.tabs)
+        self._snapshot_spec_defaults()
 
         self._step_df_cache = {}
         self._current_df_tab_index = self.tabs.currentIndex()
@@ -5624,46 +5625,68 @@ class MainWindow(QMainWindow):
                 continue
             self._widget_set_value(getattr(self, attr, None), state[key])
 
-    def _clear_state_from_spec(self, spec):
-        """Blanks every widget in spec to its empty/default state, regardless of any stored
-        JSON - unlike _apply_state_from_spec (which only touches keys present in a loaded
-        state dict), this always acts. Used when starting a brand New Project so no value
-        from a previously loaded job lingers in the UI (see _reset_ui_for_new_project).
+    # Field specs limpos por _reset_ui_for_new_project (ver _snapshot_spec_defaults).
+    _RESETTABLE_SPEC_NAMES = ("STEP2_FIELD_SPEC", "STATISTICS_FIELD_SPEC", "STEP4_FIELD_SPEC", "STEP7_FIELD_SPEC")
 
-        QComboBox items are never wiped - only the current selection is reset to index 0 -
-        since some combos hold a fixed, once-populated option list that is never repopulated
-        later (e.g. cb_transformation); clearing their items would permanently break them for
-        the rest of the app session. Dataframe-driven combos/lists are expected to already be
-        emptied beforehand by the relevant _refresh_stepN_dataframe_widgets() call, so resetting
-        their (already-empty) selection here is a no-op."""
+    def _snapshot_spec_defaults(self):
+        """Guarda o valor inicial (o padrão da interface, logo após _build_tabs) de cada widget dos
+        field specs limpos ao abrir/criar um projeto - ex. Threshold 1.5 da STATS, testes post-hoc
+        marcados, filtros de druggability, k=5 do AD. _clear_state_from_spec volta a esses valores
+        em vez de esvaziar os campos."""
+        defaults = {}
+        for name in self._RESETTABLE_SPEC_NAMES:
+            for _key, attr in getattr(self, name, []):
+                widget = getattr(self, attr, None)
+                if isinstance(widget, QListWidget):
+                    defaults[attr] = [item.text() for item in widget.selectedItems()]
+                elif isinstance(widget, QComboBox):
+                    defaults[attr] = widget.currentText()
+                elif isinstance(widget, QCheckBox):
+                    defaults[attr] = widget.isChecked()
+                elif isinstance(widget, (QDoubleSpinBox, QSpinBox)):
+                    defaults[attr] = widget.value()
+                elif isinstance(widget, (QLineEdit, QLabel)):
+                    defaults[attr] = widget.text()
+        self._spec_defaults = defaults
+
+    def _clear_state_from_spec(self, spec):
+        """Returns every widget in spec to its initial interface default (captured by
+        _snapshot_spec_defaults right after the tabs are built), regardless of any stored JSON -
+        unlike _apply_state_from_spec (which only touches keys present in a loaded state dict),
+        this always acts. Used when starting a New Project and right before loading a previous
+        one (see _reset_ui_for_new_project), so no value from the previously open project lingers
+        and fields a project doesn't have saved show the interface default, not a blank.
+
+        QComboBox items are never wiped - only the current selection is changed - since some
+        combos hold a fixed, once-populated option list that is never repopulated later (e.g.
+        cb_transformation). Dataframe-driven combos/lists are expected to already be emptied
+        beforehand by the relevant _refresh_stepN_dataframe_widgets() call (their default is
+        empty anyway)."""
+        defaults = getattr(self, "_spec_defaults", {})
         for _key, attr in spec:
             widget = getattr(self, attr, None)
             if widget is None:
                 continue
+            default = defaults.get(attr)
             if isinstance(widget, QListWidget):
                 widget.clearSelection()
+                for i in range(widget.count()):
+                    if widget.item(i).text() in (default or []):
+                        widget.item(i).setSelected(True)
             elif isinstance(widget, QComboBox):
                 if widget.isEditable():
-                    # setCurrentIndex(0) below would overwrite this back to the first item's
-                    # text, so an editable combo is blanked instead of index-reset.
-                    widget.setEditText("")
-                elif attr in self._SPEC_RESET_DEFAULTS and widget.findText(self._SPEC_RESET_DEFAULTS[attr]) >= 0:
-                    widget.setCurrentText(self._SPEC_RESET_DEFAULTS[attr])
+                    # setCurrentIndex(0) would overwrite this back to the first item's text.
+                    widget.setEditText(default or "")
+                elif default and widget.findText(default) >= 0:
+                    widget.setCurrentIndex(widget.findText(default))
                 elif widget.count() > 0:
                     widget.setCurrentIndex(0)
             elif isinstance(widget, QCheckBox):
-                widget.setChecked(False)
-            elif isinstance(widget, QDoubleSpinBox):
-                widget.setValue(self._SPEC_RESET_DEFAULTS.get(attr, widget.minimum()))
-            elif isinstance(widget, QSpinBox):
-                widget.setValue(self._SPEC_RESET_DEFAULTS.get(attr, widget.minimum()))
+                widget.setChecked(bool(default))
+            elif isinstance(widget, (QDoubleSpinBox, QSpinBox)):
+                widget.setValue(default if default is not None else widget.minimum())
             elif isinstance(widget, (QLineEdit, QLabel)):
-                widget.setText(str(self._SPEC_RESET_DEFAULTS.get(attr, "")))
-
-    # Valores iniciais de widgets de field specs cujo valor "vazio" do reset genérico acima (mínimo do
-    # spinbox, 1º item do combo, texto em branco) não é o padrão da interface: ex. amplitude máxima das
-    # repetições discordantes = 1 unidade log (10x); detecção de outliers por IQR com limiar 1,5.
-    _SPEC_RESET_DEFAULTS = {"sp_rep_discordance": 1.0, "cb_outlier_method": "IQR", "threshold_outlier": "1.5"}
+                widget.setText(str(default or ""))
 
     def _collect_plain_attrs(self, attrs):
         """Like _collect_state_from_spec but for plain (non-widget) self attributes that a
@@ -5887,6 +5910,7 @@ class MainWindow(QMainWindow):
         ("descriptors_selected", "list_descriptors"),
         ("descriptors_bits_number", "spn_ecfp_bits"),
         ("descriptors_fp_chirality", "chk_fp_chirality"),
+        ("descriptors_smarts_file", "ed_smarts_fp_file"),
         ("prep_remove_salt", "chk_salt"),
         ("prep_aromaticity", "chk_aromaticity"),
         ("prep_tautomers", "chk_tautomers"),
@@ -12003,6 +12027,10 @@ class MainWindow(QMainWindow):
                 if widget is not None:
                     widget.clear()
             return
+        # Random State da STEP 3 vazio (apagado ou salvo vazio num projeto): usa o mesmo 123 do
+        # Random State da STEP 4 (ed_skl_random_state).
+        if hasattr(self, "ed_rd_session_id") and not self.ed_rd_session_id.text().strip():
+            self.ed_rd_session_id.setText("123")
         try:
             self.cb_select_structure.clear()
             self.cb_select_structure.addItems(self.df_selecionado.columns.astype(str))
@@ -12170,8 +12198,17 @@ class MainWindow(QMainWindow):
         "Topological Torsion (RDKit)",
         "Pattern FP (RDKit)",
         "Atom Pair (RDKit)",
+        "SMARTS file FP (RDKit)",
     ]
-    RDKIT_FP_BITS_MODES = frozenset(RDKIT_FP_ITEMS)
+    # Fingerprint por dicionário de subestruturas: um bit por padrão SMARTS lido de um arquivo
+    # escolhido pelo usuário (campo "SMARTS file"), 1 se a molécula contém o padrão. O tamanho é
+    # o número de padrões do arquivo - por isso fica fora de RDKIT_FP_BITS_MODES ("Bits number"
+    # e "Chirality" não se aplicam). Uma cópia normalizada dos padrões (SMARTS_FP_PATTERNS_FILE,
+    # bit -> SMARTS) é salva junto do CSV do descritor para identificar as subestruturas depois.
+    SMARTS_FP_ITEM = "SMARTS file FP (RDKit)"
+    SMARTS_FP_PREFIX = "SMARTSFP_"
+    SMARTS_FP_PATTERNS_FILE = "smarts_fp_patterns.tsv"
+    RDKIT_FP_BITS_MODES = frozenset(RDKIT_FP_ITEMS) - {SMARTS_FP_ITEM}
     # Descritores 1D/2D calculados pelo RDKit (não pelo PaDEL): o conjunto completo de
     # rdkit.Chem.Descriptors.descList (MolWt, MolLogP, TPSA, Chi/Kappa, *_VSA, fr_*...). Aparece na
     # lista do tipo 1D/2D; as colunas geradas levam o prefixo RDKIT_2D_PREFIX.
@@ -12415,6 +12452,11 @@ class MainWindow(QMainWindow):
             self.spn_ecfp_bits.setEnabled(applies)
         if hasattr(self, "chk_fp_chirality"):
             self.chk_fp_chirality.setEnabled(applies)
+        # "SMARTS file" só vale para o SMARTS file FP.
+        smarts_on = self.SMARTS_FP_ITEM in selected
+        for w in (getattr(self, "ed_smarts_fp_file", None), getattr(self, "btn_smarts_fp_file", None)):
+            if w is not None:
+                w.setEnabled(smarts_on)
 
     def _qListWidget_items(self, lw) -> list[str]:
         return [lw.item(i).text() for i in range(lw.count())]
@@ -12967,6 +13009,16 @@ class MainWindow(QMainWindow):
                 return
             descriptors_slug = _descriptors_filename_slug(selected_names)
 
+            # SMARTS file FP: valida o arquivo de padrões antes de qualquer cálculo.
+            smarts_fp_patterns = None
+            if self.SMARTS_FP_ITEM in selected_names:
+                smarts_path = self.ed_smarts_fp_file.text().strip() if hasattr(self, "ed_smarts_fp_file") else ""
+                try:
+                    smarts_fp_patterns = self._read_smarts_fp_file(smarts_path)
+                except ValueError as e:
+                    QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma), str(e))
+                    return
+
             # ================== Preparar .smi ==================
             smi_df = (
                 self.df_selecionado[[structure_col, name_col]]
@@ -13356,6 +13408,18 @@ class MainWindow(QMainWindow):
                         csv_paths.append((dname, csv_out, "1D2D"))
                     except Exception as e:
                         QMessageBox.warning(self, "RDKit 2D descriptors", f"{dname}: {e}")
+                    continue  # não deixa cair no bloco do PaDEL
+                if dname == self.SMARTS_FP_ITEM:
+                    try:
+                        df_fp, df_patterns = self._compute_smarts_file_fp(structure_col, name_col, smarts_fp_patterns)
+                        out_dir_fp = os.path.join(self.project_dir, "DATA", "DESCRIPTORS", "fingerprint")
+                        os.makedirs(out_dir_fp, exist_ok=True)
+                        csv_out = os.path.join(out_dir_fp, f"df_desc_{dname}.csv")
+                        df_fp.to_csv(csv_out, index=False)
+                        df_patterns.to_csv(os.path.join(out_dir_fp, self.SMARTS_FP_PATTERNS_FILE), sep="\t", index=False)
+                        csv_paths.append((dname, csv_out, "fingerprint"))
+                    except Exception as e:
+                        QMessageBox.warning(self, "SMARTS file FP", f"{dname}: {e}")
                     continue  # não deixa cair no bloco do PaDEL
                 if dname in rdkit_fp_set:
                     # gera um CSV para este fingerprint com RDKit e adiciona a csv_paths
@@ -14831,6 +14895,96 @@ class MainWindow(QMainWindow):
         df_fp = pd.DataFrame(arr, columns=cols)
         df_fp.insert(0, "Name", names)  # 'Name' para casar com o merge posterior
         return df_fp
+
+    def _read_smarts_fp_file(self, path):
+        """Lê o arquivo de padrões do SMARTS file FP: um SMARTS por linha, opcionalmente seguido
+        de TAB + nome do padrão. Ignora linhas em branco, linhas iniciadas por '#' (nenhum SMARTS
+        válido começa assim) e um cabeçalho 'SMARTS' na primeira linha. Vírgulas e espaços NÃO
+        separam campos, pois fazem parte de SMARTS válidos (ex.: [S,O;r8]).
+        Retorna [(smarts, nome)] na ordem do arquivo (bit i = i-ésimo padrão); ValueError com
+        mensagem para o usuário se o arquivo faltar, estiver vazio ou tiver SMARTS inválidos."""
+        from rdkit import Chem, RDLogger
+        idioma = self._idioma
+        if not path or not os.path.isfile(path):
+            raise ValueError(i18n.t("s4_msg_smarts_file_missing", idioma).format(path=path or "-"))
+        with open(path, "r", encoding="utf-8-sig") as f:
+            lines = f.read().splitlines()
+        patterns, invalid = [], []
+        RDLogger.DisableLog("rdApp.error")
+        try:
+            for n, line in enumerate(lines, start=1):
+                fields = line.split("\t")
+                smarts = fields[0].strip()
+                if not smarts or smarts.startswith("#"):
+                    continue
+                if not patterns and not invalid and smarts.lower() == "smarts":
+                    continue
+                if Chem.MolFromSmarts(smarts) is None:
+                    invalid.append(f"{n}: {smarts}")
+                    continue
+                name = fields[1].strip() if len(fields) > 1 else ""
+                patterns.append((smarts, name))
+        finally:
+            RDLogger.EnableLog("rdApp.error")
+        if invalid:
+            shown = "\n".join(invalid[:10]) + ("\n..." if len(invalid) > 10 else "")
+            raise ValueError(i18n.t("s4_msg_smarts_file_invalid", idioma).format(
+                n=len(invalid), path=path, lines=shown))
+        if not patterns:
+            raise ValueError(i18n.t("s4_msg_smarts_file_empty", idioma).format(path=path))
+        return patterns
+
+    def _compute_smarts_file_fp(self, structure_col, name_col, patterns):
+        """SMARTS file FP: bit i = 1 se a molécula contém o i-ésimo padrão de `patterns`
+        (lista de _read_smarts_fp_file), via HasSubstructMatch do RDKit. SMILES inválido gera
+        uma linha de zeros, como nos demais fingerprints RDKit. Retorna (df_fp, df_patterns):
+        df_fp com 'Name' + SMARTSFP_<i>; df_patterns (bit/column/smarts/name/source_file) para
+        salvar como SMARTS_FP_PATTERNS_FILE e identificar as subestruturas depois."""
+        from rdkit import Chem
+        queries = [Chem.MolFromSmarts(s) for s, _ in patterns]
+        n_bits = len(queries)
+        cols = [f"{self.SMARTS_FP_PREFIX}{i}" for i in range(n_bits)]
+
+        df = self.df_selecionado.dropna(subset=[structure_col]).copy()
+        names = df[name_col].astype(str).tolist()
+        arr = np.zeros((len(df), n_bits), dtype=np.int8)
+        for r, smi in enumerate(df[structure_col].astype(str).tolist()):
+            try:
+                m = Chem.MolFromSmiles(smi)
+            except Exception:
+                m = None
+            if m is None:
+                continue
+            for i, q in enumerate(queries):
+                if m.HasSubstructMatch(q):
+                    arr[r, i] = 1
+
+        df_fp = pd.DataFrame(arr, columns=cols)
+        df_fp.insert(0, "Name", names)  # 'Name' para casar com o merge posterior
+        source = self.ed_smarts_fp_file.text().strip() if hasattr(self, "ed_smarts_fp_file") else ""
+        df_patterns = pd.DataFrame({
+            "bit": range(n_bits), "column": cols,
+            "smarts": [s for s, _ in patterns], "name": [nm for _, nm in patterns],
+            "source_file": os.path.basename(source),
+        })
+        return df_fp, df_patterns
+
+    def _smarts_fp_patterns_path(self):
+        """Cópia dos padrões do último SMARTS file FP gerado neste projeto (None sem projeto)."""
+        project_dir = getattr(self, "project_dir", None)
+        if not project_dir:
+            return None
+        return os.path.join(project_dir, "DATA", "DESCRIPTORS", "fingerprint", self.SMARTS_FP_PATTERNS_FILE)
+
+    def _choose_smarts_fp_file(self):
+        """Botão '...' do campo 'SMARTS file' (STEP de descritores)."""
+        start = self.ed_smarts_fp_file.text().strip()
+        start_dir = os.path.dirname(start) if start else os.path.expanduser("~")
+        path, _ = QFileDialog.getOpenFileName(
+            self, i18n.t("s4_dlg_smarts_file", self._idioma), start_dir,
+            "SMARTS lists (*.txt *.csv *.tsv *.smarts);;All files (*)")
+        if path:
+            self.ed_smarts_fp_file.setText(path)
 
     def _set_items(self, combo, items):
         combo.blockSignals(True)
@@ -17408,6 +17562,7 @@ class MainWindow(QMainWindow):
             "smiles_train": list(df.loc[x_tr.index, smi_col]), "smiles_test": smiles_ev,
             "names_train": list(names.loc[x_tr.index]), "names_test": names_ev,
             "fp_bits": bits, "fp_chirality": chir, "n_show": min(int(top_n), 16),
+            "smarts_patterns_path": self._smarts_fp_patterns_path(),
         }
 
     def run_interpretability(self):
@@ -21023,12 +21178,36 @@ class MainWindow(QMainWindow):
             bits_row_widget = QWidget()
             bits_row_widget.setLayout(bits_row_layout)
 
+            # "SMARTS file": arquivo de padrões do SMARTS file FP (SMARTS_FP_ITEM) - habilitado
+            # só quando esse item está selecionado (_update_bits_number_enabled).
+            label_smarts_file = self._trL("s4_lbl_smarts_file")
+            label_smarts_file.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
+            label_smarts_file.setFixedWidth(150)
+            self.ed_smarts_fp_file = QLineEdit()
+            self.ed_smarts_fp_file.setFixedWidth(210)
+            self.ed_smarts_fp_file.setEnabled(False)
+            self._tr("s4_tooltip_smarts_file", self.ed_smarts_fp_file.setToolTip)
+            self.btn_smarts_fp_file = QPushButton("...")
+            self.btn_smarts_fp_file.setProperty("role", "secondary")
+            self.btn_smarts_fp_file.setFixedWidth(35)
+            self.btn_smarts_fp_file.setEnabled(False)
+            self._tr("s4_tooltip_smarts_file", self.btn_smarts_fp_file.setToolTip)
+            self.btn_smarts_fp_file.clicked.connect(self._choose_smarts_fp_file)
+            smarts_row_layout = QHBoxLayout()
+            smarts_row_layout.addWidget(self.ed_smarts_fp_file)
+            smarts_row_layout.addWidget(self.btn_smarts_fp_file)
+            smarts_row_layout.addStretch()
+            smarts_row_widget = QWidget()
+            smarts_row_widget.setLayout(smarts_row_layout)
+
             self.list_descriptors.itemSelectionChanged.connect(self._update_bits_number_enabled)
 
             gL21.addWidget(label_select_descriptors, 0, 0, alignment=Qt.AlignRight)
             gL21.addWidget(self.list_descriptors, 0, 1, alignment=Qt.AlignLeft)
             gL21.addWidget(label_bits_number, 1, 0, alignment=Qt.AlignRight)
             gL21.addWidget(bits_row_widget, 1, 1, alignment=Qt.AlignLeft)
+            gL21.addWidget(label_smarts_file, 2, 0, alignment=Qt.AlignRight)
+            gL21.addWidget(smarts_row_widget, 2, 1, alignment=Qt.AlignLeft)
             gL21.setColumnStretch(0, 1)
             gL21.setColumnStretch(1, 3)
 
@@ -27194,7 +27373,8 @@ class MainWindow(QMainWindow):
         substructure WHEN POSSIBLE (see BIN/module_feature_structures.py for exactly which
         descriptor families are supported - ECFP4/FCFP6/ECFP4_count and PubchemFP exactly (the
         latter via BASE/DESCRIPTORS/pubchem_fingerprint_bits.json, NCBI's own bit definitions),
-        MACCSFP as a best-effort approximation - and why MomentOfInertia/etc. are skipped rather
+        MACCSFP as a best-effort approximation, SMARTSFP (SMARTS file FP) from the saved
+        smarts_fp_patterns.tsv - and why MomentOfInertia/etc. are skipped rather
         than guessed), then saves under this USI's own MIDIA folder:
         - <model>_feature_importance_structures_<usi>.csv: rank/descriptor/importance/family/
           SMARTS/SMILES/note for every feature that could be resolved.
@@ -27227,6 +27407,7 @@ class MainWindow(QMainWindow):
                 )
                 rec = module_feature_structures.resolve_feature(
                     col_name, training_smiles=training_smiles, fp_bits=fp_bits, fp_chirality=True,
+                    smarts_patterns_path=self._smarts_fp_patterns_path(),
                 )
                 if rec is None:
                     continue

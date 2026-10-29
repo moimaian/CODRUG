@@ -1205,7 +1205,8 @@ _DESCRIPTOR_CATEGORY_LABELS = {
 # RDKIT_FP_ITEMS + RDKIT_2D_ITEMS); os demais vêm do PaDEL-Descriptor.
 _RDKIT_DESCRIPTOR_ITEMS = frozenset({
     "ECFP4 (RDkit classic)", "FCFP6 (RDkit)", "ECFP4 counting (without 1D2D)", "Avalon FP (RDKit)",
-    "Topological Torsion (RDKit)", "Pattern FP (RDKit)", "Atom Pair (RDKit)", "RDKit 2D descriptors",
+    "Topological Torsion (RDKit)", "Pattern FP (RDKit)", "Atom Pair (RDKit)", "SMARTS file FP (RDKit)",
+    "RDKit 2D descriptors",
 })
 
 _PREP_FLAG_LABELS = {
@@ -1430,6 +1431,21 @@ def _add_step4_section(document: Any, project_dir: str, state: dict[str, Any], i
                            " 2D physicochemical and topological descriptors from RDKit's Descriptors.descList (e.g. "
                            "molecular weight, Crippen logP, TPSA, Chi and Kappa connectivity indices, *_VSA surface "
                            "descriptors and fr_* functional-group counts), identified by the RDKit_ prefix. ", False)
+                smartsfp_cols = [c for c in descriptor_cols if str(c).startswith("SMARTSFP_")]
+                if smartsfp_cols:
+                    smarts_file = os.path.basename(str(step4.get("descriptors_smarts_file") or ""))
+                    add_bi("O SMARTS file FP é um fingerprint por dicionário de subestruturas: cada bit indica a "
+                           "presença (1) ou ausência (0) de um padrão SMARTS",
+                           "The SMARTS file FP is a substructure-dictionary fingerprint: each bit indicates the "
+                           "presence (1) or absence (0) of one SMARTS pattern", False)
+                    if smarts_file:
+                        add_bi(" do arquivo ", " from the file ", False)
+                        add(smarts_file, True)
+                    add_bi(", verificada por busca de subestrutura do RDKit; ",
+                           ", checked by RDKit substructure matching; ", False)
+                    add(f"{len(smartsfp_cols):,}", True)
+                    add_bi(" bits (prefixo SMARTSFP_) compõem o dataframe. ",
+                           " bits (SMARTSFP_ prefix) make up the dataframe. ", False)
                 only_fingerprints = bool(selected_desc) and not step4.get("descriptors_1d2d") and not step4.get("descriptors_3d")
                 if descriptor_cols and only_fingerprints:
                     add_bi(

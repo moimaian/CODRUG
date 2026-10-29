@@ -23,6 +23,10 @@ Only descriptor families with a *reliable*, locally-verifiable definition are re
   build_pubchem_fingerprint_table() below. The remaining 148 bits (Sections 1-2: whole-molecule
   element/ring COUNT thresholds, e.g. ">= 2 aromatic rings") have no single substructure to draw
   by definition and are correctly left unresolved even though they're in the table.
+- "SMARTSFP_<i>" (CODRUG's "SMARTS file FP (RDKit)", one bit per pattern of a user SMARTS file):
+  EXACT. Bit i is the i-th pattern; resolved from the normalized copy of that file saved next to
+  the descriptor CSV (DATA/DESCRIPTORS/fingerprint/smarts_fp_patterns.tsv) - callers pass its path
+  as smarts_patterns_path.
 
 Everything else - PaDEL's continuous 3D descriptors (e.g. MomentOfInertia), plain 1D/2D
 physicochemical descriptors, etc. - has no reliable *local* substructure definition to draw from
@@ -63,6 +67,7 @@ _COL_PATTERNS = [
     (re.compile(r"^FCFP6_(\d+)$"), "FCFP6"),
     (re.compile(r"^MACCSFP(\d+)$", re.IGNORECASE), "MACCSFP"),
     (re.compile(r"^PubchemFP(\d+)$", re.IGNORECASE), "PubchemFP"),
+    (re.compile(r"^SMARTSFP_(\d+)$"), "SMARTSFP"),
 ]
 
 # BASE/DESCRIPTORS/pubchem_fingerprint_bits.json lives two directories up from this file
@@ -270,9 +275,54 @@ def resolve_pubchem_bit(bit_index: int, table_path: Optional[str] = None) -> Opt
     }
 
 
+@lru_cache(maxsize=4)
+def _load_smarts_patterns(path: str, mtime: float) -> dict:
+    """{bit: {"smarts", "name", "source_file"}} from smarts_fp_patterns.tsv. `mtime` is only part
+    of the cache key, so regenerating the descriptor with another SMARTS file is picked up."""
+    import csv
+    try:
+        with open(path, "r", encoding="utf-8", newline="") as f:
+            return {int(r["bit"]): r for r in csv.DictReader(f, delimiter="\t")}
+    except Exception:
+        return {}
+
+
+def resolve_smarts_bit(bit_index: int, patterns_path: Optional[str]) -> Optional[dict]:
+    """SMARTS file FP bit `bit_index`: the pattern itself, read from smarts_fp_patterns.tsv.
+    None when the file is missing or has no such bit."""
+    if not patterns_path or not os.path.isfile(patterns_path):
+        return None
+    table = _load_smarts_patterns(patterns_path, os.path.getmtime(patterns_path))
+    entry = table.get(int(bit_index))
+    if not entry or not entry.get("smarts"):
+        return None
+    smarts = entry["smarts"]
+    smiles = ""
+    if _RDKIT_AVAILABLE:
+        try:
+            query = Chem.MolFromSmarts(smarts)
+            if query is not None:
+                smiles = Chem.MolToSmiles(query)
+        except Exception:
+            smiles = ""
+    name = (entry.get("name") or "").strip()
+    source = (entry.get("source_file") or "").strip()
+    return {
+        "family": "SMARTSFP", "bit_index": bit_index, "radius": None,
+        "smarts": smarts, "smiles": smiles,
+        "source_smiles": "",
+        "note": (
+            f"Pattern {bit_index}{' (' + name + ')' if name else ''} of the SMARTS file used to "
+            f"generate this fingerprint{' (' + source + ')' if source else ''}."
+        ),
+        "exact": True,
+    }
+
+
 def resolve_feature(col_name: str, training_smiles=None, fp_bits: Optional[int] = None,
                      fp_chirality: bool = True, max_search: int = 500,
-                     pubchem_table_path: Optional[str] = None) -> Optional[dict]:
+                     pubchem_table_path: Optional[str] = None,
+                     smarts_patterns_path: Optional[str] = None) -> Optional[dict]:
     """Dispatches to the right resolver for `col_name`, or returns None when this descriptor
     family has no reliable local structural definition (MomentOfInertia, any plain 1D/2D
     physicochemical descriptor, an out-of-table PubChem bit, etc.) - the correct, honest outcome
@@ -285,6 +335,8 @@ def resolve_feature(col_name: str, training_smiles=None, fp_bits: Optional[int] 
         return resolve_pubchem_bit(bit_index, table_path=pubchem_table_path)
     if family == "MACCSFP":
         return resolve_maccs_bit(bit_index)
+    if family == "SMARTSFP":
+        return resolve_smarts_bit(bit_index, smarts_patterns_path)
     if not fp_bits:
         return None
     return resolve_ecfp_bit(family, bit_index, fp_bits, training_smiles, fp_chirality, max_search)
