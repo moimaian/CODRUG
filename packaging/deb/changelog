@@ -388,6 +388,13 @@ codrug (1.2.0-1) unstable; urgency=low
     relatório descreve o fingerprint e o arquivo usado (CODRUG.py,
     BIN/module_feature_structures.py, BIN/module_interpretability.py,
     BIN/module_report.py, BIN/i18n.py).
+  * SMARTS file FP: novo arquivo padrão BASE/DESCRIPTORS/
+    substructure_smarts_1013.txt (dicionário de 1013 subestruturas, GPL-3,
+    autoria registrada em debian/copyright), instalado junto com a pasta
+    BASE. O campo "SMARTS file" já vem preenchido com ele, e campo vazio
+    também o usa. Um caminho salvo para esse arquivo que não exista mais
+    (projeto aberto em outra instalação) é trocado pelo arquivo desta
+    instalação (CODRUG.py, BIN/i18n.py, packaging/deb/copyright).
 
  -- Moisés Maia Neto <moimaian@gmail.com>  Tue, 13 Oct 2026 03:18:10 -0300
 

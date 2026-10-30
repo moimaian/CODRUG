@@ -12208,6 +12208,9 @@ class MainWindow(QMainWindow):
     SMARTS_FP_ITEM = "SMARTS file FP (RDKit)"
     SMARTS_FP_PREFIX = "SMARTSFP_"
     SMARTS_FP_PATTERNS_FILE = "smarts_fp_patterns.tsv"
+    # Arquivo padrão do campo "SMARTS file", distribuído em BASE/DESCRIPTORS: dicionário de 1013
+    # subestruturas (anéis, heterociclos, fragmentos acíclicos e tamanhos de anel).
+    SMARTS_FP_DEFAULT_FILE = "substructure_smarts_1013.txt"
     RDKIT_FP_BITS_MODES = frozenset(RDKIT_FP_ITEMS) - {SMARTS_FP_ITEM}
     # Descritores 1D/2D calculados pelo RDKit (não pelo PaDEL): o conjunto completo de
     # rdkit.Chem.Descriptors.descList (MolWt, MolLogP, TPSA, Chi/Kappa, *_VSA, fr_*...). Aparece na
@@ -13013,6 +13016,13 @@ class MainWindow(QMainWindow):
             smarts_fp_patterns = None
             if self.SMARTS_FP_ITEM in selected_names:
                 smarts_path = self.ed_smarts_fp_file.text().strip() if hasattr(self, "ed_smarts_fp_file") else ""
+                # Campo vazio, ou caminho salvo do arquivo padrão que não existe mais (projeto
+                # aberto em outra instalação): usa o arquivo padrão desta instalação.
+                if not smarts_path or (not os.path.isfile(smarts_path)
+                                       and os.path.basename(smarts_path) == self.SMARTS_FP_DEFAULT_FILE):
+                    smarts_path = self._default_smarts_fp_file()
+                    if hasattr(self, "ed_smarts_fp_file"):
+                        self.ed_smarts_fp_file.setText(smarts_path)
                 try:
                     smarts_fp_patterns = self._read_smarts_fp_file(smarts_path)
                 except ValueError as e:
@@ -14976,10 +14986,14 @@ class MainWindow(QMainWindow):
             return None
         return os.path.join(project_dir, "DATA", "DESCRIPTORS", "fingerprint", self.SMARTS_FP_PATTERNS_FILE)
 
+    def _default_smarts_fp_file(self):
+        """Caminho do arquivo SMARTS padrão (SMARTS_FP_DEFAULT_FILE) nesta instalação."""
+        return os.path.join(self.dp_dir, "BASE", "DESCRIPTORS", self.SMARTS_FP_DEFAULT_FILE)
+
     def _choose_smarts_fp_file(self):
         """Botão '...' do campo 'SMARTS file' (STEP de descritores)."""
-        start = self.ed_smarts_fp_file.text().strip()
-        start_dir = os.path.dirname(start) if start else os.path.expanduser("~")
+        start = self.ed_smarts_fp_file.text().strip() or self._default_smarts_fp_file()
+        start_dir = os.path.dirname(start)
         path, _ = QFileDialog.getOpenFileName(
             self, i18n.t("s4_dlg_smarts_file", self._idioma), start_dir,
             "SMARTS lists (*.txt *.csv *.tsv *.smarts);;All files (*)")
@@ -21183,7 +21197,8 @@ class MainWindow(QMainWindow):
             label_smarts_file = self._trL("s4_lbl_smarts_file")
             label_smarts_file.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
             label_smarts_file.setFixedWidth(150)
-            self.ed_smarts_fp_file = QLineEdit()
+            self.ed_smarts_fp_file = QLineEdit(self._default_smarts_fp_file())
+            self.ed_smarts_fp_file.setPlaceholderText(self.SMARTS_FP_DEFAULT_FILE)
             self.ed_smarts_fp_file.setFixedWidth(210)
             self.ed_smarts_fp_file.setEnabled(False)
             self._tr("s4_tooltip_smarts_file", self.ed_smarts_fp_file.setToolTip)
