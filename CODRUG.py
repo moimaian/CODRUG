@@ -22558,12 +22558,13 @@ class MainWindow(QMainWindow):
             btn_col_skl_charts.addWidget(self.chk_skl_metric_legend, alignment=Qt.AlignCenter)
             lay_skl_charts.addLayout(btn_col_skl_charts)
 
-            # ---------- LINHA: PERFORMANCE CHARTS (esquerda, metade) + REMOVE MODEL AND PREDICT (direita, metade) ----------
-            # Proporção 2:3 (antes 1:1) a favor do External Validation, Refit and Prediction, cuja coluna de controles só
-            # ocupa o que precisa - a sobra vai para a lista de modelos.
+            # ---------- LINHA: EXTERNAL VALIDATION, REFIT AND PREDICTION (esquerda) + PERFORMANCE CHARTS (direita) ----------
+            # Proporção 3:2 a favor do External Validation, Refit and Prediction, cuja coluna de controles só
+            # ocupa o que precisa - a sobra vai para a lista de modelos, que também define os modelos do
+            # Plot Model (Performance Charts, à direita).
             row_save_charts_lay = QHBoxLayout()
-            row_save_charts_lay.addWidget(gb_skl_charts, 2)
             row_save_charts_lay.addWidget(gb_skl_save_pred, 3)
+            row_save_charts_lay.addWidget(gb_skl_charts, 2)
             l_skl.addLayout(row_save_charts_lay)
             l_skl.addStretch()
 
@@ -26892,32 +26893,47 @@ class MainWindow(QMainWindow):
 
     def run_skl_plot(self):
         try:
-            # Plot Model roda sobre o modelo selecionado no combobox "Model" único (grupo
-            # Hyperparameter Tuning), não sobre self.skl_current_model.
-            model_name = self.cb_skl_tune_model.currentText().strip() if hasattr(self, "cb_skl_tune_model") else ""
-            model = getattr(self, "skl_trained_models", {}).get(model_name) if model_name else None
-            if model is None:
-                QMessageBox.warning(self, i18n.t("msg_title_plot", self._idioma),
-                    "Select a model in the Hyperparameter Tuning group's 'Model' combobox "
-                    "(Run Screening first to populate it)."
-                )
+            # Plot Model roda sobre o(s) modelo(s) MARCADO(s) na lista do grupo External Validation,
+            # Refit and Prediction (list_skl_saved_models) - cada gráfico selecionado é gerado para
+            # cada modelo marcado.
+            idioma = self._idioma
+            names = [it.text() for it in self.list_skl_saved_models.selectedItems()] \
+                if hasattr(self, "list_skl_saved_models") else []
+            if not names:
+                QMessageBox.warning(self, i18n.t("msg_title_plot", idioma), i18n.t("s6_msg_plot_no_model", idioma))
                 return
             selected = self.list_skl_charts.selectedItems()
             if not selected:
-                QMessageBox.warning(self, i18n.t("msg_title_plot", self._idioma), "Select at least one chart.")
+                QMessageBox.warning(self, i18n.t("msg_title_plot", idioma), "Select at least one chart.")
                 return
             _registry, task = self._get_skl_registry()
             self._set_current_sklearn_usi_context()
 
-            # Com 2+ gráficos selecionados, todos são salvos automaticamente em MIDIA (da USI atual)
-            # sem exibir nenhum deles — a exibição interativa (com o botão "Save Chart" no diálogo) só
-            # ocorre ao gerar um único gráfico por vez.
-            auto_save_only = len(selected) > 1
+            trained = getattr(self, "skl_trained_models", {}) or {}
+            failed = [f"{n}: {i18n.t('s6_msg_plot_model_not_loaded', idioma)}" for n in names if trained.get(n) is None]
+            # Combinações modelo x gráfico. Gráficos no conjunto teste são pulados (e listados uma vez
+            # no fim, em vez de um aviso por gráfico) para modelos "_refit" - o teste faz parte do
+            # treino deles - e quando a USI não tem conjunto teste (Test Size = 0).
+            no_test_set = getattr(self, "skl_x_test", None) is None and getattr(self, "skl_x_train", None) is not None
+            jobs, skipped = [], []
+            for model_name in names:
+                model = trained.get(model_name)
+                if model is None:
+                    continue
+                for item in selected:
+                    kind = item.data(Qt.UserRole) or item.text().split(" - ")[0].strip()
+                    if kind in self.SKL_TEST_SPLIT_CHARTS and (no_test_set or self._skl_is_refit(model_name)):
+                        skipped.append(f"{model_name}: {item.text()}")
+                        continue
+                    jobs.append((model_name, model, kind, item.text()))
+
+            # Com 2+ gráficos a gerar (somando todos os modelos), todos são salvos automaticamente em
+            # MIDIA (da USI atual) sem exibir nenhum deles — a exibição interativa (com o botão "Save
+            # Chart" no diálogo) só ocorre ao gerar um único gráfico.
+            auto_save_only = len(jobs) > 1
             saved_paths = []
-            failed = []
-            for item in selected:
-                kind = item.data(Qt.UserRole) or item.text().split(" - ")[0].strip()
-                label = item.text()
+            for model_name, model, kind, chart_label in jobs:
+                label = f"{model_name}: {chart_label}" if len(names) > 1 else chart_label
                 # Mensagem de espera (sem barra de progresso) por gráfico, fechada assim que ele
                 # termina de ser construído, logo antes de exibir/salvar o resultado (permite
                 # selecionar vários gráficos de uma vez, cada um com seu próprio ciclo). Um erro num
@@ -26947,6 +26963,10 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma),
                     f"{len(saved_paths)} chart(s) saved to:\n" + "\n".join(saved_paths)
                 )
+            if skipped:
+                key = "s6_msg_chart_no_test_set_skipped" if no_test_set else "s6_msg_refit_charts_skipped"
+                QMessageBox.information(self, i18n.t("msg_title_plot", idioma),
+                    i18n.t(key, idioma, items="\n".join(skipped)))
             if failed:
                 QMessageBox.warning(self, i18n.t("msg_title_plot_error", self._idioma),
                     f"{len(failed)} chart(s) could not be generated:\n" + "\n".join(failed))
@@ -27457,6 +27477,12 @@ class MainWindow(QMainWindow):
         except Exception:
             import traceback; traceback.print_exc()
 
+    # Gráficos do Performance Charts que avaliam o modelo no conjunto teste do Run Screening.
+    SKL_TEST_SPLIT_CHARTS = frozenset({
+        "predicted_vs_actual", "residuals", "confusion_matrix", "roc_auc", "class_report",
+        "manifold", "pr", "threshold", "calibration", "lift", "gain", "ks",
+    })
+
     def _build_skl_plot_figure(self, kind, task, model=None, model_name=None):
         if model is None:
             model = self.skl_current_model
@@ -27467,10 +27493,7 @@ class MainWindow(QMainWindow):
         # skl_y_test). Um modelo obtido via Load (sem nunca ter rodado Screening nesta sessão) não tem
         # esses atributos definidos — sem essa checagem, o acesso direto abaixo derruba a interface com
         # AttributeError em vez de avisar o usuário.
-        needs_test_split = kind in (
-            "predicted_vs_actual", "residuals", "confusion_matrix", "roc_auc", "class_report",
-            "manifold", "pr", "threshold", "calibration", "lift", "gain", "ks",
-        )
+        needs_test_split = kind in self.SKL_TEST_SPLIT_CHARTS
         if needs_test_split and self._skl_is_refit(model_name):
             # O conjunto teste faz parte do treino de um modelo "_refit": o gráfico mostraria ajuste, não predição.
             QMessageBox.information(self, i18n.t("msg_title_plot", self._idioma),

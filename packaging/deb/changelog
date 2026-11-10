@@ -26,14 +26,14 @@ codrug (1.2.0-1) unstable; urgency=low
     (CODRUG.py, BIN/i18n.py).
   * STEP 4: escolha da USI sem deixar pastas órfãs. Run Screening (e o
     carregamento do Internal DataFrame) usa a USI atual se ela ainda não
-    não tem nenhum resultado (pasta vazia ou só com o gráfico do View Split;
+    tem nenhum resultado (pasta vazia ou só com o gráfico do View Split;
     qualquer outro arquivo, inclusive resultados antigos do PyCaret, protege
-    a pasta) ou se é um código novo digitado no combobox; senão reaproveita uma pasta de
-    USI sem uso já existente no projeto (antes ela ficava órfã, invisível no
-    combobox - ex.: USI criada ao carregar um DataFrame e abandonada antes do
-    Screening), esvaziando-a; só então gera um código novo. Substitui o
-    marcador "USI pendente", que só cobria o primeiro Screening após o
-    carregamento (CODRUG.py).
+    a pasta) ou se é um código novo digitado no combobox; senão reaproveita
+    uma pasta de USI sem uso já existente no projeto (antes ela ficava
+    órfã, invisível no combobox - ex.: USI criada ao carregar um DataFrame
+    e abandonada antes do Screening), esvaziando-a; só então gera um
+    código novo. Substitui o marcador "USI pendente", que só cobria o
+    primeiro Screening após o carregamento (CODRUG.py).
   * Performance Charts em classificação binária com rótulos de texto: a ROC
     falhava ("pos_label is not specified") e, com vários gráficos
     selecionados, o erro interrompia todos os seguintes. A classe positiva
@@ -395,6 +395,16 @@ codrug (1.2.0-1) unstable; urgency=low
     também o usa. Um caminho salvo para esse arquivo que não exista mais
     (projeto aberto em outra instalação) é trocado pelo arquivo desta
     instalação (CODRUG.py, BIN/i18n.py, packaging/deb/copyright).
+  * STEP 4: os grupos External Validation, Refit and Prediction (agora à
+    esquerda) e Performance Charts (agora à direita) trocaram de posição.
+    O Plot Model passa a usar os modelos marcados na lista do External
+    Validation, Refit and Prediction, e não mais o combobox "Model" do
+    Hyperparameter Tuning; vários modelos podem ser marcados, e cada
+    gráfico selecionado é gerado para cada modelo. Com mais de um gráfico
+    no total, todos são salvos em MIDIA sem exibição. Gráficos no conjunto
+    teste são pulados para modelos "_refit" e para USI sem conjunto teste,
+    com um único aviso listando o que não foi gerado (CODRUG.py,
+    BIN/i18n.py).
 
  -- Moisés Maia Neto <moimaian@gmail.com>  Tue, 13 Oct 2026 03:18:10 -0300
 

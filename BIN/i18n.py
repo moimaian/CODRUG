@@ -868,6 +868,30 @@ _TEXTOS = {
         "pt": "O gráfico '{chart}' avalia o modelo no conjunto teste, e esta USI não tem conjunto teste (Tamanho do "
               "Teste = 0). Use 'Gráfico da CV' (grupo 'Validação Interna') para inspecionar o modelo no treino.",
     },
+    "s6_msg_chart_no_test_set_skipped": {
+        "en": "These charts evaluate the model on the test set, and this USI has no test set (Test Size = 0) - "
+              "skipped:\n{items}\n\nUse 'Plot CV Predictions' (group 'Internal Validation') to inspect the "
+              "model on the training set.",
+        "pt": "Estes gráficos avaliam o modelo no conjunto teste, e esta USI não tem conjunto teste (Tamanho do "
+              "Teste = 0) - não gerados:\n{items}\n\nUse 'Gráfico da CV' (grupo 'Validação Interna') para "
+              "inspecionar o modelo no treino.",
+    },
+    "s6_msg_refit_charts_skipped": {
+        "en": "These charts evaluate the model on the test set, which is part of the training data of refit models "
+              "- they would show fit, not prediction - skipped:\n{items}\n\nPlot them for the source models instead.",
+        "pt": "Estes gráficos avaliam o modelo no conjunto teste, que faz parte do treino dos modelos refit - "
+              "mostrariam ajuste, não predição - não gerados:\n{items}\n\nGere-os para os modelos de origem.",
+    },
+    "s6_msg_plot_no_model": {
+        "en": "Check at least one model in the list of the External Validation, Refit and Prediction group "
+              "(Run Screening first to populate it).",
+        "pt": "Marque ao menos um modelo na lista do grupo Validação Externa, Retreino e Predição "
+              "(rode o Model Screening antes para preenchê-la).",
+    },
+    "s6_msg_plot_model_not_loaded": {
+        "en": "model not loaded/trained in this session",
+        "pt": "modelo não carregado/treinado nesta sessão",
+    },
     "s6_btn_cv_plot": {"en": "Plot CV Predictions", "pt": "Gráfico da CV"},
     "s6_tooltip_cv_plot": {
         "en": "Predicted vs Experimental (regression) or Confusion Matrix (classification) with the out-of-fold "
@@ -1243,10 +1267,14 @@ _TEXTOS = {
     },
     "s6_grp_performance_charts": {"en": "Performance Charts (Test Set)", "pt": "Gráficos de Desempenho (Teste)"},
     "s6_tooltip_grp_performance_charts": {
-        "en": "Charts of the selected model on the TEST set (external validation), except Feature Importance, "
-              "Learning Curve and Decision Tree, which use the model or the training set.",
-        "pt": "Gráficos do modelo selecionado no conjunto TESTE (validação externa), exceto Feature Importance, "
-              "Learning Curve e Decision Tree, que usam o próprio modelo ou o conjunto de treino.",
+        "en": "Charts of the models checked in the list of the External Validation, Refit and Prediction group "
+              "(one set of charts per model) on the TEST set (external validation), except Feature Importance, "
+              "Learning Curve and Decision Tree, which use the model or the training set. With more than one chart "
+              "in total, all are saved to RESULTS/USI/<USI>/MIDIA without being displayed.",
+        "pt": "Gráficos dos modelos marcados na lista do grupo Validação Externa, Retreino e Predição (um "
+              "conjunto de gráficos por modelo) no conjunto TESTE (validação externa), exceto Feature Importance, "
+              "Learning Curve e Decision Tree, que usam o próprio modelo ou o conjunto de treino. Com mais de um "
+              "gráfico no total, todos são salvos em RESULTS/USI/<USI>/MIDIA sem serem exibidos.",
     },
     "s6_chk_metric_legend": {"en": "Metric Legend", "pt": "Legenda de Métricas"},
     "s6_tooltip_metric_legend": {
