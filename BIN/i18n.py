@@ -565,6 +565,26 @@ _TEXTOS = {
     "s3_chk_2d_plot": {"en": "2D Plot", "pt": "Gráfico 2D"},
     "s3_chk_3d_plot": {"en": "3D Plot", "pt": "Gráfico 3D"},
     "s3_chk_plot_equation": {"en": "Plot Equation", "pt": "Exibir Equação"},
+    "s3_tooltip_theil_sen": {
+        "en": "Monotonic trend between Variables 1 and 2 (Kendall-Theil method). Significance: Kendall's tau-b "
+              "(two-sided, ties in X and Y handled), with α = 1 - Confidence Interval. Slope: Theil-Sen estimator "
+              "(median of the pairwise slopes; robust to outliers, no normality assumed), in units of Variable 2 "
+              "per unit of Variable 1, with its confidence interval at the 'Confidence Interval' level. Hover over "
+              "the Trend box for tau-b, p-value and n, and over the Slope box for the slope CI and intercept. "
+              "Uses only Variables 1 and 2 and respects the groups selected for the class column.",
+        "pt": "Tendência monotônica entre as Variáveis 1 e 2 (método de Kendall-Theil). Significância: tau-b de "
+              "Kendall (bilateral, com correção de empates em X e Y), com α = 1 - Intervalo de Confiança. "
+              "Inclinação: estimador de Theil-Sen (mediana das inclinações entre pares; robusto a outliers, sem "
+              "supor normalidade), em unidades da Variável 2 por unidade da Variável 1, com intervalo de "
+              "confiança no nível do campo 'Confidence Interval'. Passe o mouse na caixa de tendência para ver "
+              "tau-b, p-valor e n, e na caixa de inclinação para o IC e o intercepto. Usa só as Variáveis 1 e 2 "
+              "e respeita os grupos selecionados para a coluna de classe.",
+    },
+    "s3_ph_ts_trend": {"en": "Trend", "pt": "Tendência"},
+    "s3_ph_ts_slope": {"en": "Slope", "pt": "Inclinação"},
+    "s3_ts_increasing": {"en": "Increasing", "pt": "Crescente"},
+    "s3_ts_decreasing": {"en": "Decreasing", "pt": "Decrescente"},
+    "s3_ts_no_trend": {"en": "No monotonic trend", "pt": "Sem tendência monotônica"},
     "s3_lbl_correlation_tests": {"en": "Correlation Tests:", "pt": "Testes de Correlação:"},
     "lbl_to_short": {"en": "To", "pt": "Até"},
 

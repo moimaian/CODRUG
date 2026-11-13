@@ -11587,7 +11587,7 @@ class MainWindow(QMainWindow):
         return suffix
 
     def _draw_correlation_trend_curves(self, ax, X, Y):
-        """Draws the curve types selected in the multi-select list (Linear, Moving Average,
+        """Draws the curve types selected in the multi-select list (Linear, Theil-Sen, Moving Average,
         Exponential, Logarithmic, Polynomial, LOESS/LOWESS, Splines, GAMs) while 'Trend Line' is
         checked. Used by the Pearson/Spearman/Kendall correlation plots (2D only)."""
         if not (getattr(self, "chk_linear_trend_line", None) and self.chk_linear_trend_line.isChecked()):
@@ -11616,11 +11616,7 @@ class MainWindow(QMainWindow):
                 label = "Linear trend" + self._equation_suffix(eq, r2)
                 ax.plot(x_line, y_line, lw=2.2, ls="-", color="black", alpha=0.9, label=label)
 
-                try:
-                    ci_val = float(self.ed_conf_int.text().strip().replace(",", ".")) if hasattr(self, "ed_conf_int") else 95.0
-                except Exception:
-                    ci_val = 95.0
-                ci_val = float(np.clip(ci_val, 50.0, 99.9))
+                ci_val = self._get_conf_int_level()
                 alpha_ci = 1.0 - (ci_val / 100.0)
 
                 n = X.size
@@ -11637,6 +11633,23 @@ class MainWindow(QMainWindow):
                                 label=f"{int(round(ci_val))}% CI (mean)")
             except Exception as e:
                 QMessageBox.information(self, "Linear trend", f"Failed to compute linear trend/CI: {e}")
+
+        # Theil-Sen: reta robusta (mediana das inclinações entre pares) - mesmo estimador do botão
+        # Theil-Sen; com 'Plot Equation', a legenda traz também o IC da inclinação.
+        if "Theil-Sen" in selected:
+            try:
+                from scipy.stats import theilslopes
+                ci_val = self._get_conf_int_level()
+                ts_slope, ts_icpt, ts_low, ts_high = theilslopes(Y, X, alpha=ci_val / 100.0)
+                eq = f"y = {ts_slope:.4g}x {'+' if ts_icpt >= 0 else '-'} {abs(ts_icpt):.4g}"
+                # Sem R²: ele mede o ajuste de mínimos quadrados, que a reta robusta não busca (com
+                # outliers pode até ficar negativo); a legenda traz o IC da inclinação no lugar.
+                label = "Theil-Sen" + self._equation_suffix(eq, None)
+                if getattr(self, "chk_plot_equation", None) and self.chk_plot_equation.isChecked():
+                    label += f"; slope {ci_val:g}% CI [{ts_low:.4g}, {ts_high:.4g}]"
+                ax.plot(x_line, ts_icpt + ts_slope * x_line, lw=2.2, ls="--", color="#0b7285", alpha=0.95, label=label)
+            except Exception as e:
+                QMessageBox.information(self, "Theil-Sen", f"Failed to compute Theil-Sen line: {e}")
 
         # Moving Average
         if "Moving Average" in selected:
@@ -11926,6 +11939,82 @@ class MainWindow(QMainWindow):
         """Kendall's rank correlation (Tau-b) between the variables selected in STEP 3's
         'Correlate Variables' group. See _run_correlation_test for the shared 2D/3D implementation."""
         self._run_correlation_test("kendall", "Kendall", "kendall")
+
+    def _get_conf_int_level(self) -> float:
+        """Nível do campo 'Confidence Interval' (%) do grupo Correlate Variables, limitado a
+        50-99.9 (95 se vazio/inválido)."""
+        try:
+            ci_val = float(self.ed_conf_int.text().strip().replace(",", ".")) if hasattr(self, "ed_conf_int") else 95.0
+        except Exception:
+            ci_val = 95.0
+        return float(np.clip(ci_val, 50.0, 99.9))
+
+    def run_theil_sen_test(self):
+        """
+        Tendência monotônica entre Variable 1 (X) e Variable 2 (Y) pelo método de Kendall-Theil, no
+        DataFrame da aba STATS ('Correlate Variables'; Variable 3 não é usada). Respeita o filtro de
+        grupos (list_groups) quando há uma coluna de classe válida, como os testes de correlação.
+        - Significância: tau-b de Kendall (scipy.stats.kendalltau, bilateral, com correção de empates
+          em X e em Y), α = 1 - Confidence Interval.
+        - Inclinação: estimador de Theil-Sen (scipy.stats.theilslopes - mediana das inclinações entre
+          pares com X distintos), com intercepto e intervalo de confiança no nível do campo
+          'Confidence Interval'.
+        Escreve a tendência em ed_theil_sen_trend (tooltip: tau-b, p, n) e a inclinação em
+        ed_theil_sen_slope (tooltip: IC da inclinação e intercepto).
+        """
+        from scipy.stats import kendalltau, theilslopes
+        idioma = self._idioma
+        if getattr(self, "stats_df", None) is None or self.stats_df.empty:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", idioma), "No DataFrame loaded.")
+            return
+
+        x_col = self.list_columns_var1.currentText().strip() if hasattr(self, "list_columns_var1") else ""
+        y_col = self.list_columns_var2.currentText().strip() if hasattr(self, "list_columns_var2") else ""
+        if not x_col or x_col not in self.stats_df.columns:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", idioma), "Select a valid X variable in 'Select Variables 1'.")
+            return
+        if not y_col or y_col not in self.stats_df.columns:
+            QMessageBox.warning(self, i18n.t("msg_title_attention", idioma), "Select a valid Y variable in 'Select Variables 2'.")
+            return
+
+        df = self.stats_df.copy()
+        class_col = self.list_class_column_stats.currentText().strip() if hasattr(self, "list_class_column_stats") else ""
+        if class_col in df.columns and hasattr(self, "list_groups") and self.list_groups is not None:
+            sel = [it.text().strip() for it in self.list_groups.selectedItems()]
+            if sel:
+                df = df[df[class_col].astype(str).isin(sel)]
+
+        df = pd.DataFrame({"x": pd.to_numeric(df[x_col], errors="coerce"),
+                           "y": pd.to_numeric(df[y_col], errors="coerce")}).dropna()
+        if len(df) < 3 or df["x"].nunique() < 2:
+            QMessageBox.information(self, i18n.t("msg_title_attention", idioma),
+                                    "Need at least 3 valid observations with at least 2 distinct X values.")
+            return
+        x = df["x"].to_numpy(dtype=float)
+        y = df["y"].to_numpy(dtype=float)
+        n = len(y)
+
+        ci_val = self._get_conf_int_level()
+        alpha = 1.0 - ci_val / 100.0
+        tau, p_two = kendalltau(x, y)              # tau-b (variant="b"), bilateral
+        slope, intercept, low, high = theilslopes(y, x, alpha=ci_val / 100.0)
+
+        if np.isfinite(p_two) and p_two < alpha and tau != 0:
+            trend = i18n.t("s3_ts_increasing" if tau > 0 else "s3_ts_decreasing", idioma)
+        else:
+            trend = i18n.t("s3_ts_no_trend", idioma)
+        slope_str = f"{slope:.6g}"
+
+        self.ed_theil_sen_trend.setText(trend)
+        self.ed_theil_sen_trend.setCursorPosition(0)
+        self.ed_theil_sen_trend.setToolTip(
+            f"Kendall-Theil: {y_col} vs {x_col}\nKendall's tau-b = {tau:.4f}, p = {p_two:.4g} "
+            f"(α = {alpha:.3g}), n = {n}")
+        self.ed_theil_sen_slope.setText(slope_str)
+        self.ed_theil_sen_slope.setCursorPosition(0)
+        self.ed_theil_sen_slope.setToolTip(
+            f"Theil-Sen slope (d{y_col}/d{x_col}) = {slope_str}\n"
+            f"{ci_val:g}% CI [{low:.6g}, {high:.6g}]\nIntercept = {intercept:.6g}")
 
     def select_dataframe5(self):
         initial_dir = os.path.join(self.project_dir, "DATA", "INTERNAL_DATA")
@@ -24291,7 +24380,8 @@ class MainWindow(QMainWindow):
             self.list_trend_curve_types = QListWidget()
             self.list_trend_curve_types.setSelectionMode(QAbstractItemView.MultiSelection)
             self.list_trend_curve_types.addItems([
-                "Linear", "Moving Average", "Exponential", "Logarithmic", "Polynomial", "LOESS/LOWESS", "Splines", "GAMs",
+                "Linear", "Theil-Sen", "Moving Average", "Exponential", "Logarithmic", "Polynomial", "LOESS/LOWESS",
+                "Splines", "GAMs",
             ])
             self.list_trend_curve_types.item(0).setSelected(True)
             self.list_trend_curve_types.setFixedWidth(160)
@@ -24318,16 +24408,39 @@ class MainWindow(QMainWindow):
             label_conf_int = self._trL("s3_lbl_confidence_interval"); label_conf_int.setStyleSheet("color: #C9D1D9; font-size: 10pt")
             self.ed_conf_int = QLineEdit("Confidence Interval (%)"); self.ed_conf_int.setText("95") ; self.ed_conf_int.setFixedSize(75, 25)
 
+            # Theil-Sen (run_theil_sen_test): tendência monotônica entre as Variáveis 1 e 2 pelo tau-b
+            # de Kendall e inclinação de Theil-Sen - botão e as duas caixas somente leitura.
+            btn_theil_sen = QPushButton("Theil-Sen")
+            self._tr("s3_tooltip_theil_sen", btn_theil_sen.setToolTip)
+            btn_theil_sen.setProperty("role", "secondary")
+            btn_theil_sen.setFixedWidth(140)
+            btn_theil_sen.clicked.connect(self.run_theil_sen_test)
+            self.ed_theil_sen_trend = QLineEdit(); self._tr("s3_ph_ts_trend", self.ed_theil_sen_trend.setPlaceholderText)
+            self.ed_theil_sen_trend.setReadOnly(True); self.ed_theil_sen_trend.setFixedSize(140, 25); self.ed_theil_sen_trend.setAlignment(Qt.AlignCenter)
+            self.ed_theil_sen_slope = QLineEdit(); self._tr("s3_ph_ts_slope", self.ed_theil_sen_slope.setPlaceholderText)
+            self.ed_theil_sen_slope.setReadOnly(True); self.ed_theil_sen_slope.setFixedSize(140, 25); self.ed_theil_sen_slope.setAlignment(Qt.AlignCenter)
+
+            # O resultado vale para o par de variáveis em que foi calculado: limpa ao trocar.
+            def clear_theil_sen(_txt=None):
+                for ed in (self.ed_theil_sen_trend, self.ed_theil_sen_slope):
+                    ed.clear(); ed.setToolTip("")
+            self.list_columns_var1.currentTextChanged.connect(clear_theil_sen)
+            self.list_columns_var2.currentTextChanged.connect(clear_theil_sen)
+
             # Grid 3 colunas:
-            #   col0: Trend Line (r0) | lista de tipos de curva (r1-r4, rowspan=4)
-            #   col1: 2D Plot (r0) | 3D Plot (r1) | Plot Equation (r2)
+            #   col0: Trend Line (r0) | lista de tipos de curva (r1-r5, rowspan=5)
+            #   col1: 2D Plot (r0) | 3D Plot (r1) | Plot Equation (r2) | Theil-Sen: botão (r3),
+            #         Trend (r4), Slope (r5)
             #   col2: Num Samples label/caixa (r0/r1) | Confidence Interval label/caixa (r2/r3)
             curve_fit_trend_layout = QGridLayout()
             curve_fit_trend_layout.addWidget(self.chk_linear_trend_line, 0, 0, alignment=Qt.AlignLeft)
-            curve_fit_trend_layout.addWidget(self.list_trend_curve_types, 1, 0, 4, 1)
+            curve_fit_trend_layout.addWidget(self.list_trend_curve_types, 1, 0, 5, 1)
             curve_fit_trend_layout.addWidget(self.chk_2D_plot, 0, 1, alignment=Qt.AlignLeft)
             curve_fit_trend_layout.addWidget(self.chk_3D_plot, 1, 1, alignment=Qt.AlignLeft)
             curve_fit_trend_layout.addWidget(self.chk_plot_equation, 2, 1, alignment=Qt.AlignLeft)
+            curve_fit_trend_layout.addWidget(btn_theil_sen, 3, 1, alignment=Qt.AlignLeft)
+            curve_fit_trend_layout.addWidget(self.ed_theil_sen_trend, 4, 1, alignment=Qt.AlignLeft)
+            curve_fit_trend_layout.addWidget(self.ed_theil_sen_slope, 5, 1, alignment=Qt.AlignLeft)
             curve_fit_trend_layout.addWidget(label_num_samples, 0, 2)
             curve_fit_trend_layout.addWidget(self.ed_trend_num_samples, 1, 2, alignment=Qt.AlignLeft)
             curve_fit_trend_layout.addWidget(label_conf_int, 2, 2)

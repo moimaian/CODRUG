@@ -405,6 +405,18 @@ codrug (1.2.0-1) unstable; urgency=low
     teste são pulados para modelos "_refit" e para USI sem conjunto teste,
     com um único aviso listando o que não foi gerado (CODRUG.py,
     BIN/i18n.py).
+  * STATS, Correlate Variables: novo botão Theil-Sen (com as caixas Trend
+    e Slope, abaixo de 2D Plot/3D Plot/Plot Equation) no lugar do antigo
+    Mann-Kendall, removido junto com o View Scatter Plot. O Mann-Kendall é
+    um teste de séries temporais e, aplicado a Y ordenado por X, contava
+    pares com X empatado na ordem do dataframe. Agora a tendência
+    monotônica entre as Variáveis 1 e 2 usa o tau-b de Kendall (empates
+    em X e Y corrigidos, α = 1 - Confidence Interval), e a inclinação usa
+    o estimador de Theil-Sen, com IC no nível do Confidence Interval e
+    intercepto no tooltip. Usa o dataframe da aba STATS, respeita o
+    filtro de grupos e limpa o resultado ao trocar de variável. A lista
+    Trend Line ganhou "Theil-Sen" (reta robusta; com Plot Equation, a
+    legenda traz a equação e o IC da inclinação) (CODRUG.py, BIN/i18n.py).
 
  -- Moisés Maia Neto <moimaian@gmail.com>  Tue, 13 Oct 2026 03:18:10 -0300
 
