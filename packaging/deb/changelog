@@ -417,6 +417,55 @@ codrug (1.2.0-1) unstable; urgency=low
     filtro de grupos e limpa o resultado ao trocar de variável. A lista
     Trend Line ganhou "Theil-Sen" (reta robusta; com Plot Equation, a
     legenda traz a equação e o IC da inclinação) (CODRUG.py, BIN/i18n.py).
+  * Manuais do usuário reescritos para a versão 1.2.0-1, em português
+    (TUTORIALS/manual_do_usuario_CODRUG_pt_BR) e em inglês
+    (TUTORIALS/User_manual_CODRUG en-US), ambos .docx e .pdf: 17 seções
+    com sumário, instalação pelo pacote .deb, estrutura atual de PROJECTS,
+    as abas CONFIG, ETAPAS 1 a 6, EDIT, STATS e PLOT (nova seção com os
+    tipos de gráfico, as opções, o Sankey com "Top categorias" e a
+    exportação), o mapeamento dos cinco princípios da OCDE e 22 figuras
+    em cada versão (capturas das abas no idioma do manual e gráficos de
+    resultado). Substituem os manuais anteriores, que ainda descreviam o
+    PyCaret, a pasta JOBS e a aba de Setup/Compare.
+  * Nova aba PLOT ("Gerador de Gráficos"), depois de STATS, com a interface
+    e a lógica do GraphGenerator: gráficos 1D (Bar, Line, Scatter, Area,
+    Box Plot, Heatmap, Violin, Histogram, Density), 2D e 3D, linhas de
+    tendência com R² e equação, legenda, rótulos nos pontos, paletas,
+    cor única, rótulos dos eixos e resolução (dpi) na janela de
+    pré-visualização, que salva em PNG/JPG/TIFF/PDF/EPS/SVG. O arquivo
+    vem do mesmo botão "Select DataFrame" e da mesma caixa da STATS
+    (DataFrame próprio, independente do pipeline) e a aba é salva e
+    restaurada com o projeto. As funções de plotagem ficam em
+    BIN/module_graph_generator.py, sem Qt (CODRUG.py, BIN/i18n.py).
+  * PLOT: novo gráfico "Sankey" (1D): duas ou mais colunas em X viram as
+    etapas do diagrama, cada categoria um nó e cada faixa a contagem de
+    linhas que passa de uma etapa à seguinte (ou a soma de UMA coluna Y
+    numérica, usada como peso); aceita até 30 categorias por coluna,
+    paleta/cor única e valores nos nós. Corrigido o gráfico de frequência
+    (e a seleção de Y) quando a coluna se chamava "X": o nome reservado do
+    eixo era sobrescrito e o gráfico falhava com "No numeric columns found
+    for Y" (CODRUG.py, BIN/module_graph_generator.py, BIN/i18n.py).
+  * PLOT: "Select DataFrame" e a caixa do arquivo ficam acima do grupo, fora
+    do contorno, como na STATS; o botão "Generate chart" ficou centralizado
+    e com fonte maior (propriedade "font_pt" tratada em
+    _apply_legacy_palette_fixes, pois o tema substitui o stylesheet do
+    botão) (CODRUG.py).
+  * PLOT/Sankey: nova caixa "Top categorias" (1 a 30, com + e -), sob a
+    lista de Y, só visível com Sankey em 1D: cada coluna mantém apenas as N
+    categorias de maior frequência (ou maior soma de peso, se houver Y) e
+    as linhas com categoria de fora não são desenhadas; assim colunas com
+    mais de 30 categorias deixam de impedir o gráfico. A resolução (dpi)
+    passou a ocupar só a largura da coluna de Z. O valor é salvo com o
+    projeto (CODRUG.py, BIN/module_graph_generator.py, BIN/i18n.py).
+  * PLOT: Box Plot e Violin deixam de exigir X: basta selecionar a(s)
+    coluna(s) numérica(s) em Y (uma caixa/violino por coluna); o X vira
+    opcional e só agrupa as linhas (até 30 categorias), e é limpo ao
+    escolher o tipo, pois a 1ª coluna pré-selecionada gerava uma caixa
+    por categoria (ex.: 125 caixas ilegíveis). Antes, só Y falhava com
+    "selecione pelo menos UMA coluna X", e X sem Y desenhava uma "caixa"
+    de um único valor (a contagem); agora o programa avisa
+    (CODRUG.py, BIN/module_graph_generator.py, BIN/i18n.py). Manuais
+    atualizados.
 
  -- Moisés Maia Neto <moimaian@gmail.com>  Tue, 13 Oct 2026 03:18:10 -0300
 

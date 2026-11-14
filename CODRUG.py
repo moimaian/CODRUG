@@ -868,6 +868,14 @@ except Exception as e:
     print(f"Details: {e}")
     module_interpretability = None
 
+try:
+    import BIN.module_graph_generator as module_graph_generator
+    print("✅ module_graph_generator imported successfully.")
+except Exception as e:
+    print("⚠️ module_graph_generator not available - the PLOT tab (Graph Generator) will be disabled.")
+    print(f"Details: {e}")
+    module_graph_generator = None
+
 # ==========================================================================================================================================
 # ================================================== DESIGN CONFIG - DARK MODE =============================================================
 # ========================================================================================================================================== 
@@ -4129,6 +4137,12 @@ class MainWindow(QMainWindow):
         
         # Atribuir df_selecionado como None inicialmente:
         self.df_selecionado = None
+        # PLOT (Gerador de Gráficos): dataframe próprio, independente do pipeline e da aba STATS.
+        self.plot_df = None
+        self._plot_df_path = None
+        self._plot_single_color = None
+        self._plot_all_cols = []
+        self._plot_numeric_cols = []
 
         # Widgets de conteúdo de cada aba (o widget "de dentro" do QScrollArea de cada uma),
         # usados por _fit_window_to_content() para dimensionar a janela principal de acordo
@@ -4176,6 +4190,10 @@ class MainWindow(QMainWindow):
         self._tr("menu_statistics", statistics_action.setText)
         statistics_action.triggered.connect(lambda: self.tabs.setCurrentIndex(9))  # Statistics
         dp_menu.addAction(statistics_action)
+        plot_action = QAction(self)
+        self._tr("menu_plot", plot_action.setText)
+        plot_action.triggered.connect(lambda: self.tabs.setCurrentIndex(10))  # Plot (Graph Generator)
+        dp_menu.addAction(plot_action)
 
         dp_menu.addSeparator()
         exit_action = QAction(self)
@@ -4875,6 +4893,9 @@ class MainWindow(QMainWindow):
             replacement = self._button_palette_style(button)
             role = (button.property("role") or "").strip().lower()
             if replacement and (role or self._uses_legacy_light_palette(style) or style.strip()):
+                font_pt = button.property("font_pt")
+                if font_pt:   # tamanho de fonte próprio do botão (ex.: "Generate chart" da aba PLOT)
+                    replacement = replacement + f"\nQPushButton {{ font-size: {int(font_pt)}pt; }}\n"
                 button.setStyleSheet(replacement)
             self._ensure_button_text_fits(button)
 
@@ -5626,7 +5647,7 @@ class MainWindow(QMainWindow):
             self._widget_set_value(getattr(self, attr, None), state[key])
 
     # Field specs limpos por _reset_ui_for_new_project (ver _snapshot_spec_defaults).
-    _RESETTABLE_SPEC_NAMES = ("STEP2_FIELD_SPEC", "STATISTICS_FIELD_SPEC", "STEP4_FIELD_SPEC", "STEP7_FIELD_SPEC")
+    _RESETTABLE_SPEC_NAMES = ("STEP2_FIELD_SPEC", "STATISTICS_FIELD_SPEC", "PLOT_FIELD_SPEC", "STEP4_FIELD_SPEC", "STEP7_FIELD_SPEC")
 
     def _snapshot_spec_defaults(self):
         """Guarda o valor inicial (o padrão da interface, logo após _build_tabs) de cada widget dos
@@ -5894,6 +5915,75 @@ class MainWindow(QMainWindow):
 
     def _save_statistics_state(self):
         self._save_project_state({"statistics": self._collect_statistics_state()})
+
+    # ------------------------------------------------------------------
+    # PLOT - Gerador de Gráficos (own dataframe, self.plot_df)
+    # ------------------------------------------------------------------
+    PLOT_FIELD_SPEC = [
+        ("selected_dataframe", "df_name_view_plot"),
+        ("title", "le_plot_title"),
+        ("dim_1d", "ck_plot_1d"),
+        ("dim_2d", "ck_plot_2d"),
+        ("dim_3d", "ck_plot_3d"),
+        ("x_columns", "lw_plot_x"),
+        ("y_columns", "lw_plot_y"),
+        ("z_columns", "lw_plot_z"),
+        ("chart_type", "cb_plot_type"),
+        ("sankey_top_categories", "sp_plot_sankey_top"),
+        ("dpi", "ed_plot_dpi"),
+        ("trendline", "cb_plot_trend"),
+        ("show_legend", "chk_plot_legend"),
+        ("show_label_mark", "chk_plot_label"),
+        ("color_mode", "cb_plot_colors"),
+        ("palette", "cb_plot_palette"),
+        ("x_label", "le_plot_xlabel"),
+        ("y_label", "le_plot_ylabel"),
+        ("z_label", "le_plot_zlabel"),
+    ]
+    PLOT_PLAIN_SPEC = [
+        ("dataframe_path", "_plot_df_path"),
+        ("single_color", "_plot_single_color"),
+    ]
+
+    def _collect_plot_state(self):
+        state = self._collect_state_from_spec(self.PLOT_FIELD_SPEC)
+        state.update(self._collect_plain_attrs(self.PLOT_PLAIN_SPEC))
+        return state
+
+    def _apply_plot_state(self, state):
+        if not isinstance(state, dict) or not state:
+            return False
+        stored_path = state.get("dataframe_path")
+        file_path = self._from_project_relative_path(stored_path)
+        if file_path and os.path.isfile(file_path):
+            try:
+                df = self._read_selected_table_file(file_path)
+                df = df.dropna(axis=1, how="all").dropna(axis=0, how="all")
+                self.plot_df = df.copy()
+                self._plot_df_path = stored_path
+            except Exception:
+                pass
+        # Dimensão primeiro (define o conteúdo das listas X/Y/Z e do tipo de gráfico) e só então as
+        # listas e o restante; a cor única volta antes de seus widgets.
+        dim = next((d for d in ("3d", "2d", "1d") if state.get("dim_" + d)), None)
+        if dim:
+            for key, box in (("1d", self.ck_plot_1d), ("2d", self.ck_plot_2d), ("3d", self.ck_plot_3d)):
+                box.blockSignals(True); box.setChecked(key == dim); box.blockSignals(False)
+        self._refresh_plot_dataframe_widgets()
+        self._plot_update_chart_type_options()
+        self._plot_single_color = state.get("single_color") or None
+        self._plot_restoring = True      # restaurar o tipo de gráfico não pode limpar o X restaurado
+        try:
+            self._apply_state_from_spec([s for s in self.PLOT_FIELD_SPEC if not s[0].startswith("dim_")], state)
+        finally:
+            self._plot_restoring = False
+        self._plot_set_color_button_text(i18n.t("plot_btn_pick_color", self._idioma))
+        self._update_plot_color_mode_ui()
+        self._update_plot_sankey_widgets()
+        return True
+
+    def _save_plot_state(self):
+        self._save_project_state({"plot": self._collect_plot_state()})
 
     # ------------------------------------------------------------------
     # STEP 4 - Features Engineering
@@ -6559,7 +6649,7 @@ class MainWindow(QMainWindow):
         Compute AD reference, Consensus outputs, dataframe paths) and the in-memory STEP 4 session
         and Compute AD results are cleared too - otherwise they would be saved into the next job."""
         self._clear_dataset_preparation_fields()
-        for plain_spec in (self.STEP2_PLAIN_SPEC, self.STATISTICS_PLAIN_SPEC, self.STEP4_PLAIN_SPEC,
+        for plain_spec in (self.STEP2_PLAIN_SPEC, self.STATISTICS_PLAIN_SPEC, self.PLOT_PLAIN_SPEC, self.STEP4_PLAIN_SPEC,
                            self.STEP7_PLAIN_SPEC, self.STEP8_PLAIN_SPEC):
             for _key, attr in plain_spec:
                 setattr(self, attr, None)
@@ -6581,6 +6671,10 @@ class MainWindow(QMainWindow):
         self.stats_df = None
         self._stats_df_path = None
         self._refresh_statistics_dataframe_widgets()
+        self.plot_df = None
+        self._plot_df_path = None
+        self._plot_single_color = None
+        self._refresh_plot_dataframe_widgets()
 
         self.df_int = None
         self.df_ext = None
@@ -6594,9 +6688,13 @@ class MainWindow(QMainWindow):
             self.cb_skl_y.clear()
 
         # STEP2 / STATISTICS / STEP4 / STEP7 (AD): independent fields not already handled above.
-        for spec in (self.STEP2_FIELD_SPEC, self.STATISTICS_FIELD_SPEC, self.STEP4_FIELD_SPEC, self.STEP7_FIELD_SPEC):
+        for spec in (self.STEP2_FIELD_SPEC, self.STATISTICS_FIELD_SPEC, self.PLOT_FIELD_SPEC, self.STEP4_FIELD_SPEC, self.STEP7_FIELD_SPEC):
             self._clear_state_from_spec(spec)
         self._reset_interp_defaults()
+        if hasattr(self, "btn_plot_color"):
+            self._plot_set_color_button_text(i18n.t("plot_btn_pick_color", self._idioma))
+            self._update_plot_color_mode_ui()
+            self._update_plot_sankey_widgets()
 
         # STEP5 (scikit-learn): only a USI pointer is tracked (see _collect_step6_sklearn_state) -
         # project_run() repopulates this combo from the new project_dir right after calling this method,
@@ -6663,6 +6761,7 @@ class MainWindow(QMainWindow):
         loaded_any = self._apply_step6_sklearn_state(payload.get("step6_sklearn", {})) or loaded_any
         loaded_any = self._apply_step8_state(payload.get("step8_consensus", {})) or loaded_any
         loaded_any = self._apply_statistics_state(payload.get("statistics", {})) or loaded_any
+        loaded_any = self._apply_plot_state(payload.get("plot", {})) or loaded_any
         self._refresh_skl_view_rank_enabled()
         new_path = self._project_state_path(project_dir)
         if loaded_any and new_path and not os.path.isfile(new_path):
@@ -10004,6 +10103,497 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, i18n.t("msg_title_error", self._idioma), f"An error occurred while loading the DataFrame:\n{e}")
 
         self._refresh_statistics_dataframe_widgets()
+
+    # ------------------------------------------------------------------
+    # PLOT - Gerador de Gráficos (porte do GraphGenerator). Dataframe próprio (self.plot_df),
+    # independente do pipeline e das demais abas; as funções de plotagem ficam em
+    # BIN/module_graph_generator.py (sem Qt).
+    # ------------------------------------------------------------------
+    def select_dataframe_plot(self):
+        """"Select DataFrame" da aba PLOT: mesmo fluxo da aba STATS (self.stats_df), mas gravando em
+        self.plot_df - assim as duas abas podem trabalhar com arquivos diferentes."""
+        try:
+            project_dir = getattr(self, "project_dir", None)
+            if project_dir:
+                initial_dir = os.path.join(project_dir, "DATA", "INTERNAL_DATA")
+            else:
+                initial_dir = self._projects_root()
+            os.makedirs(initial_dir, exist_ok=True)
+
+            file_path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Select DataFrame",
+                initial_dir,
+                "Data Files (*.csv *.xlsx);;CSV Files (*.csv);;Excel Files (*.xlsx)"
+            )
+            if not file_path:
+                return
+
+            df = self._read_selected_table_file(file_path)
+            # Mesma limpeza do GraphGenerator: colunas/linhas totalmente vazias não entram.
+            df = df.dropna(axis=1, how="all").dropna(axis=0, how="all")
+            if df.empty:
+                QMessageBox.warning(self, i18n.t("msg_title_attention", self._idioma),
+                                    i18n.t("plot_msg_df_empty", self._idioma))
+                return
+
+            self.plot_df = df.copy()
+            self.df_name_view_plot.setText(os.path.basename(file_path))
+            self._plot_df_path = self._to_project_relative_path(file_path)
+            self._refresh_plot_dataframe_widgets()
+            self.show_dataframe(df)
+        except Exception as e:
+            QMessageBox.critical(self, i18n.t("msg_title_error", self._idioma),
+                                 i18n.t("plot_msg_df_load_error", self._idioma, e=e))
+            return
+        self._save_plot_state()
+
+    def _refresh_plot_dataframe_widgets(self):
+        """Repopula as listas X/Y/Z da aba PLOT a partir de self.plot_df (vazias se não houver)."""
+        df = getattr(self, "plot_df", None)
+        self._plot_all_cols, self._plot_numeric_cols = [], []
+        if df is None:
+            for lw in (self.lw_plot_x, self.lw_plot_y, self.lw_plot_z):
+                lw.blockSignals(True); lw.clear(); lw.blockSignals(False)
+            self.ck_plot_2d.setEnabled(True)
+            self.ck_plot_3d.setEnabled(True)
+            return
+        self._plot_all_cols = [str(c) for c in df.columns]
+        self._plot_numeric_cols = [c for c in self._plot_all_cols if self._plot_is_numeric(c)]
+
+        # 2D precisa de >= 2 colunas numéricas e 3D de >= 3; se a dimensão atual deixou de valer, volta p/ 1D
+        n_num = len(self._plot_numeric_cols)
+        self.ck_plot_2d.setEnabled(n_num >= 2)
+        self.ck_plot_3d.setEnabled(n_num >= 3)
+        if (self.ck_plot_3d.isChecked() and not self.ck_plot_3d.isEnabled()) or \
+           (self.ck_plot_2d.isChecked() and not self.ck_plot_2d.isEnabled()):
+            self.ck_plot_1d.setChecked(True)
+
+        self._plot_refresh_column_lists_by_mode()
+        self._plot_update_chart_type_options()
+
+    def _plot_is_numeric(self, colname):
+        df = getattr(self, "plot_df", None)
+        if df is None or colname not in df.columns:
+            return False
+        return module_graph_generator._series_to_numeric(df[colname]).notna().mean() >= 0.5
+
+    def _plot_selected(self, lw):
+        return [it.text() for it in lw.selectedItems()]
+
+    def _plot_on_selection_changed(self):
+        if getattr(self, "plot_df", None) is not None:
+            self._plot_update_chart_type_options()
+
+    def _plot_update_chart_type_options(self):
+        """3D: só Scatter; 2D: Scatter/Line/Area; 1D: todos. Mantém o tipo atual quando continua válido."""
+        ggm = module_graph_generator
+        if self.ck_plot_3d.isChecked():
+            options, fallback = ggm.CHART_TYPES_3D, "Scatter"
+        elif self.ck_plot_2d.isChecked():
+            options, fallback = ggm.CHART_TYPES_2D, "Scatter"
+        else:
+            options, fallback = ggm.CHART_TYPES_1D, None
+        cur = self.cb_plot_type.currentText()
+        self.cb_plot_type.blockSignals(True)
+        self.cb_plot_type.clear()
+        self.cb_plot_type.addItems(options)
+        if cur in options:
+            self.cb_plot_type.setCurrentText(cur)
+        elif fallback:
+            self.cb_plot_type.setCurrentText(fallback)
+        self.cb_plot_type.blockSignals(False)
+        self._update_plot_sankey_widgets()   # os sinais ficaram bloqueados acima
+
+    def _on_plot_type_changed(self, text):
+        """Box Plot / Violin: o X é opcional (só agrupa), então a 1ª coluna que a lista seleciona sozinha
+        é desmarcada ao escolher o tipo - senão um Y numérico viraria uma caixa por categoria dessa coluna.
+        Não mexe na seleção ao restaurar um projeto."""
+        if getattr(self, "_plot_restoring", False) or not self.ck_plot_1d.isChecked():
+            return
+        if text in module_graph_generator.DISTRIBUTION_CHARTS:
+            self.lw_plot_x.clearSelection()
+
+    def _update_plot_sankey_widgets(self, *_):
+        """A caixa "Top categorias" (Sankey) só aparece quando o tipo de gráfico é Sankey (1D)."""
+        widget = getattr(self, "w_plot_sankey_top", None)
+        if widget is not None:
+            widget.setVisible(self.cb_plot_type.currentText() == "Sankey" and self.ck_plot_1d.isChecked())
+
+    def _update_plot_color_mode_ui(self):
+        is_single = self.cb_plot_colors.currentText().startswith("Single")
+        self.btn_plot_color.setEnabled(is_single)       # Single => habilita "Pick color"
+        self.cb_plot_palette.setEnabled(not is_single)  # Palette => habilita a paleta
+
+    def _plot_set_color_button_text(self, default_text):
+        color = getattr(self, "_plot_single_color", None)
+        if color:
+            self.btn_plot_color.setText(i18n.t("plot_btn_color_chosen", self._idioma, color=color))
+        else:
+            self.btn_plot_color.setText(default_text)
+
+    def pick_plot_single_color(self):
+        from PyQt5.QtWidgets import QColorDialog
+        c = QColorDialog.getColor(parent=self)
+        if c and c.isValid():
+            self._plot_single_color = c.name()
+            self._plot_set_color_button_text(i18n.t("plot_btn_pick_color", self._idioma))
+
+    def _plot_refresh_column_lists_by_mode(self):
+        """1D: X mostra TODAS as colunas (categóricas p/ frequência, ou numéricas p/ comparar séries Y),
+        Y só as numéricas (multi), Z desabilitado. 2D: X e Y só numéricas, X único. 3D: X/Y/Z só
+        numéricas, todos únicos."""
+        if getattr(self, "plot_df", None) is None:
+            return
+        is_1d = self.ck_plot_1d.isChecked()
+        is_2d = self.ck_plot_2d.isChecked()
+        is_3d = self.ck_plot_3d.isChecked()
+        if is_1d:
+            x_cols, y_cols, z_cols = self._plot_all_cols, self._plot_numeric_cols, []
+        else:
+            x_cols = y_cols = self._plot_numeric_cols
+            z_cols = self._plot_numeric_cols if is_3d else []
+
+        lists = (self.lw_plot_x, self.lw_plot_y, self.lw_plot_z)
+        for lw in lists:
+            lw.blockSignals(True)
+            lw.clear()
+        self.lw_plot_x.addItems(x_cols); self.lw_plot_y.addItems(y_cols); self.lw_plot_z.addItems(z_cols)
+
+        multi, single = QAbstractItemView.ExtendedSelection, QAbstractItemView.SingleSelection
+        if is_1d:
+            self.lw_plot_x.setSelectionMode(multi); self.lw_plot_y.setSelectionMode(multi)
+        elif is_2d:
+            self.lw_plot_x.setSelectionMode(single); self.lw_plot_y.setSelectionMode(multi)
+        else:
+            for lw in lists:
+                lw.setSelectionMode(single)
+        self.lw_plot_z.setEnabled(is_3d)
+        for lw in lists:
+            lw.blockSignals(False)
+
+        # Seleções padrão sensatas: 1D -> 1ª coluna em X; 2D/3D -> 1ª em X, 2ª em Y, 3ª em Z.
+        if is_1d and self.lw_plot_x.count() > 0 and not self.lw_plot_x.selectedItems():
+            self.lw_plot_x.setCurrentRow(0)
+        if (is_2d or is_3d) and self.lw_plot_x.count() > 0:
+            self.lw_plot_x.setCurrentRow(0)
+        if (is_2d or is_3d) and self.lw_plot_y.count() > 1:
+            self.lw_plot_y.setCurrentRow(1)
+        if is_3d and self.lw_plot_z.count() > 2:
+            self.lw_plot_z.setCurrentRow(2)
+
+    def _on_plot_dim_changed(self):
+        sender = self.sender()
+        boxes = {self.ck_plot_1d: (self.ck_plot_2d, self.ck_plot_3d),
+                 self.ck_plot_2d: (self.ck_plot_1d, self.ck_plot_3d),
+                 self.ck_plot_3d: (self.ck_plot_1d, self.ck_plot_2d)}
+        # Exclusividade: marcar uma dimensão desmarca as outras.
+        if sender in boxes and sender.isChecked():
+            for other in boxes[sender]:
+                other.blockSignals(True); other.setChecked(False); other.blockSignals(False)
+
+        is_3d = self.ck_plot_3d.isChecked()
+        self.lw_plot_z.setEnabled(is_3d)
+        if not self.ck_plot_1d.isChecked():
+            self.lw_plot_y.clearSelection()
+        if is_3d:
+            self.lw_plot_z.clearSelection()
+        self._plot_refresh_column_lists_by_mode()
+        self._plot_update_chart_type_options()
+
+    def _plot_warn(self, key, **kwargs):
+        QMessageBox.warning(self, i18n.t("msg_title_warning", self._idioma), i18n.t(key, self._idioma, **kwargs))
+
+    def _show_plot_figure(self, fig, dpi):
+        """Janela "Chart Preview" (canvas + toolbar do matplotlib; salvar respeita o DPI escolhido)."""
+        from PyQt5.QtWidgets import QMainWindow
+        idioma = self._idioma
+        owner = self
+
+        class _DpiToolbar(NavigationToolbar):
+            def __init__(self, canvas, parent, export_dpi):
+                self._export_dpi = int(export_dpi)
+                super().__init__(canvas, parent)
+
+            def save_figure(self, *args):
+                filetypes = "PNG (*.png);;JPG (*.jpg);;TIFF (*.tiff);;PDF (*.pdf);;EPS (*.eps);;SVG (*.svg);;All files (*.*)"
+                start_dir = os.path.join(getattr(owner, "project_dir", "") or os.path.expanduser("~"), "chart.png")
+                path, _ = QFileDialog.getSaveFileName(self.parent(), i18n.t("plot_save_dialog_title", idioma), start_dir, filetypes)
+                if not path:
+                    return
+                ext = os.path.splitext(path)[1].lower().replace(".", "")
+                if ext not in ("png", "jpg", "tiff", "pdf", "eps", "svg"):
+                    path += ".svg"   # sem extensão válida: assume SVG (vetorial)
+                    ext = "svg"
+                try:
+                    self.canvas.figure.savefig(path, dpi=self._export_dpi if ext in ("png", "jpg", "tiff") else None)
+                    QMessageBox.information(self.parent(), i18n.t("msg_title_done", idioma),
+                                            i18n.t("plot_msg_saved", idioma, path=path))
+                except Exception as e:
+                    QMessageBox.critical(self.parent(), i18n.t("msg_title_error", idioma),
+                                         i18n.t("plot_msg_save_error", idioma, e=e))
+
+        class _PlotViewer(QMainWindow):
+            def closeEvent(self, event):
+                try:
+                    plt.close(fig)   # figuras criadas via pyplot ficam registradas até serem fechadas
+                except Exception:
+                    pass
+                super().closeEvent(event)
+
+        viewer = _PlotViewer(self)
+        viewer.setAttribute(Qt.WA_DeleteOnClose, True)
+        viewer.setWindowTitle(i18n.t("plot_viewer_title", idioma))
+        viewer.resize(1000, 650)
+        canvas = FigureCanvas(fig)
+        viewer.setCentralWidget(canvas)
+        viewer.addToolBar(_DpiToolbar(canvas, viewer, dpi))
+        w_px = int(round(float(fig.get_figwidth()) * dpi))
+        h_px = int(round(float(fig.get_figheight()) * dpi))
+        viewer.statusBar().showMessage(i18n.t("plot_viewer_status", idioma, dpi=dpi, w=w_px, h=h_px))
+        viewer.show()
+        if not hasattr(self, "_plot_viewers"):
+            self._plot_viewers = []
+        self._plot_viewers = [v for v in self._plot_viewers if v.isVisible()] + [viewer]
+
+    def generate_plot_chart(self):
+        """Botão "Generate chart" da aba PLOT - mesma lógica do GraphGenerator.generate_chart."""
+        ggm = module_graph_generator
+        df = getattr(self, "plot_df", None)
+        if df is None or df.empty:
+            self._plot_warn("plot_msg_no_df")
+            return
+        df = df.copy()
+
+        dpi_txt = (self.ed_plot_dpi.text() or "").strip()
+        if not dpi_txt:
+            self._plot_warn("plot_msg_no_dpi")
+            return
+        try:
+            dpi = int(dpi_txt)
+            if dpi <= 0:
+                raise ValueError
+        except Exception:
+            self._plot_warn("plot_msg_bad_dpi")
+            return
+
+        plot_type = self.cb_plot_type.currentText().strip()
+        if plot_type not in ggm.PLOTTERS:
+            self._plot_warn("plot_msg_no_chart_type")
+            return
+
+        title = (self.le_plot_title.text() or "").strip()
+        trend_mode = self.cb_plot_trend.currentText().strip()
+        trend_mode_effective = trend_mode if plot_type in ggm.TREND_ALLOWED else "None"
+        show_legend = self.chk_plot_legend.isChecked()
+        label_mark = self.chk_plot_label.isChecked()
+        xlabel = (self.le_plot_xlabel.text() or "").strip()
+        ylabel = (self.le_plot_ylabel.text() or "").strip()
+        zlabel = (self.le_plot_zlabel.text() or "").strip()
+        color_mode = self.cb_plot_colors.currentText()
+        palette_name = self.cb_plot_palette.currentText()
+        single_color = getattr(self, "_plot_single_color", None)
+        if color_mode.startswith("Single") and not single_color:
+            single_color = "#1f77b4"
+        is_numeric = self._plot_is_numeric
+        sel_x = self._plot_selected(self.lw_plot_x)
+        sel_y = self._plot_selected(self.lw_plot_y)
+
+        # ---------- SANKEY (1D): 2+ colunas em X = etapas; Y opcional (uma coluna numérica) = peso ----------
+        if self.ck_plot_1d.isChecked() and plot_type == "Sankey":
+            # Etapas na ordem em que as colunas aparecem na lista X (não na ordem do clique).
+            stages = [self.lw_plot_x.item(i).text() for i in range(self.lw_plot_x.count())
+                      if self.lw_plot_x.item(i).isSelected()]
+            if len(stages) < 2:
+                self._plot_warn("plot_msg_sankey_need_two_x")
+                return
+            if len(sel_y) > 1:
+                self._plot_warn("plot_msg_sankey_one_y")
+                return
+            if sel_y and not is_numeric(sel_y[0]):
+                self._plot_warn("plot_msg_1d_bad_y", cols=sel_y[0])
+                return
+            mapped = df[stages].copy()
+            if sel_y:
+                mapped["__weight__"] = df[sel_y[0]].values
+            try:
+                fig = ggm.plot_sankey(
+                    df=mapped, dpi=dpi, show_legend=show_legend, label_mark=label_mark, title=title,
+                    xlabel=xlabel, ylabel=ylabel, color_mode=color_mode, palette_name=palette_name,
+                    single_color=single_color, stage_cols=stages,
+                    weight_col="__weight__" if sel_y else None,
+                    max_nodes=self.sp_plot_sankey_top.value(),
+                )
+            except Exception as e:
+                self._plot_warn("plot_msg_chart_error", mode="Sankey", e=e)
+                return
+            self._show_plot_figure(fig, dpi)
+            self._save_plot_state()
+            return
+
+        # ---------- BOX PLOT / VIOLIN (1D): Y numérico = valores; X (opcional) = grupos ----------
+        distribution_done = False
+        if self.ck_plot_1d.isChecked() and plot_type in ggm.DISTRIBUTION_CHARTS and (sel_x or sel_y):
+            if not sel_y:
+                self._plot_warn("plot_msg_distribution_need_y", chart=plot_type)
+                return
+            bad_y = [c for c in sel_y if not is_numeric(c)]
+            if bad_y:
+                self._plot_warn("plot_msg_1d_bad_y", cols=", ".join(bad_y))
+                return
+            if len(sel_x) > 1:
+                self._plot_warn("plot_msg_distribution_one_x", chart=plot_type)
+                return
+            mapped = pd.DataFrame()
+            if sel_x:
+                n_groups = df[sel_x[0]].dropna().astype(str).nunique()
+                if n_groups > ggm.DISTRIBUTION_MAX_GROUPS:
+                    self._plot_warn("plot_msg_distribution_too_many", chart=plot_type, col=sel_x[0],
+                                    n=n_groups, max=ggm.DISTRIBUTION_MAX_GROUPS)
+                    return
+                x_col = sel_x[0]
+                mapped["X"] = ggm._series_to_numeric(df[x_col]) if is_numeric(x_col) else df[x_col].astype(str)
+            for c in sel_y:
+                mapped[ggm.safe_series_name(c, "(Y)")] = df[c]
+            df = mapped        # sem X: só as colunas Y (uma caixa/violino por coluna)
+            distribution_done = True
+
+        # ---------- 1D MODE ----------
+        if self.ck_plot_1d.isChecked() and (sel_x or sel_y) and not distribution_done:
+            if len(sel_x) < 1:
+                self._plot_warn("plot_msg_1d_need_x")
+                return
+            x_col = sel_x[0]
+
+            if len(sel_y) == 0:
+                # Sem Y: Y = frequência das categorias (1 ou VÁRIAS colunas X, todas categóricas).
+                bad_x = [c for c in sel_x if is_numeric(c)]
+                if bad_x:
+                    self._plot_warn("plot_msg_1d_freq_numeric_x", cols=", ".join(bad_x))
+                    return
+                # Categorias (união) preservando a ordem de aparição, coluna a coluna.
+                all_cats, seen = [], set()
+                for xc in sel_x:
+                    for v in pd.unique(df[xc].dropna().astype(str)):
+                        if v not in seen:
+                            seen.add(v)
+                            all_cats.append(v)
+                if not all_cats:
+                    self._plot_warn("plot_msg_1d_no_freq_values")
+                    return
+                mapped = pd.DataFrame({"X": all_cats})
+                for xc in sel_x:
+                    freq = df[xc].dropna().astype(str).value_counts()
+                    # safe_series_name: uma coluna chamada "X" não pode sobrescrever o eixo X.
+                    mapped[ggm.safe_series_name(xc)] = pd.Series(freq).reindex(all_cats).fillna(0).astype(int).to_numpy()
+                df = mapped
+                if not xlabel:
+                    xlabel = i18n.t("plot_default_xlabel_category", self._idioma)
+                if not ylabel:
+                    ylabel = i18n.t("plot_default_ylabel_frequency", self._idioma)
+            else:
+                # Y escolhido: X categórico (classes) OU numérico (ex.: "epoch") contra 1+ séries Y.
+                if len(sel_x) != 1:
+                    self._plot_warn("plot_msg_1d_one_x_with_y")
+                    return
+                bad_y = [c for c in sel_y if not is_numeric(c)]
+                if bad_y:
+                    self._plot_warn("plot_msg_1d_bad_y", cols=", ".join(bad_y))
+                    return
+                mapped = pd.DataFrame()
+                mapped["X"] = ggm._series_to_numeric(df[x_col]) if is_numeric(x_col) else df[x_col].astype(str)
+                for c in sel_y:
+                    mapped[ggm.safe_series_name(c, "(Y)")] = df[c]
+                df = mapped
+
+        # ---------- 2D MODE ----------
+        if self.ck_plot_2d.isChecked():
+            if len(sel_x) != 1 or len(sel_y) < 1:
+                self._plot_warn("plot_msg_2d_select")
+                return
+            x_col = sel_x[0]
+            if not is_numeric(x_col):
+                self._plot_warn("plot_msg_2d_x_numeric")
+                return
+            bad_y = [c for c in sel_y if not is_numeric(c)]
+            if bad_y:
+                self._plot_warn("plot_msg_2d_bad_y", cols=", ".join(bad_y))
+                return
+            group_col = ggm._find_group_column(df)
+            try:
+                # Colorir por coluna "Class/Group" só faz sentido com um único Y em Scatter; nos demais
+                # casos (vários Y e/ou Line/Area) usa os plotters genéricos multi-série.
+                if plot_type == "Scatter" and len(sel_y) == 1 and group_col is not None:
+                    y_col = sel_y[0]
+                    fig = ggm.plot_scatter_2D(
+                        df=df, x_col=x_col, y_col=y_col, group_col=group_col,
+                        title=title or "Scatter Plot", xlabel=xlabel or x_col, ylabel=ylabel or y_col,
+                        palette_name=palette_name, single_color=single_color, color_mode=color_mode,
+                        label_mark=label_mark, trend_mode=trend_mode_effective, show_legend=show_legend,
+                    )
+                else:
+                    mapped = pd.DataFrame({"X": ggm._series_to_numeric(df[x_col])})
+                    for c in sel_y:
+                        mapped[ggm.safe_series_name(c, "(Y)")] = df[c]
+                    fig = ggm.PLOTTERS.get(plot_type, ggm.plot_scatter)(
+                        df=mapped, dpi=dpi, trend_mode=trend_mode_effective, show_legend=show_legend,
+                        label_mark=label_mark,
+                        title=title or f"{plot_type}: {x_col} vs {', '.join(sel_y)}",
+                        xlabel=xlabel or x_col,
+                        ylabel=ylabel or (sel_y[0] if len(sel_y) == 1 else "Y"),
+                        color_mode=color_mode if len(sel_y) > 1 else ggm.COLOR_MODE_SINGLE,
+                        palette_name=palette_name, single_color=single_color,
+                    )
+            except Exception as e:
+                self._plot_warn("plot_msg_chart_error", mode="2D", e=e)
+                return
+            self._show_plot_figure(fig, dpi)
+            self._save_plot_state()
+            return
+
+        # ---------- 3D MODE ----------
+        if self.ck_plot_3d.isChecked():
+            if self.cb_plot_type.currentText().strip() != "Scatter":
+                self.cb_plot_type.setCurrentText("Scatter")   # 3D: tipo forçado para Scatter
+            sel_z = self._plot_selected(self.lw_plot_z)
+            if len(sel_x) != 1 or len(sel_y) != 1 or len(sel_z) != 1:
+                self._plot_warn("plot_msg_3d_select")
+                return
+            x_col, y_col, z_col = sel_x[0], sel_y[0], sel_z[0]
+            bad = [c for c in (x_col, y_col, z_col) if not is_numeric(c)]
+            if bad:
+                self._plot_warn("plot_msg_3d_bad", cols=", ".join(bad))
+                return
+            if trend_mode != "None":
+                QMessageBox.information(self, i18n.t("msg_title_info", self._idioma),
+                                        i18n.t("plot_msg_3d_trend_ignored", self._idioma))
+            try:
+                fig = ggm.plot_scatter_3D(
+                    df=df, x_col=x_col, y_col=y_col, z_col=z_col, group_col=ggm._find_group_column(df),
+                    title=title or f"3D Scatter: {x_col} vs {y_col} vs {z_col}",
+                    xlabel=xlabel or x_col, ylabel=ylabel or y_col, zlabel=zlabel or z_col,
+                    palette_name=palette_name, single_color=single_color, color_mode=color_mode,
+                    label_mark=label_mark, show_legend=show_legend,
+                )
+            except Exception as e:
+                self._plot_warn("plot_msg_chart_error", mode="3D", e=e)
+                return
+            self._show_plot_figure(fig, dpi)
+            self._save_plot_state()
+            return
+
+        # ---------- 1D MODE (plotagem) ----------
+        try:
+            fig = ggm.PLOTTERS[plot_type](
+                df=df, dpi=dpi, trend_mode=trend_mode_effective, show_legend=show_legend,
+                label_mark=label_mark, title=title, xlabel=xlabel, ylabel=ylabel,
+                color_mode=color_mode, palette_name=palette_name, single_color=single_color,
+            )
+        except Exception as e:
+            self._plot_warn("plot_msg_chart_error", mode="1D", e=e)
+            return
+        self._show_plot_figure(fig, dpi)
+        self._save_plot_state()
 
     def _refresh_statistics_dataframe_widgets(self):
         """Repopulate every STATISTICS combo/list that depends on self.stats_df.
@@ -24510,7 +25100,7 @@ class MainWindow(QMainWindow):
             g12_13_layout.addWidget(g13)
             l10.addLayout(g12_13_layout)
 
-            # Botão para voltar (última aba, sem "Next"):
+            # Botões Back/Next (Next leva à aba PLOT):
             layout_btn_back_next10 = QHBoxLayout()
 
             back_btn10 = QPushButton()
@@ -24533,11 +25123,29 @@ class MainWindow(QMainWindow):
             """)
             back_btn10.clicked.connect(lambda: self.tabs.setCurrentIndex(8))
 
+            next_btn10 = QPushButton()
+            self._tr("btn_next", next_btn10.setText)
+            next_btn10.setProperty("role", "nav")
+            next_btn10.setFixedWidth(200)
+            next_btn10.setStyleSheet("""
+                QPushButton {
+                    background: transparent;
+                    border: none;
+                    color: #cccccc;
+                    font-size: 12pt;
+                    font-weight: bold;
+                }
+                QPushButton:hover, QPushButton:pressed {
+                    color: #000000;
+                    background: transparent;
+                    border: none;
+                }
+            """)
+            next_btn10.clicked.connect(lambda: self.tabs.setCurrentIndex(10))
+
             layout_btn_back_next10.addWidget(back_btn10, alignment=Qt.AlignLeft)
-            # Sem "Next" nesta aba: espaço da mesma largura do botão à direita, para a versão
-            # ficar centralizada como nas demais abas.
             layout_btn_back_next10.addWidget(self._mk_version_label(), 1)
-            layout_btn_back_next10.addSpacing(200)
+            layout_btn_back_next10.addWidget(next_btn10, alignment=Qt.AlignRight)
             l10.addStretch()
             l10.addLayout(layout_btn_back_next10)
         except Exception as e:
@@ -24545,6 +25153,227 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self, i18n.t("msg_statistics_build_error_title", self._idioma),
                 i18n.t("msg_statistics_build_error", self._idioma, e=e)
+            )
+
+        # ==============================================================================================================================================
+        # ========================================== PLOT – GERADOR DE GRÁFICOS (porte do GraphGenerator) ==============================================
+        # ==============================================================================================================================================
+        try:
+            t11 = QWidget(); l11 = QVBoxLayout(t11)
+            scroll11 = QScrollArea(); scroll11.setWidgetResizable(True); scroll11.setFrameShape(QFrame.NoFrame); scroll11.setWidget(t11)
+            self._tab_content_widgets.append(t11)
+            self.tabs.addTab(scroll11, "PLOT")
+            self._tr("tab_plot", lambda txt: self.tabs.setTabText(10, txt))
+            l11.addWidget(self._mk_title("title_plot"))
+            l11.addSpacing(10)
+
+            # Botão Select DataFrame + caixa com o nome do arquivo: acima do grupo, fora do contorno
+            # (mesmo posicionamento da aba STATS). Os widgets são criados mais abaixo.
+            btn_layout11 = QHBoxLayout()
+            l11.addLayout(btn_layout11)
+
+            g_plot = QGroupBox()
+            g_plot.setStyleSheet("QGroupBox { background-color: #F5F5F5; border: 1px solid #ccc; border-radius: 6px; }")
+            g_plot_main_layout = QVBoxLayout(g_plot)
+            plot_grid_widget = QWidget()
+            pg = QGridLayout(plot_grid_widget)
+            g_plot_main_layout.addWidget(plot_grid_widget)
+
+            def _plot_lbl(chave):
+                lbl = self._trL(chave)
+                lbl.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
+                return lbl
+
+            # 0) Title
+            self.le_plot_title = QLineEdit(); self._tr("plot_ph_optional", self.le_plot_title.setPlaceholderText)
+            pg.addWidget(_plot_lbl("plot_lbl_title"), 0, 0, 1, 1)
+            pg.addWidget(self.le_plot_title, 0, 1, 1, 3)
+
+            # 1) Dataframe: mesmo botão e mesma caixa da aba STATS (no lugar de "Input file (CSV/XLSX)"),
+            #    colocados em btn_layout11, acima do grupo
+            btn_select_df_plot = QPushButton(); self._tr("btn_select_dataframe", btn_select_df_plot.setText)
+            btn_select_df_plot.setProperty("role", "select")
+            btn_select_df_plot.setFixedWidth(200)
+            btn_select_df_plot.setStyleSheet("""
+                QPushButton {
+                    background: #B7E4C7;
+                    color: #C9D1D9
+                    font-size: 12pt;
+                    font-weight: bold;
+                    border: 1px solid #222;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background: #74C69D;
+                    color: #000000;
+                }
+                QPushButton:pressed {
+                    background: #40916C;
+                    color: #000000;
+                }
+            """)
+            btn_select_df_plot.clicked.connect(self.select_dataframe_plot)
+            df_name_view_plot = QLineEdit()
+            df_name_view_plot.setReadOnly(True)
+            df_name_view_plot.setStyleSheet("background-color: #6E8CA8; color: #6E8CA8; border: 1px solid #ccc; border-radius: 4px; padding: 5px;")
+            self.df_name_view_plot = df_name_view_plot
+            btn_layout11.addWidget(btn_select_df_plot)
+            btn_layout11.addWidget(df_name_view_plot)
+
+            # 2) Dimensions (mutuamente exclusivas; 1D por padrão)
+            self.ck_plot_1d = QCheckBox("1D"); self.ck_plot_2d = QCheckBox("2D"); self.ck_plot_3d = QCheckBox("3D")
+            pg.addWidget(_plot_lbl("plot_lbl_dimensions"), 2, 0, 1, 1)
+            pg.addWidget(self.ck_plot_1d, 2, 1, 1, 1); pg.addWidget(self.ck_plot_2d, 2, 2, 1, 1); pg.addWidget(self.ck_plot_3d, 2, 3, 1, 1)
+            self.ck_plot_1d.setChecked(True)
+
+            # 3) Column selectors
+            pg.addWidget(_plot_lbl("plot_lbl_select_columns"), 4, 0, 1, 1)
+            pg.addWidget(_plot_lbl("plot_lbl_x"), 3, 1, 1, 1, alignment=Qt.AlignLeft)
+            pg.addWidget(_plot_lbl("plot_lbl_y"), 3, 2, 1, 1, alignment=Qt.AlignLeft)
+            pg.addWidget(_plot_lbl("plot_lbl_z"), 3, 3, 1, 1, alignment=Qt.AlignLeft)
+            self.lw_plot_x = QListWidget(); self.lw_plot_x.setSelectionMode(QAbstractItemView.SingleSelection)
+            self.lw_plot_y = QListWidget(); self.lw_plot_y.setSelectionMode(QAbstractItemView.ExtendedSelection)
+            self.lw_plot_z = QListWidget(); self.lw_plot_z.setSelectionMode(QAbstractItemView.ExtendedSelection)
+            for lw in (self.lw_plot_x, self.lw_plot_y, self.lw_plot_z):
+                lw.setMinimumHeight(160)
+                lw.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            pg.addWidget(self.lw_plot_x, 4, 1, 1, 1); pg.addWidget(self.lw_plot_y, 4, 2, 1, 1); pg.addWidget(self.lw_plot_z, 4, 3, 1, 1)
+            pg.setColumnStretch(0, 1); pg.setColumnStretch(1, 2); pg.setColumnStretch(2, 2); pg.setColumnStretch(3, 2)
+            self.lw_plot_z.setEnabled(False)  # Z desabilitado em 1D
+            self.lw_plot_x.itemSelectionChanged.connect(self._plot_on_selection_changed)
+            self.lw_plot_y.itemSelectionChanged.connect(self._plot_on_selection_changed)
+            self.ck_plot_1d.stateChanged.connect(self._on_plot_dim_changed)
+            self.ck_plot_2d.stateChanged.connect(self._on_plot_dim_changed)
+            self.ck_plot_3d.stateChanged.connect(self._on_plot_dim_changed)
+
+            # 4) Chart type + resolution
+            self.cb_plot_type = QComboBox(); self.cb_plot_type.addItems(module_graph_generator.CHART_TYPES_1D)
+            self._tr("plot_tooltip_chart_type", self.cb_plot_type.setToolTip)
+            self.ed_plot_dpi = QLineEdit("300"); self.ed_plot_dpi.setValidator(QIntValidator(50, 2400, self)); self.ed_plot_dpi.setMaximumWidth(120)
+            pg.addWidget(_plot_lbl("plot_lbl_chart_type"), 5, 0, 1, 1)
+            pg.addWidget(self.cb_plot_type, 5, 1, 1, 1)
+            # Sankey: nº de categorias de maior frequência mantidas em cada coluna (1 a 30). Fica sob a
+            # lista de Y e só aparece quando o tipo de gráfico é Sankey (ver _update_plot_sankey_widgets).
+            from PyQt5.QtWidgets import QAbstractSpinBox
+            self.sp_plot_sankey_top = QSpinBox()
+            self.sp_plot_sankey_top.setRange(1, module_graph_generator.SANKEY_MAX_NODES_PER_STAGE)
+            self.sp_plot_sankey_top.setValue(module_graph_generator.SANKEY_MAX_NODES_PER_STAGE)
+            self.sp_plot_sankey_top.setButtonSymbols(QAbstractSpinBox.PlusMinus)
+            self.sp_plot_sankey_top.setFixedWidth(120)   # mesma largura da caixa de resolução (dpi)
+            self.sp_plot_sankey_top.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            self._tr("plot_tooltip_sankey_top", self.sp_plot_sankey_top.setToolTip)
+            self.w_plot_sankey_top = QWidget()
+            row_sankey_top = QHBoxLayout(self.w_plot_sankey_top); row_sankey_top.setContentsMargins(0, 0, 0, 0)
+            row_sankey_top.addStretch(1)
+            row_sankey_top.addWidget(_plot_lbl("plot_lbl_sankey_top"), alignment=Qt.AlignVCenter | Qt.AlignRight)
+            row_sankey_top.addWidget(self.sp_plot_sankey_top)
+            pg.addWidget(self.w_plot_sankey_top, 5, 2, 1, 1)
+            # Resolução: rótulo + caixa ocupam só a largura da coluna de Z.
+            w_plot_dpi = QWidget()
+            row_plot_dpi = QHBoxLayout(w_plot_dpi); row_plot_dpi.setContentsMargins(0, 0, 0, 0)
+            row_plot_dpi.addStretch(1)
+            row_plot_dpi.addWidget(_plot_lbl("plot_lbl_resolution"), alignment=Qt.AlignVCenter | Qt.AlignRight)
+            row_plot_dpi.addWidget(self.ed_plot_dpi)
+            pg.addWidget(w_plot_dpi, 5, 3, 1, 1)
+            self.cb_plot_type.currentTextChanged.connect(self._update_plot_sankey_widgets)
+            self.cb_plot_type.currentTextChanged.connect(self._on_plot_type_changed)
+            self._update_plot_sankey_widgets()
+
+            # 5) Trendline, legend, label mark
+            self.cb_plot_trend = QComboBox(); self.cb_plot_trend.addItems(module_graph_generator.TREND_MODES)
+            self.chk_plot_legend = QCheckBox(); self._tr("plot_chk_legend", self.chk_plot_legend.setText)
+            self.chk_plot_label = QCheckBox(); self._tr("plot_chk_label", self.chk_plot_label.setText)
+            pg.addWidget(_plot_lbl("plot_lbl_trendline"), 6, 0, 1, 1)
+            pg.addWidget(self.cb_plot_trend, 6, 1, 1, 1)
+            pg.addWidget(self.chk_plot_legend, 6, 2, 1, 1)
+            pg.addWidget(self.chk_plot_label, 6, 3, 1, 1)
+
+            # 6) Colors
+            self.cb_plot_colors = QComboBox()
+            self.cb_plot_colors.addItems([module_graph_generator.COLOR_MODE_SINGLE, module_graph_generator.COLOR_MODE_PALETTE])
+            self.cb_plot_colors.setCurrentText(module_graph_generator.COLOR_MODE_PALETTE)
+            self.btn_plot_color = QPushButton()
+            self._tr("plot_btn_pick_color", self._plot_set_color_button_text)
+            self.btn_plot_color.clicked.connect(self.pick_plot_single_color)
+            self.cb_plot_palette = QComboBox(); self.cb_plot_palette.addItems(module_graph_generator.PALETTES)
+            pg.addWidget(_plot_lbl("plot_lbl_colors"), 8, 0)
+            pg.addWidget(self.cb_plot_colors, 8, 1); pg.addWidget(self.btn_plot_color, 8, 2); pg.addWidget(self.cb_plot_palette, 8, 3)
+            self.cb_plot_colors.currentIndexChanged.connect(self._update_plot_color_mode_ui)
+            self._update_plot_color_mode_ui()
+
+            # 7) Axis labels
+            self.le_plot_xlabel = QLineEdit(); self._tr("plot_ph_optional", self.le_plot_xlabel.setPlaceholderText)
+            self.le_plot_ylabel = QLineEdit(); self._tr("plot_ph_optional", self.le_plot_ylabel.setPlaceholderText)
+            self.le_plot_zlabel = QLineEdit(); self._tr("plot_ph_optional", self.le_plot_zlabel.setPlaceholderText)
+            pg.addWidget(_plot_lbl("plot_lbl_xlabel"), 9, 0);  pg.addWidget(self.le_plot_xlabel, 9, 1, 1, 3)
+            pg.addWidget(_plot_lbl("plot_lbl_ylabel"), 10, 0); pg.addWidget(self.le_plot_ylabel, 10, 1, 1, 3)
+            pg.addWidget(_plot_lbl("plot_lbl_zlabel"), 11, 0); pg.addWidget(self.le_plot_zlabel, 11, 1, 1, 3)
+            l11.addWidget(g_plot)
+
+            # 8) Generate chart
+            row_plot_generate = QHBoxLayout()
+            self.btn_plot_generate = QPushButton(); self._tr("plot_btn_generate", self.btn_plot_generate.setText)
+            self.btn_plot_generate.setProperty("role", "select")
+            self.btn_plot_generate.setStyleSheet("""
+                QPushButton {
+                    background-color: #B7E4C7;
+                    color: #333333;
+                    font-size: 16pt;
+                    font-weight: bold;
+                    border: 1px solid #222;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #74C69D;
+                    color: #000000;
+                }
+                QPushButton:pressed {
+                    background-color: #40916C;
+                    color: #000000;
+                }
+            """)
+            self.btn_plot_generate.setMinimumHeight(52)
+            self.btn_plot_generate.setFixedWidth(260)
+            # Fonte maior: o stylesheet inline do botão é substituído pelo do tema em
+            # _apply_legacy_palette_fixes, que reaplica o tamanho pedido pela propriedade "font_pt".
+            self.btn_plot_generate.setProperty("font_pt", 16)
+            self.btn_plot_generate.clicked.connect(self.generate_plot_chart)
+            row_plot_generate.addStretch(1)
+            row_plot_generate.addWidget(self.btn_plot_generate)
+            row_plot_generate.addStretch(1)
+            l11.addLayout(row_plot_generate)
+
+            # Botão para voltar (última aba, sem "Next"):
+            layout_btn_back_next11 = QHBoxLayout()
+            back_btn11 = QPushButton()
+            self._tr("btn_back", back_btn11.setText)
+            back_btn11.setProperty("role", "nav")
+            back_btn11.setFixedWidth(200)
+            back_btn11.setStyleSheet("""
+                QPushButton {
+                    background: transparent;
+                    border: none;
+                    color: #cccccc;
+                    font-size: 12pt;
+                    font-weight: bold;
+                }
+                QPushButton:hover, QPushButton:pressed {
+                    color: #000000;
+                    background: transparent;
+                    border: none;
+                }
+            """)
+            back_btn11.clicked.connect(lambda: self.tabs.setCurrentIndex(9))
+            layout_btn_back_next11.addWidget(back_btn11, alignment=Qt.AlignLeft)
+            layout_btn_back_next11.addWidget(self._mk_version_label(), 1)
+            layout_btn_back_next11.addSpacing(200)
+            l11.addStretch()
+            l11.addLayout(layout_btn_back_next11)
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            QMessageBox.warning(
+                self, i18n.t("msg_plot_build_error_title", self._idioma),
+                i18n.t("msg_plot_build_error", self._idioma, e=e)
             )
 
         # Redimensiona a janela para caber por inteiro o conteúdo da aba mais larga/alta

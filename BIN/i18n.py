@@ -1934,6 +1934,157 @@ _TEXTOS = {
     },
     "req_log_java_apt_update_failed": {"en": "Failed to run 'sudo apt update'.\n", "pt": "Falha ao executar 'sudo apt update'.\n"},
     "req_log_java_apt_install_failed": {"en": "Failed to install {pkg} via apt.\n", "pt": "Falha ao instalar {pkg} via apt.\n"},
+
+    # ---------------------------------------------------------------- PLOT tab (Gerador de Gráficos)
+    "tab_plot": {"en": "PLOT", "pt": "PLOT"},
+    "menu_plot": {"en": "Plot - Graph Generator", "pt": "Plot - Gerador de Gráficos"},
+    "title_plot": {"en": "Graph Generator", "pt": "Gerador de Gráficos"},
+    "msg_plot_build_error_title": {"en": "PLOT build error", "pt": "Erro ao construir a aba PLOT"},
+    "msg_plot_build_error": {
+        "en": "There was an error building the PLOT TAB:\n{e}",
+        "pt": "Ocorreu um erro ao construir a aba PLOT:\n{e}",
+    },
+    "plot_lbl_title": {"en": "Title:", "pt": "Título:"},
+    "plot_ph_optional": {"en": "Optional", "pt": "Opcional"},
+    "plot_lbl_dimensions": {"en": "Dimensions:", "pt": "Dimensões:"},
+    "plot_lbl_select_columns": {"en": "Select Columns:", "pt": "Selecionar colunas:"},
+    "plot_lbl_x": {"en": "X values (Categorical/Numerical):", "pt": "Valores de X (categóricos/numéricos):"},
+    "plot_lbl_y": {"en": "Y values (Only Numerical):", "pt": "Valores de Y (só numéricos):"},
+    "plot_lbl_z": {"en": "Z values (Only Numerical):", "pt": "Valores de Z (só numéricos):"},
+    "plot_lbl_chart_type": {"en": "Chart type:", "pt": "Tipo de gráfico:"},
+    "plot_lbl_resolution": {"en": "Resolution (dpi):", "pt": "Resolução (dpi):"},
+    "plot_lbl_trendline": {"en": "Select trendline:", "pt": "Linha de tendência:"},
+    "plot_chk_legend": {"en": "Show legend", "pt": "Mostrar legenda"},
+    "plot_chk_label": {"en": "Show label mark", "pt": "Mostrar valores nos pontos"},
+    "plot_lbl_colors": {"en": "Colors:", "pt": "Cores:"},
+    "plot_btn_pick_color": {"en": "Pick color…", "pt": "Escolher cor…"},
+    "plot_btn_color_chosen": {"en": "Color: {color}", "pt": "Cor: {color}"},
+    "plot_lbl_xlabel": {"en": "X-axis label:", "pt": "Rótulo do eixo X:"},
+    "plot_lbl_ylabel": {"en": "Y-axis label:", "pt": "Rótulo do eixo Y:"},
+    "plot_lbl_zlabel": {"en": "Z-axis label:", "pt": "Rótulo do eixo Z:"},
+    "plot_btn_generate": {"en": "Generate chart", "pt": "Gerar gráfico"},
+    "plot_default_xlabel_category": {"en": "Category", "pt": "Categoria"},
+    "plot_default_ylabel_frequency": {"en": "Frequency", "pt": "Frequência"},
+    "plot_msg_no_df": {
+        "en": "Please select a DataFrame (CSV or XLSX).",
+        "pt": "Selecione um DataFrame (CSV ou XLSX).",
+    },
+    "plot_msg_df_empty": {"en": "The selected DataFrame is empty.", "pt": "O DataFrame selecionado está vazio."},
+    "plot_msg_df_no_valid_data": {
+        "en": "No valid data found in the selected DataFrame.",
+        "pt": "Nenhum dado válido encontrado no DataFrame selecionado.",
+    },
+    "plot_msg_df_load_error": {
+        "en": "An error occurred while loading the DataFrame:\n{e}",
+        "pt": "Ocorreu um erro ao carregar o DataFrame:\n{e}",
+    },
+    "plot_msg_no_dpi": {"en": "Please enter the resolution (dpi).", "pt": "Informe a resolução (dpi)."},
+    "plot_msg_bad_dpi": {
+        "en": "DPI must be a valid integer (e.g., 300).",
+        "pt": "O DPI deve ser um número inteiro válido (ex.: 300).",
+    },
+    "plot_msg_no_chart_type": {"en": "Please select a chart type.", "pt": "Selecione um tipo de gráfico."},
+    "plot_msg_1d_need_x": {
+        "en": "In 1D mode you must select at least ONE X column (classes/labels).",
+        "pt": "No modo 1D é preciso selecionar pelo menos UMA coluna X (classes/rótulos).",
+    },
+    "plot_msg_1d_freq_numeric_x": {
+        "en": "In 1D mode, to compute frequency (no Y selected) X must be categorical. These X columns look "
+              "numeric: {cols}. Select one or more Y columns to plot a numeric X instead.",
+        "pt": "No modo 1D, para calcular a frequência (sem Y selecionado) o X precisa ser categórico. Estas "
+              "colunas X parecem numéricas: {cols}. Selecione uma ou mais colunas Y para plotar um X numérico.",
+    },
+    "plot_msg_1d_no_freq_values": {
+        "en": "Selected X column(s) have no valid values to compute frequency.",
+        "pt": "A(s) coluna(s) X selecionada(s) não têm valores válidos para calcular a frequência.",
+    },
+    "plot_msg_1d_one_x_with_y": {
+        "en": "In 1D mode, when you select Y values, you must select exactly ONE X column.",
+        "pt": "No modo 1D, ao selecionar valores de Y é preciso selecionar exatamente UMA coluna X.",
+    },
+    "plot_msg_1d_bad_y": {
+        "en": "These Y columns are not numeric (or not mostly numeric): {cols}",
+        "pt": "Estas colunas Y não são numéricas (ou não são majoritariamente numéricas): {cols}",
+    },
+    "plot_msg_2d_select": {
+        "en": "In 2D mode you must select exactly ONE numeric X column and at least ONE numeric Y column.",
+        "pt": "No modo 2D é preciso selecionar exatamente UMA coluna X numérica e pelo menos UMA coluna Y numérica.",
+    },
+    "plot_msg_2d_x_numeric": {"en": "In 2D mode, X must be numeric.", "pt": "No modo 2D, o X precisa ser numérico."},
+    "plot_msg_2d_bad_y": {
+        "en": "In 2D mode, Y must be numeric. These Y columns look non-numeric: {cols}",
+        "pt": "No modo 2D, o Y precisa ser numérico. Estas colunas Y parecem não numéricas: {cols}",
+    },
+    "plot_msg_3d_select": {
+        "en": "In 3D mode you must select exactly ONE numeric column for X, Y, and Z.",
+        "pt": "No modo 3D é preciso selecionar exatamente UMA coluna numérica para X, Y e Z.",
+    },
+    "plot_msg_3d_bad": {
+        "en": "In 3D mode, X/Y/Z must be numeric. Non-numeric (or mostly non-numeric): {cols}",
+        "pt": "No modo 3D, X/Y/Z precisam ser numéricos. Não numéricas (ou majoritariamente não numéricas): {cols}",
+    },
+    "plot_msg_3d_trend_ignored": {
+        "en": "Trendline is not supported in 3D scatter. It will be ignored.",
+        "pt": "Linha de tendência não é suportada no scatter 3D. Ela será ignorada.",
+    },
+    "plot_msg_chart_error": {
+        "en": "Chart generation error ({mode} mode):\n{e}",
+        "pt": "Erro ao gerar o gráfico (modo {mode}):\n{e}",
+    },
+    "plot_msg_sankey_need_two_x": {
+        "en": "Sankey needs at least TWO columns selected in X (each column is a stage of the diagram).",
+        "pt": "O Sankey precisa de pelo menos DUAS colunas selecionadas em X (cada coluna é uma etapa do diagrama).",
+    },
+    "plot_msg_sankey_one_y": {
+        "en": "Sankey accepts at most ONE Y column (the numeric weight of each flow). Leave Y empty to count rows.",
+        "pt": "O Sankey aceita no máximo UMA coluna Y (o peso numérico de cada fluxo). Deixe o Y vazio para contar linhas.",
+    },
+    "plot_lbl_sankey_top": {"en": "Top categories:", "pt": "Top categorias:"},
+    "plot_tooltip_sankey_top": {
+        "en": "Sankey: keeps only the N most frequent categories of each column selected in X "
+              "(1 to 30). Rows with a category left out are not drawn. When a numeric Y (weight) is "
+              "selected, 'most frequent' means the largest total weight.",
+        "pt": "Sankey: mantém só as N categorias mais frequentes de cada coluna selecionada em X "
+              "(1 a 30). As linhas com alguma categoria de fora não são desenhadas. Com um Y numérico "
+              "(peso) selecionado, 'mais frequente' significa a maior soma de peso.",
+    },
+    "plot_tooltip_chart_type": {
+        "en": "Sankey (1D): select two or more columns in X - each one is a stage and each category a node; "
+              "the ribbons show how many rows go from a category to the next column (stages follow the order "
+              "of the X list). Optionally select ONE numeric Y column to use as the flow weight (sum) "
+              "instead of counting rows. Box Plot / Violin: select the numeric Y column(s) to summarise; X is "
+              "optional and only groups the rows (up to 30 categories).",
+        "pt": "Sankey (1D): selecione duas ou mais colunas em X - cada uma é uma etapa e cada categoria um nó; "
+              "as faixas mostram quantas linhas vão de uma categoria para a coluna seguinte (as etapas seguem "
+              "a ordem da lista X). Opcionalmente selecione UMA coluna numérica em Y como peso do fluxo "
+              "(soma) em vez de contar linhas. Box Plot / Violin: selecione a(s) coluna(s) numérica(s) em Y a "
+              "resumir; o X é opcional e só agrupa as linhas (até 30 categorias).",
+    },
+    "plot_msg_distribution_need_y": {
+        "en": "{chart} summarises numeric values: select at least ONE numeric column in Y. X is optional "
+              "and only groups the rows into categories.",
+        "pt": "O {chart} resume valores numéricos: selecione pelo menos UMA coluna numérica em Y. O X é "
+              "opcional e apenas agrupa as linhas em categorias.",
+    },
+    "plot_msg_distribution_one_x": {
+        "en": "{chart} accepts at most ONE column in X (the grouping categories).",
+        "pt": "O {chart} aceita no máximo UMA coluna em X (as categorias de agrupamento).",
+    },
+    "plot_msg_distribution_too_many": {
+        "en": "Column '{col}' has {n} distinct values; {chart} supports up to {max} groups. Choose another "
+              "column in X or deselect X to plot only the Y columns.",
+        "pt": "A coluna '{col}' tem {n} valores distintos; o {chart} suporta até {max} grupos. Escolha outra "
+              "coluna em X ou desmarque o X para plotar só as colunas Y.",
+    },
+    "plot_viewer_title": {"en": "Chart Preview", "pt": "Pré-visualização do gráfico"},
+    "plot_viewer_status": {
+        "en": "DPI = {dpi}  /  Resolution = {w} x {h} px",
+        "pt": "DPI = {dpi}  /  Resolução = {w} x {h} px",
+    },
+    "plot_save_dialog_title": {"en": "Save chart", "pt": "Salvar gráfico"},
+    "plot_msg_saved": {"en": "File saved to:\n{path}", "pt": "Arquivo salvo em:\n{path}"},
+    "plot_msg_save_error": {"en": "Error saving the chart:\n{e}", "pt": "Erro ao salvar o gráfico:\n{e}"},
+    "plot_dlg_pick_color": {"en": "Pick color", "pt": "Escolher cor"},
 }
 
 
