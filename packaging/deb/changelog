@@ -466,6 +466,141 @@ codrug (1.2.0-1) unstable; urgency=low
     de um único valor (a contagem); agora o programa avisa
     (CODRUG.py, BIN/module_graph_generator.py, BIN/i18n.py). Manuais
     atualizados.
+  * PLOT: "Resolution (dpi)" desceu para a linha abaixo de "Chart type" e
+    todo o espaço à direita do tipo passou a mostrar opções específicas
+    do gráfico escolhido (catálogo CHART_OPTIONS em
+    BIN/module_graph_generator.py): Samples (amostra aleatória de N
+    linhas, em qualquer tipo), Bar (largura, ordenar, Top N), Line
+    (espessura, marcador), Scatter (tamanho, opacidade), Areas
+    (opacidade), Box Plot (limiar do bigode, largura, outliers), Violin
+    (largura, banda, mediana, extremos), Histogram (bins, densidade,
+    acumulado), Density (banda, pontos, preencher), Heatmap (normalizar,
+    barra de cores, valores nas células) e Sankey (Top categorias,
+    opacidade). Os valores são salvos com o projeto. Histogram, Density
+    e Heatmap deixam de exigir X quando há Y selecionado (CODRUG.py,
+    BIN/module_graph_generator.py, BIN/i18n.py). Manuais atualizados
+    (nova captura da aba e opções por tipo de gráfico).
+  * PLOT reorganizada em dois grupos colapsáveis: "Labels Options"
+    (Title e rótulos dos eixos X, Y e Z), logo abaixo de Select DataFrame,
+    e "Chart Options" (o restante). "Select trendline" virou o checkbox
+    "Show Trend line", que habilita o combo com as curvas (a opção None
+    deixou de existir). "Chart type" tem o rótulo e o combo centralizados
+    e as opções do tipo ficam numa única linha logo abaixo, sem variar a
+    altura do grupo. Projetos salvos antes continuam abrindo (a antiga
+    tendência None vira o checkbox desmarcado). Manuais atualizados
+    (CODRUG.py, BIN/i18n.py).
+  * PLOT: novo checkbox "Transpose", no canto direito da caixa com o nome
+    do arquivo: marcado (antes ou depois de carregar o dataframe), a
+    tabela exibida e usada passa a ser a transposta (linhas viram colunas
+    e colunas viram linhas; a coluna "Index" guarda os nomes originais).
+    A visualização limita-se às 100 primeiras colunas, e a detecção de
+    colunas numéricas ficou mais rápida para tabelas largas. O estado é
+    salvo com o projeto. "Chart type" ficou na mesma linha do combo, com
+    o rótulo à direita, e "Resolution (dpi)" e sua caixa foram para a
+    direita dele. "Show legend" e "Show label mark" ficam juntos na
+    coluna central, e um novo combo à direita define a posição da legenda
+    (Upper right/left, Lower right/left) em todos os gráficos com legenda
+    (CODRUG.py, BIN/module_graph_generator.py, BIN/i18n.py). Manuais
+    atualizados.
+  * PLOT/Bar: com colunas categóricas em X e Y vazio, o eixo Y passa a
+    se chamar "Count" (antes "Frequência"), e os textos de ajuda e
+    avisos usam o mesmo termo. Top N mostra as N classes de maior
+    contagem e Sort as ordena (crescente ou decrescente)
+    (BIN/i18n.py). Manuais atualizados.
+  * PLOT: dois tipos de Sankey. O "Sankey" (linear) ganhou a opção
+    "Orientation" (Horizontal, etapas da esquerda para a direita, ou
+    Vertical, de cima para baixo). O novo "Sankey Chord" (diagrama de
+    cordas dirigido) põe as categorias em um círculo e liga cada uma a
+    qualquer outra, ou a ela mesma: as colunas de X são lidas aos pares
+    (origem e destino), nomes iguais são o mesmo nó, Y numérico opcional
+    é o peso, e o arco de cada nó mede tudo o que sai e entra nele.
+    Opções do Chord: Top categorias (2 a 30), opacidade, espaço entre os
+    arcos (graus) e autoligações. Valores salvos com o projeto
+    (CODRUG.py, BIN/module_graph_generator.py, BIN/i18n.py). Manuais
+    atualizados (nova seção 15.4 e figura 23).
+  * PLOT: a ordem em que o usuário seleciona as colunas (Ctrl + clique)
+    nas listas X, Y e Z passa a ser a ordem usada no gráfico: etapas do
+    Sankey, origem e destino do Sankey Chord, séries de Bar, Line,
+    Scatter e áreas, categorias de várias colunas X no Bar sem Y, caixas,
+    violinos, colunas do Heatmap e curvas de Histogram e Density. A
+    ordem é salva com o projeto. Sankey e Sankey Chord ganharam a opção
+    "Sort" (None = ordem de aparição; Ascending/Descending = pelo fluxo),
+    como o Bar já tinha; o padrão None substitui a ordenação fixa por
+    fluxo decrescente dos nós (CODRUG.py, BIN/module_graph_generator.py,
+    BIN/i18n.py). Manuais atualizados.
+  * PLOT: colunas só com True/False (booleanas) passam a ser categóricas
+    em todas as dimensões, em vez de numéricas, o que fazia o Bar sem Y
+    avisar que o X precisava ser categórico; agora aparecem nas listas de
+    X como categorias "True" e "False" (CODRUG.py).
+  * PLOT/Bar: com X categórico e Y numérico (sem 2D), o Bar deixa de
+    desenhar uma barra por linha e mostra uma barra por categoria, com a
+    média, a mediana ou a moda de Y (nova opção "Statistic"). A escala
+    do eixo Y parte de zero e acompanha só os valores das barras; o
+    desvio padrão aparece apenas escrito, "valor ± DP", acima das barras
+    com Show label mark. Sort e Top N valem sobre a estatística e o eixo
+    Y recebe o rótulo "Mean of <coluna>" (CODRUG.py,
+    BIN/module_graph_generator.py, BIN/i18n.py).
+  * PLOT: antes de exibir o gráfico, "Generate chart" confere se ele
+    teria marcações demais - mais de 120 barras (Bar), 500 pontos por
+    série (Line e áreas), 500 linhas (Heatmap), 60 caixas (Box Plot e
+    Violin) ou 300 valores escritos (Show label mark) - e mostra uma
+    mensagem padrão com o que reduzir (Top N, Samples, menos colunas),
+    sem gerar o gráfico. Só o Scatter mostra todas as instâncias
+    (CODRUG.py, BIN/module_graph_generator.py, BIN/i18n.py). Manuais
+    atualizados (figura 22 nova; as figuras seguintes foram
+    renumeradas).
+  * PLOT/Sankey: os rótulos dos nós (e os valores de Show label mark)
+    deixam de ter a caixa branca de fundo e ficam transparentes, nas
+    duas orientações (BIN/module_graph_generator.py). Figura do Sankey
+    nos manuais refeita.
+  * PLOT: "Show legend" passa a listar as categorias que as cores
+    representam, e não só o nome da coluna (que já está no rótulo do
+    eixo): Bar de uma série com X categórico, Box Plot e Violin com X
+    categórico (com paleta) e o Scatter por categoria que já existia.
+    Com várias séries de cores diferentes, continua listando as séries;
+    legendas com mais de 12 entradas se dividem em colunas
+    (BIN/module_graph_generator.py). Manuais atualizados.
+  * PLOT 2D: ao marcar 2D, a lista de X continua com todas as colunas e
+    o Chart type com todos os tipos. Uma coluna numérica em X dá a
+    escala do eixo X; colunas categóricas também selecionadas em X
+    viram séries de cores diferentes (uma por categoria, ou por
+    combinação delas, e por coluna Y) em Scatter, Line, Area (Stacked e
+    Overlapped) e Bar (barras agrupadas por valor de X, com a
+    estatística escolhida), com legenda das categorias e tendência por
+    série. Histogram e Density (também no 1D) desenham uma curva por
+    categoria, e Box Plot e Violin agrupam Y por elas. Limite de 30
+    séries, com mensagem padrão (CODRUG.py,
+    BIN/module_graph_generator.py, BIN/i18n.py). Manuais atualizados.
+  * PLOT 3D: a lista de X também mostra as colunas categóricas. Com uma
+    coluna numérica em X (mais Y e Z numéricas), as categóricas
+    selecionadas em X apenas colorem os pontos do Scatter 3D: cada
+    categoria (ou combinação delas) vira um grupo com cor própria e
+    entra na legenda; limite de 30 grupos, com a mensagem padrão.
+    Sem categóricas em X, a coluna Class/Group continua colorindo os
+    pontos. (CODRUG.py, BIN/i18n.py). Manuais atualizados.
+  * PLOT, carregamento do DataFrame: regra única de classificação das
+    colunas (BIN/module_graph_generator.py, column_is_numeric): numérica
+    quando pelo menos metade dos valores PREENCHIDOS vira número (antes
+    os vazios contavam contra e uma coluna de números com lacunas virava
+    categórica); True/False e datas são categóricas; cabeçalhos
+    numéricos do Excel viram texto. Textos em branco passam a valer como
+    vazio. Ao carregar, uma mensagem informa a quantidade de valores
+    vazios/nulos por coluna (as 25 primeiras) e as colunas/linhas
+    totalmente vazias removidas. 2D/3D desabilitados com menos de 2/3
+    colunas numéricas, com dica explicando. Manuais atualizados.
+  * PLOT, Bar: a opção Statistic ganhou "Single value" para categorias
+    que ocorrem uma só vez: a barra mostra o valor e o label mark traz
+    só o valor, sem ± DP. Se alguma categoria (ou X, no Bar agrupado
+    do 2D) se repetir, uma mensagem lista as repetidas e pede outra
+    estatística. Manuais atualizados.
+  * PLOT, Transpose: se a primeira coluna do arquivo for de texto, com
+    um valor distinto e preenchido por linha (nomes de alunos, de
+    amostras...), ela nomeia as colunas da tabela transposta (nome
+    repetido ganha sufixo (2), (3)...) em vez de ir para os dados. Com
+    uma linha por aluno e uma coluna por mês, Transpose + Line (Index em
+    X, alunos em Y) dá uma linha por aluno ao longo dos meses. Caso
+    contrário, as colunas seguem numeradas como antes. Manuais
+    atualizados.
 
  -- Moisés Maia Neto <moimaian@gmail.com>  Tue, 13 Oct 2026 03:18:10 -0300
 

@@ -41,13 +41,241 @@ COLOR_MODE_PALETTE = "Palette (multi-color)"
 # Trendline só vale para estes gráficos (nos demais, é ignorada).
 TREND_ALLOWED = {"Bar", "Line", "Scatter", "Area (Stacked)", "Area (Overlapped)"}
 CHART_TYPES_1D = ["Bar", "Line", "Scatter", "Area (Stacked)", "Area (Overlapped)",
-                  "Box Plot", "Heatmap", "Violin", "Histogram", "Density(KDE)", "Sankey"]
+                  "Box Plot", "Heatmap", "Violin", "Histogram", "Density(KDE)", "Sankey", "Sankey Chord"]
 SANKEY_MAX_NODES_PER_STAGE = 30   # acima disso o diagrama vira um borrão ilegível
+CHORD_MAX_NODES = 30              # idem para o Sankey Chord (nós no círculo)
+SANKEY_ORIENTATIONS = ["Horizontal", "Vertical"]
 # Box Plot e Violin resumem os valores de colunas Y numéricas; X é opcional e apenas agrupa as linhas em categorias.
 DISTRIBUTION_CHARTS = ("Box Plot", "Violin")
 DISTRIBUTION_MAX_GROUPS = 30       # mais categorias que isso em X viram dezenas de caixas ilegíveis
-CHART_TYPES_2D = ["Scatter", "Line", "Area (Stacked)", "Area (Overlapped)"]
+# Histogram, Density e Heatmap só usam as colunas Y numéricas (o X nunca entra no desenho): não exigem X.
+Y_ONLY_CHARTS = ("Histogram", "Density(KDE)", "Heatmap")
+# 2D: todos os tipos, como no 1D. Com uma coluna numérica em X (a escala do eixo) e colunas categóricas também em X,
+# Scatter / Line / Area / Bar desenham uma série (cor) por categoria; Histogram / Density, uma curva por categoria.
+CHART_TYPES_2D = list(CHART_TYPES_1D)
+# Tipos que, no 2D, funcionam como no 1D (não usam um eixo X numérico contra Y).
+ONE_D_STYLE_CHARTS = ("Box Plot", "Violin", "Heatmap", "Histogram", "Density(KDE)", "Sankey", "Sankey Chord")
+GROUPED_XY_CHARTS = ("Scatter", "Line", "Area (Stacked)", "Area (Overlapped)", "Bar")
+MAX_SERIES = 30           # séries (cores) por gráfico quando as categorias viram séries
 CHART_TYPES_3D = ["Scatter"]
+
+
+# ----------------------------------------------------------------------------------------------------------
+# Opções específicas de cada tipo de gráfico (mostradas na aba PLOT à direita do "Chart type").
+# Cada item: (chave, tipo, padrão, mínimo, máximo, passo), (chave, "bool", padrão) ou
+# (chave, "choice", padrão, [opções]). Os plotters leem os valores de `options` (dict chave -> valor)
+# com _opt(); sem a chave, usam o padrão do catálogo.
+# ----------------------------------------------------------------------------------------------------------
+COMMON_OPTIONS = [("samples", "int", 0, 0, 10_000_000, 100)]      # 0 = todas as linhas
+CHART_OPTIONS = {
+    "Bar": [("bar_width", "float", 0.8, 0.1, 1.0, 0.05),
+            ("bar_sort", "choice", "None", ["None", "Ascending", "Descending"]),
+            ("bar_top", "int", 0, 0, 1000, 1),
+            ("bar_stat", "choice", "Mean", ["Mean", "Median", "Mode", "Single value"])],
+    "Line": [("line_width", "float", 1.5, 0.5, 10.0, 0.5),
+             ("marker_size", "float", 6.0, 0.0, 30.0, 1.0)],
+    "Scatter": [("point_size", "float", 36.0, 2.0, 500.0, 2.0),
+                ("point_alpha", "float", 0.85, 0.1, 1.0, 0.05)],
+    "Area (Stacked)": [("area_stacked_alpha", "float", 1.0, 0.1, 1.0, 0.05)],
+    "Area (Overlapped)": [("area_overlap_alpha", "float", 0.6, 0.1, 1.0, 0.05)],
+    "Box Plot": [("box_whisker", "float", 1.5, 0.5, 5.0, 0.1),
+                 ("box_width", "float", 0.5, 0.1, 1.0, 0.05),
+                 ("box_outliers", "bool", True)],
+    "Heatmap": [("heat_normalize", "choice", "None", ["None", "Min-Max (columns)", "Z-score (columns)"]),
+                ("heat_colorbar", "bool", True)],
+    "Violin": [("violin_width", "float", 0.5, 0.1, 1.0, 0.05),
+               ("violin_bw", "float", 0.0, 0.0, 3.0, 0.1),
+               ("violin_median", "bool", True),
+               ("violin_extrema", "bool", True)],
+    "Histogram": [("hist_bins", "int", 20, 2, 500, 1),
+                  ("hist_density", "bool", False),
+                  ("hist_cumulative", "bool", False)],
+    "Density(KDE)": [("kde_bw", "float", 1.0, 0.1, 5.0, 0.1),
+                     ("kde_points", "int", 400, 50, 2000, 50),
+                     ("kde_fill", "bool", False)],
+    "Sankey": [("sankey_orient", "choice", "Horizontal", SANKEY_ORIENTATIONS),
+               ("sankey_sort", "choice", "None", ["None", "Ascending", "Descending"]),
+               ("sankey_top", "int", SANKEY_MAX_NODES_PER_STAGE, 1, SANKEY_MAX_NODES_PER_STAGE, 1),
+               ("sankey_alpha", "float", 0.45, 0.1, 1.0, 0.05)],
+    "Sankey Chord": [("chord_sort", "choice", "None", ["None", "Ascending", "Descending"]),
+                     ("chord_top", "int", CHORD_MAX_NODES, 2, CHORD_MAX_NODES, 1),
+                     ("chord_alpha", "float", 0.55, 0.1, 1.0, 0.05),
+                     ("chord_gap", "float", 3.0, 0.0, 20.0, 0.5),
+                     ("chord_self", "bool", True)],
+}
+
+
+def all_option_specs():
+    """Todas as opções (comuns + de cada tipo), sem repetição, na ordem do catálogo."""
+    seen, out = set(), []
+    for spec in COMMON_OPTIONS + [sp for lst in CHART_OPTIONS.values() for sp in lst]:
+        if spec[0] not in seen:
+            seen.add(spec[0])
+            out.append(spec)
+    return out
+
+
+def all_option_keys():
+    return [sp[0] for sp in all_option_specs()]
+
+
+def chart_option_keys(chart: str):
+    """Chaves das opções que valem para o tipo de gráfico (as próprias + as comuns)."""
+    return [sp[0] for sp in CHART_OPTIONS.get(chart, [])] + [sp[0] for sp in COMMON_OPTIONS]
+
+
+def option_defaults():
+    return {sp[0]: sp[2] for sp in all_option_specs()}
+
+
+def _opt(options, key, default=None):
+    """Valor da opção `key` (ou o padrão do catálogo / o `default` informado, se ausente)."""
+    if options and key in options and options[key] is not None:
+        return options[key]
+    if default is not None:
+        return default
+    return option_defaults().get(key)
+
+
+LEGEND_POSITIONS = ("Upper right", "Upper left", "Lower right", "Lower left")
+
+
+def _legend(ax, options=None, dedupe=False):
+    """Desenha a legenda de `ax` na posição pedida em options["legend_loc"] (um de LEGEND_POSITIONS;
+    ausente = "Upper right"). `dedupe` remove rótulos repetidos. Sem artistas rotulados, não desenha nada."""
+    loc = str(_opt(options, "legend_loc", LEGEND_POSITIONS[0])).strip().lower()
+    if loc not in {p.lower() for p in LEGEND_POSITIONS}:
+        loc = LEGEND_POSITIONS[0].lower()
+    handles, labels = ax.get_legend_handles_labels()
+    if not handles:
+        return None
+    if dedupe:
+        uniq = dict(zip(labels, handles))
+        handles, labels = list(uniq.values()), list(uniq.keys())
+    ncol = 1 + (len(handles) - 1) // 12          # muitas categorias: a legenda se divide em colunas
+    return ax.legend(handles, labels, loc=loc, ncol=ncol)
+
+
+MAX_LEGEND_CATEGORIES = 40      # categorias listadas na legenda (as demais ficam de fora)
+
+
+def _label_category_artists(artists, categories):
+    """Dá a cada artista (barra, caixa, corpo de violino) o nome da sua categoria, para a legenda mostrar
+    quais categorias as cores representam (e não só o nome da coluna, que já está no rótulo do eixo)."""
+    for k, (art, cat) in enumerate(zip(artists, categories)):
+        art.set_label(str(cat) if k < MAX_LEGEND_CATEGORIES else "_nolegend_")
+
+
+# ----------------------------------------------------------------------------------------------------------
+# Limite de marcações: antes de gerar, a aba PLOT confere (excessive_marks) se o gráfico não teria marcações
+# demais. Só o Scatter mostra todas as instâncias; os demais tipos agregam ou têm limite.
+# ----------------------------------------------------------------------------------------------------------
+MAX_BARS = 120            # barras (categorias x séries) no Bar
+MAX_LINE_POINTS = 500     # pontos por série em Line e nas áreas
+MAX_HEATMAP_ROWS = 500    # linhas do Heatmap
+MAX_LABELS = 300          # valores escritos por "Show label mark"
+MAX_BOXES = 60            # caixas/violinos (grupos x colunas Y) em Box Plot e Violin
+
+
+def excessive_marks(chart: str, n_rows: int, n_series: int = 1, label_mark: bool = False, top_n: int = 0):
+    """None se o gráfico cabe nos limites; senão (tipo, n, limite): tipo "bars" | "points" | "rows" | "labels" |
+    "boxes". `n_rows` é o nº de linhas já mapeadas (categorias no Bar, pontos por série no Line/Area/Scatter,
+    linhas do Heatmap, grupos no Box Plot/Violin); `top_n` (Bar) limita as categorias mostradas."""
+    n_rows, n_series = int(n_rows), max(int(n_series), 1)
+    if chart == "Series":                     # nº de séries (cores) criadas por categorias
+        return ("series", n_rows, MAX_SERIES) if n_rows > MAX_SERIES else None
+    if chart == "Bar":
+        eff = min(n_rows, int(top_n)) if top_n and int(top_n) > 0 else n_rows
+        if eff * n_series > MAX_BARS:
+            return ("bars", eff * n_series, MAX_BARS)
+        return None
+    if chart in ("Line", "Area (Stacked)", "Area (Overlapped)"):
+        if n_rows > MAX_LINE_POINTS:
+            return ("points", n_rows, MAX_LINE_POINTS)
+    if chart in DISTRIBUTION_CHARTS and n_rows * n_series > MAX_BOXES:
+        return ("boxes", n_rows * n_series, MAX_BOXES)
+    if chart == "Heatmap" and n_rows > MAX_HEATMAP_ROWS:
+        return ("rows", n_rows, MAX_HEATMAP_ROWS)
+    if label_mark and chart in ("Line", "Area (Stacked)", "Area (Overlapped)", "Scatter") and n_rows * n_series > MAX_LABELS:
+        return ("labels", n_rows * n_series, MAX_LABELS)
+    return None
+
+
+BAR_STATS = ["Mean", "Median", "Mode", "Single value"]
+SINGLE_VALUE = "Single value"       # cada categoria aparece uma só vez: mostra o valor, sem desvio padrão
+
+
+def bar_stat_slug(stat) -> str:
+    """Nome curto da estatística ("mean", "median", "mode" ou "single"), usado nas chaves de tradução."""
+    s = str(stat).strip().lower()
+    return "single" if s.startswith("single") else s
+
+
+def is_single_value(stat) -> bool:
+    return bar_stat_slug(stat) == "single"
+
+
+def repeated_categories(x, ydf: pd.DataFrame):
+    """Categorias de `x` com mais de um valor em alguma coluna de `ydf`: [(categoria, nº de valores)], na ordem de
+    aparição. Vazio quando cada categoria tem no máximo um valor (condição da estatística "Single value")."""
+    x = pd.Series(np.asarray(x, dtype=object), index=ydf.index)
+    keep = x.notna()
+    y = ydf[keep].apply(_series_to_numeric)
+    n = y.groupby(x[keep].astype(str).to_numpy(), sort=False).count().max(axis=1)
+    return [(str(c), int(k)) for c, k in n.items() if k > 1]
+
+
+def repeated_x_values(series):
+    """Séries [(rótulo, x, y)] com valores de X repetidos: [(rótulo, valor de X, nº de ocorrências)] (só o primeiro
+    valor repetido de cada série) - o "Single value" do Bar agrupado exige um valor por (série, X)."""
+    out = []
+    for lab, x, _y in series:
+        vc = pd.Series(np.asarray(x)).value_counts()
+        vc = vc[vc > 1]
+        if len(vc):
+            out.append((lab, vc.index[0], int(vc.iloc[0])))
+    return out
+
+
+def _group_mode(s: pd.Series):
+    """Moda de `s` (a menor, se houver empate); NaN se não houver valores."""
+    s = s.dropna()
+    return float(s.mode().iloc[0]) if len(s) else np.nan
+
+
+def summarize_by_category(x, ydf: pd.DataFrame, stat: str = "Mean"):
+    """Resume as colunas numéricas de `ydf` por categoria de `x` (mesmo tamanho). Devolve (centro, desvio):
+    `centro` tem a coluna "X" (categorias, na ordem de aparição) e uma coluna por série com a estatística
+    (Mean, Median ou Mode); `desvio` tem as mesmas séries com o desvio padrão amostral de cada categoria
+    (0 quando a categoria tem um único valor). Linhas sem categoria ficam de fora."""
+    x = pd.Series(np.asarray(x, dtype=object), index=ydf.index)
+    keep = x.notna()
+    y = ydf[keep].apply(_series_to_numeric)
+    g = y.groupby(x[keep].astype(str).to_numpy(), sort=False)
+    mode = bar_stat_slug(stat)
+    if mode == "single":
+        center = g.first()
+    elif mode == "median":
+        center = g.median()
+    elif mode == "mode":
+        center = g.agg(_group_mode)
+    else:
+        center = g.mean()
+    sd = g.std(ddof=1).fillna(0.0)
+    center = center.reset_index().rename(columns={"index": "X"})
+    center.columns = ["X"] + list(y.columns)
+    return center, sd.reset_index(drop=True)
+
+
+def sample_rows(df: pd.DataFrame, n) -> pd.DataFrame:
+    """Amostra aleatória (nova a cada chamada) de `n` linhas; n <= 0 ou n >= nº de linhas devolve tudo."""
+    try:
+        n = int(n or 0)
+    except (TypeError, ValueError):
+        return df
+    if n <= 0 or n >= len(df):
+        return df
+    return df.sample(n=n).reset_index(drop=True)
 
 
 def _series_to_numeric(s: pd.Series) -> pd.Series:
@@ -60,6 +288,59 @@ def _series_to_numeric(s: pd.Series) -> pd.Series:
         s2 = s2.str.replace(",", ".", regex=False)
         return pd.to_numeric(s2, errors="coerce")
     return pd.to_numeric(s, errors="coerce")
+
+def clean_empty_values(df: pd.DataFrame):
+    """Limpeza feita ao carregar uma tabela: textos só com espaços viram valor vazio (NaN) e as colunas/linhas
+    totalmente vazias saem da tabela. Devolve (tabela limpa, nomes das colunas removidas, nº de linhas removidas)."""
+    df = df.copy()
+    df.columns = [str(c) for c in df.columns]        # cabeçalhos numéricos (ex.: Excel) viram texto
+    for c in df.columns[df.dtypes == object]:
+        ser = df[c]
+        blank = ser.notna() & ser.astype(str).str.strip().eq("")
+        if blank.any():
+            df[c] = ser.mask(blank)
+    n_rows = len(df)
+    all_empty = [str(c) for c in df.columns[df.isna().all(axis=0)]]
+    df = df.dropna(axis=1, how="all")
+    df = df.dropna(axis=0, how="all")
+    return df, all_empty, n_rows - len(df)
+
+
+def empty_value_counts(df: pd.DataFrame):
+    """Quantidade de valores vazios/nulos por coluna: [(coluna, quantidade)], só as colunas com pelo menos um,
+    na ordem da tabela."""
+    counts = df.isna().sum()
+    return [(str(c), int(n)) for c, n in counts.items() if n > 0]
+
+
+def column_is_numeric(ser: pd.Series) -> bool:
+    """Regra única de classificação das colunas: numérica quando pelo menos metade dos valores PREENCHIDOS pode
+    ser convertida em número (vírgula decimal aceita); categórica caso contrário. Valores vazios não contam
+    (uma coluna de números com muitas lacunas continua numérica). Colunas só com True/False e datas são
+    categóricas."""
+    if pd.api.types.is_bool_dtype(ser) or pd.api.types.is_datetime64_any_dtype(ser) \
+            or pd.api.types.is_timedelta64_dtype(ser):
+        return False
+    filled = ser.dropna()
+    n = len(filled)
+    if n == 0:
+        return False
+    if filled.dtype != object:
+        return bool(pd.api.types.is_numeric_dtype(filled)) or _series_to_numeric(filled).notna().mean() >= 0.5
+    if n <= 1000:
+        # Caminho rápido (tabelas transpostas têm milhares de colunas curtas e o caminho vetorizado do pandas,
+        # coluna a coluna, levaria vários segundos)
+        ok = 0
+        for v in filled.tolist():
+            try:
+                t = str(v).strip().replace("\u00a0", "").replace(",", ".")
+                if "_" not in t and not np.isnan(float(t)):
+                    ok += 1
+            except (ValueError, TypeError):
+                pass
+        return ok / n >= 0.5
+    return _series_to_numeric(filled).notna().mean() >= 0.5
+
 
 def safe_series_name(name, suffix: str = "(count)") -> str:
     """Nome de coluna seguro para ser montado ao lado da coluna reservada "X" (extract_x_y trata,
@@ -373,19 +654,23 @@ def _annotate_points_with_text(ax, xs, ys, texts, color=None, dx=4, dy=4):
             color=color
         )
 
-def _annotate_bars(ax, bars, dy=3):
-    for b in bars:
+def _annotate_bars(ax, bars, dy=3, sd=None):
+    """Escreve o valor de cada barra acima dela; com `sd` (desvios padrão), escreve "valor ± desvio"."""
+    for k, b in enumerate(bars):
         h = b.get_height()
         if not np.isfinite(h):
             continue
+        txt = _fmt_val(h)
+        if sd is not None and k < len(sd) and np.isfinite(sd[k]):
+            txt += f" ± {_fmt_val(sd[k])}"
         ax.annotate(
-            _fmt_val(h),
+            txt,
             (b.get_x() + b.get_width() / 2, h),
             textcoords="offset points",
-            xytext=(0, dy),
+            xytext=(0, dy if h >= 0 else -dy),
             ha="center",
-            va="bottom",
-            fontsize=12,
+            va="bottom" if h >= 0 else "top",
+            fontsize=12 if sd is None else 10,      # "valor ± desvio" é mais largo: fonte menor evita sobreposição
             weight="bold",
             color="#222222"
             # color=b.get_facecolor()
@@ -404,14 +689,46 @@ def plot_bar(
     label_mark: bool = False,
     color_mode: str = "Palette (multi-color)",
     palette_name: str = "Dark2",
-    single_color: str = "#1f77b4"
+    single_color: str = "#1f77b4",
+    options=None,
+    yerr=None,
 ):
+    """Barras. `yerr` (DataFrame com as mesmas colunas e linhas de Y, ou None) traz o desvio padrão de cada barra
+    quando as linhas são estatísticas por categoria: ele não altera a escala do eixo Y (que parte de zero e
+    acompanha os valores das barras) e só aparece escrito, "valor ± desvio", acima das barras com label_mark."""
     x, ydf = extract_x_y(df)
+    if yerr is not None:
+        yerr = pd.DataFrame(yerr).reset_index(drop=True)
+
+    # Opções: largura, ordenação pelo valor da 1ª série e "Top N" (maiores valores; 0 = todos)
+    bw = float(_opt(options, "bar_width"))
+    sort_mode = _opt(options, "bar_sort")
+    top_n = int(_opt(options, "bar_top") or 0)
+    if (sort_mode != "None" or top_n > 0) and len(ydf.columns) >= 1 and len(x) > 0:
+        key = ydf.iloc[:, 0].to_numpy(dtype=float)
+        order = np.arange(len(x))
+        if 0 < top_n < len(x):
+            order = np.sort(np.argsort(-np.nan_to_num(key, nan=-np.inf), kind="stable")[:top_n])
+        if sort_mode == "Ascending":
+            order = order[np.argsort(key[order], kind="stable")]
+        elif sort_mode == "Descending":
+            order = order[np.argsort(-np.nan_to_num(key[order], nan=-np.inf), kind="stable")]
+        x = np.asarray(x)[order]
+        ydf = ydf.iloc[order].reset_index(drop=True)
+        if yerr is not None:
+            yerr = yerr.iloc[order].reset_index(drop=True)
+
     fig, ax = plt.subplots(figsize=(12, 6))
+
+    def _err(i):
+        """Desvios padrão da série i, só para o texto de label_mark (None sem `yerr`)."""
+        if yerr is None or i >= yerr.shape[1]:
+            return {}, None
+        return {}, np.nan_to_num(yerr.iloc[:, i].to_numpy(dtype=float), nan=0.0)
 
     x_pos = np.arange(len(x))
     n_series = len(ydf.columns)
-    width = 0.8 / max(n_series, 1)
+    width = bw / max(n_series, 1)
 
     # -----------------------------
     # 1) DRAW BARS (no double-draw)
@@ -429,11 +746,16 @@ def plot_bar(
         col = ydf.columns[0]
         y = ydf[col].to_numpy(dtype=float)
 
-        bars = ax.bar(x_pos, y, width=0.8, label=str(col), color=bar_colors)
+        # Cores por categoria: a legenda lista as categorias (X categórico); com X numérico, só o nome da coluna.
+        by_category = not np.issubdtype(np.asarray(x).dtype, np.number)
+        err_kw, sd = _err(0)
+        bars = ax.bar(x_pos, y, width=bw, label="_nolegend_" if by_category else str(col), color=bar_colors, **err_kw)
+        if by_category:
+            _label_category_artists(bars.patches, x)
         bars_by_series.append((x_pos, y, bars, None))  # (xcenters, y, bars, color)
 
         if label_mark:
-            _annotate_bars(ax, bars)
+            _annotate_bars(ax, bars, sd=sd)
 
     else:
         # General case: color per series (column)
@@ -444,13 +766,14 @@ def plot_bar(
 
         for i, col in enumerate(ydf.columns):
             y = ydf[col].to_numpy(dtype=float)
-            pos = x_pos - (0.4 - width / 2) + i * width  # center of each bar in grouped layout
-            bars = ax.bar(pos, y, width=width, label=str(col), color=series_colors[i])
+            pos = x_pos - (bw / 2 - width / 2) + i * width  # center of each bar in grouped layout
+            err_kw, sd = _err(i)
+            bars = ax.bar(pos, y, width=width, label=str(col), color=series_colors[i], **err_kw)
 
             bars_by_series.append((pos, y, bars, series_colors[i]))
 
             if label_mark:
-                _annotate_bars(ax, bars)
+                _annotate_bars(ax, bars, sd=sd)
 
     # -----------------------------
     # 2) TRENDLINE (numeric x_pos)
@@ -522,7 +845,7 @@ def plot_bar(
     ax.set_xticklabels([str(v) for v in x], rotation=0, ha="center")
 
     if show_legend == True:
-        ax.legend()
+        _legend(ax, options)
 
     plt.tight_layout()
     return fig
@@ -530,7 +853,8 @@ def plot_bar(
 def plot_line(df: pd.DataFrame, dpi: int, trend_mode: str = "None", show_legend: bool = False, title: str = "", xlabel: str = "", ylabel: str = "", label_mark: bool = False,
               color_mode: str = "Palette (multi-color)",
               palette_name: str = "Dark2",
-              single_color: str = "#1f77b4"):
+              single_color: str = "#1f77b4",
+    options=None):
 
     x, ydf = extract_x_y(df)
     fig, ax = plt.subplots(figsize=(12, 6))
@@ -542,7 +866,9 @@ def plot_line(df: pd.DataFrame, dpi: int, trend_mode: str = "None", show_legend:
 
     for i, col in enumerate(ydf.columns):
         yvals = ydf[col].to_numpy(dtype=float)
-        line = ax.plot(x_plot, yvals, marker="o", label=str(col), color=colors[i])[0]
+        ms = float(_opt(options, "marker_size"))
+        line = ax.plot(x_plot, yvals, marker="o" if ms > 0 else None, markersize=ms,
+                       linewidth=float(_opt(options, "line_width")), label=str(col), color=colors[i])[0]
         if label_mark:
             _annotate_points(ax, x_plot, yvals, color=line.get_color())
 
@@ -596,7 +922,7 @@ def plot_line(df: pd.DataFrame, dpi: int, trend_mode: str = "None", show_legend:
         _draw_trend_equations(ax, eq_items, is_3d=False)   
 
     if show_legend == True:
-        ax.legend()
+        _legend(ax, options)
     plt.tight_layout()
     return fig
 
@@ -611,9 +937,11 @@ def plot_scatter(
     label_mark: bool = False,
     color_mode: str = "Palette (multi-color)",
     palette_name: str = "Dark2",
-    single_color: str = "#1f77b4"
+    single_color: str = "#1f77b4",
+    options=None
 ):
     x, ydf = extract_x_y(df)
+    ps, pa = float(_opt(options, "point_size")), float(_opt(options, "point_alpha"))
     fig, ax = plt.subplots(figsize=(12, 6))
 
     x_arr = np.asarray(x)
@@ -642,7 +970,7 @@ def plot_scatter(
         # ---- cores e legenda ----
         if color_mode.startswith("Single"):
             # cor única (tudo igual) + legenda simples
-            ax.scatter(xs, ys, color=single_color, alpha=0.85, label=str(ycol))
+            ax.scatter(xs, ys, color=single_color, s=ps, alpha=pa, label=str(ycol))
             if label_mark:
                 # para 1D faz sentido manter apenas o valor Y
                 _annotate_points(ax, xs, ys, color="#222222", dx=6, dy=6)
@@ -660,7 +988,7 @@ def plot_scatter(
                 ax.scatter(
                     xsc, ysc,
                     color=color_map[c],
-                    alpha=0.85,
+                    s=ps, alpha=pa,
                     label=str(c)
                 )
 
@@ -700,7 +1028,7 @@ def plot_scatter(
 
         ax.spines[["top", "right"]].set_visible(False)
         if show_legend:
-            ax.legend()
+            _legend(ax, options)
         plt.tight_layout()
         return fig
 
@@ -715,7 +1043,7 @@ def plot_scatter(
 
     for i, col in enumerate(ydf.columns):
         yvals = ydf[col].to_numpy(dtype=float)
-        ax.scatter(x_plot, yvals, label=str(col), color=colors[i])
+        ax.scatter(x_plot, yvals, label=str(col), color=colors[i], s=ps, alpha=pa)
         if label_mark:
             _annotate_points(ax, x_plot, yvals, color=colors[i], dx=6, dy=6)
 
@@ -765,14 +1093,15 @@ def plot_scatter(
 
     ax.spines[["top", "right"]].set_visible(False)
     if show_legend:
-        ax.legend()
+        _legend(ax, options)
     plt.tight_layout()
     return fig
 
 def plot_area_stacked(df: pd.DataFrame, dpi: int, trend_mode: str = "None", show_legend: bool = False, title: str = "", xlabel: str = "", ylabel: str = "", label_mark: bool = False,
               color_mode: str = "Palette (multi-color)",
               palette_name: str = "Dark2",
-              single_color: str = "#1f77b4"):
+              single_color: str = "#1f77b4",
+    options=None):
 
     x, ydf = extract_x_y(df)
     fig, ax = plt.subplots(figsize=(12, 6))
@@ -787,7 +1116,8 @@ def plot_area_stacked(df: pd.DataFrame, dpi: int, trend_mode: str = "None", show
         x_plot,
         *[ydf[c].to_numpy(dtype=float) for c in ydf.columns],
         labels=[str(c) for c in ydf.columns],
-        colors=colors
+        colors=colors,
+        alpha=float(_opt(options, "area_stacked_alpha"))
     )
     ax.set_xticks(x_plot)
     ax.set_xticklabels([str(v) for v in x])
@@ -863,7 +1193,7 @@ def plot_area_stacked(df: pd.DataFrame, dpi: int, trend_mode: str = "None", show
                 _draw_trend_equations(ax, eq_items, is_3d=False)   
 
     if show_legend == True:
-        ax.legend()
+        _legend(ax, options)
     plt.tight_layout()
     return fig
 
@@ -878,7 +1208,8 @@ def plot_area_overlapped(
     ylabel: str = "",
     color_mode: str = "Palette (multi-color)",
     palette_name: str = "Dark2",
-    single_color: str = "#1f77b4"
+    single_color: str = "#1f77b4",
+    options=None
 ):
     fig, ax = plt.subplots(figsize=(12, 6))
 
@@ -897,7 +1228,7 @@ def plot_area_overlapped(
         ax.fill_between(
             x_plot,
             yvals,
-            alpha=0.6,
+            alpha=float(_opt(options, "area_overlap_alpha")),
             color=colors[i],
             label=str(col)
         )
@@ -964,7 +1295,7 @@ def plot_area_overlapped(
         ax.set_ylabel(ylabel)
 
     if show_legend == True:
-        ax.legend()
+        _legend(ax, options)
 
     fig.tight_layout()
     return fig
@@ -980,9 +1311,13 @@ def plot_box(
     ylabel: str = "",
     color_mode: str = "Palette (multi-color)",
     palette_name: str = "Dark2",
-    single_color: str = "#1f77b4"
+    single_color: str = "#1f77b4",
+    options=None
 ):
     x, ydf = extract_x_y(df)
+    whis = float(_opt(options, "box_whisker"))          # limiar do bigode (x IQR); fora dele = outlier
+    box_w = float(_opt(options, "box_width"))
+    show_fliers = bool(_opt(options, "box_outliers"))
     fig, ax = plt.subplots(figsize=(12, 6))
 
     x_arr = np.asarray(x)
@@ -1008,6 +1343,7 @@ def plot_box(
             data,
             labels=labels,
             patch_artist=True,
+            whis=whis, widths=box_w, showfliers=show_fliers,
             medianprops=dict(color="#222222", linewidth=1),
             whiskerprops=dict(color="#222222", linewidth=1.5),
             capprops=dict(color="#222222", linewidth=1.5),
@@ -1031,6 +1367,8 @@ def plot_box(
         for patch, c in zip(bp["boxes"], box_colors):
             patch.set_facecolor(c)
             patch.set_alpha(0.6)
+        if show_legend and not color_mode.startswith("Single"):
+            _label_category_artists(bp["boxes"], labels)        # legenda: as categorias e suas cores
 
         # Label Mark: whiskers/Q1/Q2/Q3 + outliers
         if label_mark:
@@ -1041,8 +1379,8 @@ def plot_box(
 
                 Q1, Q2, Q3 = np.percentile(arr, [25, 50, 75])
                 IQR = Q3 - Q1
-                limit_below = arr[arr >= (Q1 - 1.5 * IQR)].min()
-                limit_above = arr[arr <= (Q3 + 1.5 * IQR)].max()
+                limit_below = arr[arr >= (Q1 - whis * IQR)].min()
+                limit_above = arr[arr <= (Q3 + whis * IQR)].max()
 
                 x_pos = i + x_offset
                 ax.text(x_pos, limit_below, _fmt_val(limit_below), ha="left", va="center", fontsize=10)
@@ -1078,6 +1416,7 @@ def plot_box(
             data,
             labels=labels,
             patch_artist=True,
+            whis=whis, widths=box_w, showfliers=show_fliers,
             medianprops=dict(color="#222222", linewidth=1),
             whiskerprops=dict(color="#222222", linewidth=1.5),
             capprops=dict(color="#222222", linewidth=1.5),
@@ -1109,8 +1448,8 @@ def plot_box(
 
                 Q1, Q2, Q3 = np.percentile(arr, [25, 50, 75])
                 IQR = Q3 - Q1
-                limit_below = arr[arr >= (Q1 - 1.5 * IQR)].min()
-                limit_above = arr[arr <= (Q3 + 1.5 * IQR)].max()
+                limit_below = arr[arr >= (Q1 - whis * IQR)].min()
+                limit_above = arr[arr <= (Q3 + whis * IQR)].max()
 
                 x_pos = i + x_offset
                 ax.text(x_pos, limit_below, _fmt_val(limit_below), ha="left", va="center", fontsize=10, color="black")
@@ -1141,19 +1480,31 @@ def plot_box(
         ax.set_ylabel(ylabel, fontsize=14)
 
     ax.spines[["top", "right"]].set_visible(False)
+    if show_legend:
+        _legend(ax, options)
     plt.tight_layout()
     return fig
 
 def plot_heatmap(df: pd.DataFrame, dpi: int, trend_mode: str = "None", show_legend: bool = False, label_mark: bool = False, title: str = "", xlabel: str = "", ylabel: str = "",
                  color_mode: str = "Palette (multi-color)",
                  palette_name: str = "viridis",
-                 single_color: str = "#1f77b4"):
+                 single_color: str = "#1f77b4",
+    options=None):
 
     from matplotlib.colors import LinearSegmentedColormap
 
     _, ydf = extract_x_y(df)
     fig, ax = plt.subplots(figsize=(12, 6))
     data = ydf.to_numpy(dtype=float)
+    norm_mode = _opt(options, "heat_normalize")
+    if norm_mode != "None" and data.size:
+        with np.errstate(all="ignore"):
+            if norm_mode.startswith("Min-Max"):
+                lo, hi = np.nanmin(data, axis=0), np.nanmax(data, axis=0)
+                data = (data - lo) / np.where(hi - lo == 0, 1.0, hi - lo)
+            else:
+                sd = np.nanstd(data, axis=0)
+                data = (data - np.nanmean(data, axis=0)) / np.where(sd == 0, 1.0, sd)
 
     if color_mode.startswith("Single"):
         cmap = LinearSegmentedColormap.from_list("single", ["#ffffff", single_color])
@@ -1170,7 +1521,14 @@ def plot_heatmap(df: pd.DataFrame, dpi: int, trend_mode: str = "None", show_lege
 
     ax.set_xticks(np.arange(len(ydf.columns)))
     ax.set_xticklabels([str(c) for c in ydf.columns], rotation=45, ha="right")
-    fig.colorbar(im, ax=ax)
+    if bool(_opt(options, "heat_colorbar")):
+        fig.colorbar(im, ax=ax)
+    # "Mostrar valores nos pontos": escreve o valor em cada célula (até 400 células, para continuar legível)
+    if label_mark and data.size <= 400:
+        for (r, c), v in np.ndenumerate(data):
+            if np.isfinite(v):
+                ax.text(c, r, _fmt_val(v), ha="center", va="center", fontsize=8, color="#222222",
+                        bbox=dict(boxstyle="round,pad=0.12", fc="white", ec="none", alpha=0.6))
 
     plt.tight_layout()
     return fig
@@ -1186,9 +1544,13 @@ def plot_violin(
     ylabel: str = "",
     color_mode: str = "Palette (multi-color)",
     palette_name: str = "Dark2",
-    single_color: str = "#1f77b4"
+    single_color: str = "#1f77b4",
+    options=None
 ):
     x, ydf = extract_x_y(df)
+    v_kw = dict(widths=float(_opt(options, "violin_width")), showmeans=False,
+                showmedians=bool(_opt(options, "violin_median")), showextrema=bool(_opt(options, "violin_extrema")),
+                bw_method=(float(_opt(options, "violin_bw")) or None))   # 0 = automático
     fig, ax = plt.subplots(figsize=(12, 6))
 
     # ===== CASE 1: X categórico + 1 coluna Y =====
@@ -1208,9 +1570,7 @@ def plot_violin(
 
         parts = ax.violinplot(
             groups,
-            showmeans=False,
-            showmedians=True,
-            showextrema=True
+            **v_kw
         )
 
         # ---- colors ----
@@ -1222,6 +1582,8 @@ def plot_violin(
         for pc, c in zip(parts["bodies"], colors):
             pc.set_facecolor(c)
             pc.set_alpha(0.6)
+        if show_legend and not color_mode.startswith("Single"):
+            _label_category_artists(parts["bodies"], labels)        # legenda: as categorias e suas cores
 
         ax.set_xticks(np.arange(1, len(labels) + 1))
         ax.set_xticklabels(labels)
@@ -1261,9 +1623,7 @@ def plot_violin(
 
         parts = ax.violinplot(
             data,
-            showmeans=False,
-            showmedians=True,
-            showextrema=True
+            **v_kw
         )
 
         if color_mode.startswith("Single"):
@@ -1310,6 +1670,8 @@ def plot_violin(
 
     ax.set_title(title or "Violin Plot", fontsize=14, fontweight="bold")
     ax.spines[["top", "right"]].set_visible(False)
+    if show_legend:
+        _legend(ax, options)
 
     plt.tight_layout()
     return fig
@@ -1318,7 +1680,8 @@ def plot_histogram(df: pd.DataFrame, dpi: int, trend_mode: str = "None", show_le
                    xlabel: str = "", ylabel: str = "",
                    color_mode: str = "Palette (multi-color)",
                    palette_name: str = "Dark2",
-                   single_color: str = "#1f77b4"):
+                   single_color: str = "#1f77b4",
+    options=None):
 
     _, ydf = extract_x_y(df)
     fig, ax = plt.subplots(figsize=(12, 6))
@@ -1329,7 +1692,9 @@ def plot_histogram(df: pd.DataFrame, dpi: int, trend_mode: str = "None", show_le
     # overlay hist para múltiplas séries
     for i, col in enumerate(ydf.columns):
         vals = ydf[col].dropna().to_numpy(dtype=float)
-        ax.hist(vals, bins=20, alpha=0.6 if n > 1 else 0.8, label=str(col), color=colors[i])
+        ax.hist(vals, bins=int(_opt(options, "hist_bins")), density=bool(_opt(options, "hist_density")),
+                cumulative=bool(_opt(options, "hist_cumulative")), alpha=0.6 if n > 1 else 0.8,
+                label=str(col), color=colors[i])
 
     if xlabel:
         ax.set_xlabel(xlabel)
@@ -1345,12 +1710,12 @@ def plot_histogram(df: pd.DataFrame, dpi: int, trend_mode: str = "None", show_le
    
     if n > 1:
         if show_legend == True:
-            ax.legend()
+            _legend(ax, options)
 
     plt.tight_layout()
     return fig
 
-def _kde_1d(values: np.ndarray, grid: np.ndarray):
+def _kde_1d(values: np.ndarray, grid: np.ndarray, bw_scale: float = 1.0):
     """KDE simples (gaussiana) sem SciPy."""
     v = values[np.isfinite(values)]
     if v.size < 2:
@@ -1362,7 +1727,7 @@ def _kde_1d(values: np.ndarray, grid: np.ndarray):
         return np.zeros_like(grid)
 
     n = v.size
-    bw = 1.06 * std * (n ** (-1 / 5))
+    bw = 1.06 * std * (n ** (-1 / 5)) * float(bw_scale)
     if bw <= 0:
         return np.zeros_like(grid)
 
@@ -1375,7 +1740,8 @@ def plot_density(df: pd.DataFrame, dpi: int, trend_mode: str = "None", show_lege
                  xlabel: str = "", ylabel: str = "",
                  color_mode: str = "Palette (multi-color)",
                  palette_name: str = "Dark2",
-                 single_color: str = "#1f77b4"):
+                 single_color: str = "#1f77b4",
+    options=None):
 
     _, ydf = extract_x_y(df)
     fig, ax = plt.subplots(figsize=(12, 6))
@@ -1394,12 +1760,14 @@ def plot_density(df: pd.DataFrame, dpi: int, trend_mode: str = "None", show_lege
         xmin -= 1.0
         xmax += 1.0
 
-    grid = np.linspace(xmin, xmax, 400)
+    grid = np.linspace(xmin, xmax, int(_opt(options, "kde_points")))
 
     for i, col in enumerate(ydf.columns):
         vals = ydf[col].dropna().to_numpy(dtype=float)
-        dens = _kde_1d(vals, grid)
+        dens = _kde_1d(vals, grid, float(_opt(options, "kde_bw")))
         ax.plot(grid, dens, label=str(col), color=colors[i], linewidth=2)
+        if bool(_opt(options, "kde_fill")):
+            ax.fill_between(grid, dens, color=colors[i], alpha=0.25)
 
     if xlabel:
         ax.set_xlabel(xlabel)
@@ -1414,10 +1782,156 @@ def plot_density(df: pd.DataFrame, dpi: int, trend_mode: str = "None", show_lege
     ax.spines[["top", "right"]].set_visible(False)
     if n > 1:
         if show_legend == True:
-            ax.legend()
+            _legend(ax, options)
 
     plt.tight_layout()
     return fig
+
+def group_labels(df: pd.DataFrame, cat_cols):
+    """Rótulo de grupo de cada linha: os valores das colunas categóricas `cat_cols` unidos por " | " (NaN se algum
+    estiver ausente)."""
+    cat_cols = list(cat_cols)
+    ok = df[cat_cols].notna().all(axis=1)
+    lab = df[cat_cols[0]].astype(str)
+    for c in cat_cols[1:]:
+        lab = lab + " | " + df[c].astype(str)
+    return lab.where(ok)
+
+
+def build_grouped_series(df: pd.DataFrame, x_col, y_cols, cat_cols):
+    """Séries [(rótulo, x, y)] de um gráfico X numérico contra Y numérico com categorias: uma série por grupo
+    (na ordem de aparição) e, com várias colunas Y, por (coluna Y, grupo) - rótulo "Y | grupo". Linhas com X ou
+    Y ausentes ficam fora de cada série."""
+    g = group_labels(df, cat_cols)
+    xv = _series_to_numeric(df[x_col])
+    groups = list(pd.unique(g.dropna()))
+    out = []
+    for yc in y_cols:
+        yv = _series_to_numeric(df[yc])
+        for grp in groups:
+            m = (g == grp) & xv.notna() & yv.notna()
+            if m.any():
+                label = grp if len(y_cols) == 1 else f"{yc} | {grp}"
+                out.append((label, xv[m].to_numpy(dtype=float), yv[m].to_numpy(dtype=float)))
+    return out
+
+
+def grouped_values_frame(df: pd.DataFrame, y_cols, cat_cols):
+    """Tabela larga para Histogram / Density com categorias: uma coluna por grupo (ou "Y | grupo"), cada uma com os
+    valores de Y daquele grupo (colunas de tamanhos diferentes são completadas com NaN)."""
+    g = group_labels(df, cat_cols)
+    cols = {}
+    for yc in y_cols:
+        yv = _series_to_numeric(df[yc])
+        for grp in pd.unique(g.dropna()):
+            vals = yv[(g == grp) & yv.notna()].reset_index(drop=True)
+            if len(vals):
+                cols[grp if len(y_cols) == 1 else f"{yc} | {grp}"] = vals
+    if not cols:
+        raise ValueError("No numeric values for the selected categories.")
+    return pd.DataFrame(cols)
+
+
+def plot_grouped_xy(chart: str, series, dpi: int = 300, trend_mode: str = "None", show_legend: bool = False,
+                    title: str = "", xlabel: str = "", ylabel: str = "", label_mark: bool = False,
+                    palette_name: str = "Dark2", single_color: str = "#1f77b4", options=None):
+    """Gráfico com o eixo X na escala de uma coluna numérica e uma série (cor) por categoria: `series` é a lista
+    [(rótulo, x, y)] de build_grouped_series. `chart`: Scatter, Line, Area (Overlapped), Area (Stacked) ou Bar
+    (barras agrupadas por valor de X, com a estatística bar_stat de cada categoria em cada X). A legenda lista as
+    categorias (rótulos das séries); as cores sempre vêm da paleta, pois é ela que distingue as categorias."""
+    if chart not in GROUPED_XY_CHARTS:
+        raise ValueError(f"{chart} does not support categories on a numeric X.")
+    series = [(lab, np.asarray(x, dtype=float), np.asarray(y, dtype=float)) for lab, x, y in series]
+    if not series:
+        raise ValueError("No valid (X, Y) values for the selected columns.")
+    n = len(series)
+    colors = _get_series_colors(n, "Palette", palette_name, single_color)
+    fig, ax = plt.subplots(figsize=(12, 6))
+    trend_xy = []                                   # (rótulo, cor, xs, ys) usados pelas linhas de tendência
+
+    if chart == "Scatter":
+        ps, pa = float(_opt(options, "point_size")), float(_opt(options, "point_alpha"))
+        for (lab, x, y), c in zip(series, colors):
+            ax.scatter(x, y, s=ps, alpha=pa, color=c, label=lab)
+            if label_mark:
+                _annotate_points(ax, x, y, color="#222222", dx=6, dy=6)
+            trend_xy.append((lab, c, x, y))
+    elif chart in ("Line", "Area (Overlapped)"):
+        ms = float(_opt(options, "marker_size"))
+        for (lab, x, y), c in zip(series, colors):
+            o = np.argsort(x, kind="stable")
+            x, y = x[o], y[o]
+            if chart == "Line":
+                ax.plot(x, y, marker="o" if ms > 0 else None, markersize=ms, linewidth=float(_opt(options, "line_width")),
+                        label=lab, color=c)
+            else:
+                ax.fill_between(x, y, alpha=float(_opt(options, "area_overlap_alpha")), color=c, label=lab)
+                ax.plot(x, y, marker="o", linestyle="None", color=c, markersize=4)
+            if label_mark:
+                _annotate_points(ax, x, y, color="#222222")
+            trend_xy.append((lab, c, x, y))
+    elif chart == "Area (Stacked)":
+        grid = np.unique(np.concatenate([x for _, x, _ in series]))
+        layers = []
+        for lab, x, y in series:                    # valores repetidos de X: média; X sem valor: interpolado (0 fora da faixa)
+            avg = pd.Series(y).groupby(x).mean()
+            layers.append(np.interp(grid, avg.index.to_numpy(dtype=float), avg.to_numpy(dtype=float), left=0.0, right=0.0))
+        ax.stackplot(grid, *layers, labels=[lab for lab, _, _ in series], colors=colors,
+                     alpha=float(_opt(options, "area_stacked_alpha")))
+        for (lab, _x, _y), c, layer in zip(series, colors, layers):
+            trend_xy.append((lab, c, grid, layer))
+    else:                                           # Bar: barras agrupadas por valor de X
+        stat = bar_stat_slug(_opt(options, "bar_stat"))
+        uniq = np.unique(np.concatenate([x for _, x, _ in series]))
+        pos = {v: i for i, v in enumerate(uniq)}
+        bw = float(_opt(options, "bar_width"))
+        width = bw / n
+        for k, ((lab, x, y), c) in enumerate(zip(series, colors)):
+            g = pd.Series(y).groupby(x)
+            center = (g.first() if stat == "single" else g.median() if stat == "median"
+                      else g.agg(_group_mode) if stat == "mode" else g.mean())
+            sd = None if stat == "single" else g.std(ddof=1).fillna(0.0).to_numpy(dtype=float)
+            xs_pos = np.array([pos[v] for v in center.index], dtype=float) - (bw / 2 - width / 2) + k * width
+            bars = ax.bar(xs_pos, center.to_numpy(dtype=float), width=width, color=c, label=lab)
+            if label_mark:
+                _annotate_bars(ax, bars, sd=sd)
+            trend_xy.append((lab, c, np.array([pos[v] for v in center.index], dtype=float), center.to_numpy(dtype=float)))
+        ax.set_xticks(np.arange(len(uniq)))
+        ax.set_xticklabels([_fmt_val(v) for v in uniq], rotation=0 if len(uniq) <= 12 else 90, ha="center")
+
+    if trend_mode != "None":
+        for lab, c, xs, ys in trend_xy:
+            _trendline_xy(ax, xs, ys, trend_mode, color=c, label=f"Trend ({lab})", linewidth=2)
+        if show_legend and trend_mode != "Moving Average":
+            eq_items = []
+            for lab, c, xs, ys in trend_xy:
+                eq, r2 = _trend_equation_and_r2(xs, ys, trend_mode)
+                if eq:
+                    eq_items.append((f"{lab}: {eq}" + (f" (R²={r2:.3f})" if r2 is not None else ""), c))
+            _draw_trend_equations(ax, eq_items, is_3d=False)
+
+    ax.set_title(title or f"{chart}", fontsize=14, fontweight="bold")
+    if xlabel:
+        ax.set_xlabel(xlabel, fontsize=12, fontweight="bold")
+    if ylabel:
+        ax.set_ylabel(ylabel, fontsize=12, fontweight="bold")
+    ax.spines[["top", "right"]].set_visible(False)
+    if show_legend:
+        _legend(ax, options)
+    plt.tight_layout()
+    return fig
+
+
+def _sort_by_flow(tot: pd.Series, mode: str) -> pd.Series:
+    """`tot` (fluxo por categoria, na ordem de aparição) ordenado pelo valor se mode for Ascending / Descending;
+    qualquer outro modo (None) mantém a ordem recebida."""
+    mode = str(mode).strip().lower()
+    if mode == "ascending":
+        return tot.sort_values(ascending=True, kind="stable")
+    if mode == "descending":
+        return tot.sort_values(ascending=False, kind="stable")
+    return tot
+
 
 def plot_sankey(
     df: pd.DataFrame,
@@ -1434,6 +1948,7 @@ def plot_sankey(
     stage_cols=None,
     weight_col=None,
     max_nodes: int = SANKEY_MAX_NODES_PER_STAGE,
+    options=None,
 ):
     """Diagrama de Sankey (aluvial) de 2 ou mais colunas categóricas: cada coluna é uma etapa, cada
     categoria um nó e cada faixa liga duas etapas vizinhas com largura proporcional ao número de
@@ -1442,7 +1957,9 @@ def plot_sankey(
     etapas somam o mesmo total. `max_nodes` (1 a SANKEY_MAX_NODES_PER_STAGE) mantém, em cada coluna,
     só as categorias de maior fluxo (contagem de linhas ou soma do peso); as linhas que têm uma
     categoria de fora em qualquer etapa são descartadas. `label_mark` escreve o valor de cada nó; `show_legend` é ignorado
-    (os próprios nós já são rotulados)."""
+    (os próprios nós já são rotulados). Opção sankey_orient: "Horizontal" (etapas da esquerda para a direita) ou
+    "Vertical" (de cima para baixo). Opção sankey_sort: ordem dos nós em cada etapa (None = ordem de aparição nos
+    dados; Ascending / Descending = pelo fluxo)."""
     from matplotlib.patches import PathPatch, Rectangle
     from matplotlib.path import Path
 
@@ -1473,8 +1990,11 @@ def plot_sankey(
     if data.empty:
         raise ValueError("The most frequent categories of the selected columns never occur in the same rows.")
 
-    # nós de cada etapa, do maior fluxo para o menor
-    stages = [w.groupby(data[c]).sum().sort_values(ascending=False, kind="stable") for c in stage_cols]
+    # Nós de cada etapa. Sort = None: na ordem em que aparecem nos dados; Ascending / Descending: pelo fluxo
+    # (contagem de linhas ou soma do peso), do menor para o maior ou vice-versa. As próprias etapas seguem a ordem
+    # de `stage_cols` (a ordem em que o usuário selecionou as colunas).
+    sort_mode = str(_opt(options, "sankey_sort")).strip()
+    stages = [_sort_by_flow(w.groupby(data[c], sort=False).sum(), sort_mode) for c in stage_cols]
 
     total = float(w.sum())
     gap = 0.025 * total                         # espaço vertical entre nós da mesma etapa
@@ -1498,16 +2018,23 @@ def plot_sankey(
         node_color.append({cat: palette[k + i] for i, cat in enumerate(t.index)})
         k += len(t)
 
-    fig, ax = plt.subplots(figsize=(12, 6))
+    # Orientação: as coordenadas são calculadas como (ao longo das etapas, dentro da etapa) e só então levadas
+    # para (x, y): Horizontal = etapas da esquerda para a direita; Vertical = de cima para baixo.
+    vertical = str(_opt(options, "sankey_orient")).strip().lower() == "vertical"
+    fig, ax = plt.subplots(figsize=(12, 7) if vertical else (12, 6))
     n_st = len(stage_cols)
+
+    def _pt(along, across):
+        return (across, along) if vertical else (along, across)
 
     def _ribbon(x0, y0_top, y0_bot, x1, y1_top, y1_bot, color):
         xm = (x0 + x1) / 2.0
         verts = [(x0, y0_top), (xm, y0_top), (xm, y1_top), (x1, y1_top),
                  (x1, y1_bot), (xm, y1_bot), (xm, y0_bot), (x0, y0_bot), (x0, y0_top)]
+        verts = [_pt(a, c) for a, c in verts]
         codes = [Path.MOVETO, Path.CURVE4, Path.CURVE4, Path.CURVE4,
                  Path.LINETO, Path.CURVE4, Path.CURVE4, Path.CURVE4, Path.CLOSEPOLY]
-        ax.add_patch(PathPatch(Path(verts, codes), facecolor=color, edgecolor="none", alpha=0.45, zorder=1))
+        ax.add_patch(PathPatch(Path(verts, codes), facecolor=color, edgecolor="none", alpha=float(_opt(options, "sankey_alpha")), zorder=1))
 
     for i in range(n_st - 1):
         a, b = stage_cols[i], stage_cols[i + 1]
@@ -1530,24 +2057,185 @@ def plot_sankey(
 
     for i, pos in enumerate(node_pos):
         for cat, (y, h) in pos.items():
-            ax.add_patch(Rectangle((i, y), node_w, h, facecolor=node_color[i][cat], edgecolor="#333333",
-                                   linewidth=0.6, zorder=3))
+            (rx, ry), (ex, ey) = _pt(i, y), _pt(i + node_w, y + h)
+            ax.add_patch(Rectangle((min(rx, ex), min(ry, ey)), abs(ex - rx), abs(ey - ry), facecolor=node_color[i][cat],
+                                   edgecolor="#333333", linewidth=0.6, zorder=3))
             lab = str(cat)
             if label_mark:
                 lab += f" ({_fmt_val(h)})"
-            ax.text(i + node_w + 0.02, y + h / 2.0, lab, va="center", ha="left", fontsize=9, zorder=4,
-                    bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="none", alpha=0.7))
+            tx, ty = _pt(i + node_w + 0.02, y + h / 2.0)
+            if vertical:    # rótulo abaixo do nó (girado quando a etapa tem muitos nós)
+                ax.text(tx, ty, lab, va="top", ha="center", rotation=0 if len(pos) <= 6 else 90, fontsize=9, zorder=4)     # rótulo sem fundo (transparente)
+            else:
+                ax.text(tx, ty, lab, va="center", ha="left", fontsize=9, zorder=4)     # rótulo sem fundo (transparente)
 
     for i, c in enumerate(stage_cols):
-        ax.text(i + node_w / 2.0, -0.02 * full, str(c), ha="center", va="bottom", fontsize=11, fontweight="bold")
+        if vertical:
+            ax.text(-0.02 * full, i + node_w / 2.0, str(c), ha="right", va="center", fontsize=11, fontweight="bold")
+        else:
+            ax.text(i + node_w / 2.0, -0.02 * full, str(c), ha="center", va="bottom", fontsize=11, fontweight="bold")
 
-    ax.set_xlim(-0.1, n_st - 1 + node_w + 0.5)
-    ax.set_ylim(full * 1.02, -0.08 * full)       # eixo Y invertido: primeiro nó no topo
+    if vertical:
+        ax.set_xlim(-0.3 * full, full * 1.02)
+        ax.set_ylim(n_st - 1 + node_w + 0.5, -0.15)     # eixo Y invertido: primeira etapa no topo
+    else:
+        ax.set_xlim(-0.1, n_st - 1 + node_w + 0.5)
+        ax.set_ylim(full * 1.02, -0.08 * full)       # eixo Y invertido: primeiro nó no topo
     ax.axis("off")
     if title:
         ax.set_title(title, fontsize=14, fontweight="bold", pad=14)
     else:
         ax.set_title("Sankey: " + " → ".join(map(str, stage_cols)), fontsize=14, pad=14)
+    plt.tight_layout()
+    return fig
+
+def plot_chord(
+    df: pd.DataFrame,
+    dpi: int = 300,
+    trend_mode: str = "None",
+    show_legend: bool = False,
+    title: str = "",
+    xlabel: str = "",
+    ylabel: str = "",
+    label_mark: bool = False,
+    color_mode: str = "Palette (multi-color)",
+    palette_name: str = "Dark2",
+    single_color: str = "#1f77b4",
+    stage_cols=None,
+    weight_col=None,
+    max_nodes: int = CHORD_MAX_NODES,
+    options=None,
+):
+    """Sankey Chord (diagrama de cordas dirigido): as categorias formam um círculo e cada faixa liga uma
+    categoria a qualquer outra (ou a ela mesma). As colunas de `stage_cols` (2 ou mais) são lidas aos pares
+    vizinhos - a 1ª é a origem e a 2ª o destino, depois a 2ª é a origem e a 3ª o destino, e assim por diante;
+    categorias com o mesmo nome em colunas diferentes são o mesmo nó. A largura de cada faixa é o número de
+    linhas que vão da origem ao destino (ou a soma de `weight_col`); ela sai da origem na cor dela. O arco de
+    cada nó mede tudo o que sai e entra nele. `max_nodes` mantém só os nós de maior fluxo; linhas com valor
+    ausente em algum dos dois lados (ou peso <= 0) ficam de fora de cada par. Opções (`options`): chord_alpha,
+    chord_gap (graus entre os arcos), chord_self (desenhar ligações de um nó com ele mesmo) e chord_sort
+    (ordem dos nós no círculo: None = ordem de aparição, Ascending / Descending = pelo fluxo total).
+    `label_mark` escreve o fluxo total ao lado de cada nome; `show_legend` é ignorado."""
+    from matplotlib.patches import PathPatch, Wedge
+    from matplotlib.path import Path
+
+    stage_cols = list(stage_cols) if stage_cols is not None else [c for c in df.columns if c != weight_col]
+    if len(stage_cols) < 2:
+        raise ValueError("Sankey Chord needs at least two categorical columns (source and target).")
+
+    w_all = _series_to_numeric(df[weight_col]) if weight_col is not None else pd.Series(1.0, index=df.index)
+    links = {}                                   # (origem, destino) -> peso somado
+    appear = {}                                  # nós na ordem de aparição (coluna a coluna, na ordem de `stage_cols`)
+    for a, b in zip(stage_cols[:-1], stage_cols[1:]):
+        sub = pd.DataFrame({"a": df[a], "b": df[b], "w": w_all}).dropna()
+        sub = sub[sub["w"] > 0]
+        if sub.empty:
+            continue
+        sub["a"], sub["b"] = sub["a"].astype(str), sub["b"].astype(str)
+        sub = sub[(sub["a"].str.strip() != "") & (sub["b"].str.strip() != "")]      # texto vazio não é categoria
+        if sub.empty:
+            continue
+        for v in list(pd.unique(sub["a"])) + list(pd.unique(sub["b"])):
+            appear.setdefault(v, len(appear))
+        for (src, dst), val in sub.groupby(["a", "b"])["w"].sum().items():
+            links[(src, dst)] = links.get((src, dst), 0.0) + float(val)
+    if not _opt(options, "chord_self"):
+        links = {k: v for k, v in links.items() if k[0] != k[1]}
+    if not links:
+        raise ValueError("No rows with valid values in the selected columns.")
+
+    # Só os `max_nodes` nós de maior fluxo (saída + entrada) ficam; as ligações com um nó de fora saem.
+    max_nodes = max(2, min(int(max_nodes or CHORD_MAX_NODES), CHORD_MAX_NODES))
+    flow = {}
+    for (src, dst), v in links.items():
+        flow[src] = flow.get(src, 0.0) + v
+        flow[dst] = flow.get(dst, 0.0) + v
+    keep = set(sorted(flow, key=lambda n: (-flow[n], n))[:max_nodes])
+    links = {k: v for k, v in links.items() if k[0] in keep and k[1] in keep}
+    if not links:
+        raise ValueError("The most frequent categories of the selected columns are never linked to each other.")
+    # Ordem no círculo: Sort = None segue a ordem de aparição (as colunas na ordem em que o usuário as selecionou);
+    # Ascending / Descending, o fluxo total do nó. Nó sem nenhuma ligação não entra no círculo.
+    linked = {n for k in links for n in k}
+    nodes = [n for n in appear if n in linked]
+    flow = {n: sum(v for k, v in links.items() for e in k if e == n) for n in nodes}
+    sort_mode = str(_opt(options, "chord_sort")).strip().lower()
+    if sort_mode in ("ascending", "descending"):
+        nodes.sort(key=lambda n: flow[n], reverse=(sort_mode == "descending"))
+    n = len(nodes)
+    idx = {name: i for i, name in enumerate(nodes)}
+    W = np.zeros((n, n))                          # W[i, j]: peso de i -> j
+    for (src, dst), v in links.items():
+        W[idx[src], idx[dst]] += v
+    total_node = W.sum(axis=1) + W.sum(axis=0)    # tudo o que sai e entra em cada nó
+
+    gap_deg = float(_opt(options, "chord_gap"))
+    gap = np.deg2rad(gap_deg)
+    span = 2 * np.pi - gap * n
+    if span <= 0:
+        gap, span = 0.0, 2 * np.pi
+    unit = span / total_node.sum()                # radianos por unidade de peso
+    start = np.zeros(n)
+    ang = np.pi / 2                               # o 1º nó começa no topo e o círculo segue no sentido horário
+    for i in range(n):
+        start[i] = ang
+        ang -= total_node[i] * unit + gap
+
+    # Dentro do arco de cada nó, as "vagas" seguem a ordem dos parceiros no círculo (do mais distante para o
+    # mais próximo no sentido do arco), cada parceiro com a saída (i->j) seguida da entrada (j->i), o que evita
+    # cruzamentos desnecessários. Como o círculo corre no sentido horário, o ângulo decresce dentro do arco.
+    out_slot, in_slot = {}, {}                    # (origem, destino) -> (ang_ini, ang_fim)
+    for i in range(n):
+        a = start[i]
+        for j in [i] + [(i - m) % n for m in range(1, n)]:       # ele mesmo, depois i-1, i-2, ...
+            v_out, v_in = W[i, j], W[j, i]
+            if v_out > 0:
+                out_slot[(i, j)] = (a, a - v_out * unit)
+                a -= v_out * unit
+            if v_in > 0:
+                in_slot[(j, i)] = (a, a - v_in * unit)
+                a -= v_in * unit
+
+    colors = _get_series_colors(max(n, 1), color_mode, palette_name, single_color)
+    fig, ax = plt.subplots(figsize=(9, 9))
+    r_out, r_in = 1.0, 0.92
+
+    def _arc_pts(a0, a1, r):
+        m = max(2, int(abs(a1 - a0) / 0.03) + 2)
+        t = np.linspace(a0, a1, m)
+        return list(zip(r * np.cos(t), r * np.sin(t)))
+
+    alpha = float(_opt(options, "chord_alpha"))
+    for (src, dst), v in sorted(((k, W[k]) for k in zip(*np.nonzero(W))), key=lambda kv: -kv[1]):
+        s0, s1 = out_slot[(src, dst)]
+        t0, t1 = in_slot[(src, dst)]
+        pts_s = _arc_pts(s0, s1, r_in)
+        pts_t = _arc_pts(t0, t1, r_in)
+        verts = [pts_s[0]] + pts_s[1:] + [(0.0, 0.0), pts_t[0]] + pts_t[1:] + [(0.0, 0.0), pts_s[0]]
+        codes = ([Path.MOVETO] + [Path.LINETO] * (len(pts_s) - 1) + [Path.CURVE3, Path.CURVE3]
+                 + [Path.LINETO] * (len(pts_t) - 1) + [Path.CURVE3, Path.CURVE3])
+        verts.append(pts_s[0]); codes.append(Path.CLOSEPOLY)
+        ax.add_patch(PathPatch(Path(verts, codes), facecolor=colors[src], edgecolor="none", alpha=alpha, zorder=1))
+
+    for i, name in enumerate(nodes):
+        a0, a1 = start[i], start[i] - total_node[i] * unit
+        ax.add_patch(Wedge((0, 0), r_out, np.rad2deg(a1), np.rad2deg(a0), width=r_out - r_in - 0.005,
+                           facecolor=colors[i], edgecolor="#333333", linewidth=0.6, zorder=3))
+        mid = (a0 + a1) / 2.0
+        deg = np.rad2deg(mid) % 360
+        lab = str(name)
+        if label_mark:
+            lab += f" ({_fmt_val(total_node[i])})"
+        left = 90 < deg < 270
+        ax.text(1.04 * np.cos(mid), 1.04 * np.sin(mid), lab, ha="right" if left else "left", va="center",
+                rotation=deg + 180 if left else deg, rotation_mode="anchor", fontsize=9, zorder=4)
+
+    ax.set_xlim(-1.45, 1.45); ax.set_ylim(-1.45, 1.45)
+    ax.set_aspect("equal"); ax.axis("off")
+    if title:
+        ax.set_title(title, fontsize=14, fontweight="bold", pad=14)
+    else:
+        ax.set_title("Sankey Chord: " + " → ".join(map(str, stage_cols)), fontsize=14, pad=14)
     plt.tight_layout()
     return fig
 
@@ -1563,6 +2251,7 @@ PLOTTERS = {
     "Violin": plot_violin,
     "Heatmap": plot_heatmap,
     "Sankey": plot_sankey,
+    "Sankey Chord": plot_chord,
 }
 
 # ======= 2D CHARTS =========
@@ -1570,7 +2259,8 @@ def plot_scatter_2D(df: pd.DataFrame, x_col: str, y_col: str, group_col: str,
                                        title: str = "", xlabel: str = "", ylabel: str = "",
                                        palette_name: str = "tab10", single_color: str = "#1f77b4",
                                        color_mode: str = "Palette (multi-color)",
-                                       label_mark: bool = False, trend_mode: str = "None", show_legend: bool = False):
+                                       label_mark: bool = False, trend_mode: str = "None", show_legend: bool = False,
+                                       options=None):
     fig, ax = plt.subplots(figsize=(12, 6))
 
     x = _series_to_numeric(df[x_col])
@@ -1588,7 +2278,8 @@ def plot_scatter_2D(df: pd.DataFrame, x_col: str, y_col: str, group_col: str,
 
     for c in cats:
         d = tmp[tmp["g"] == c]
-        ax.scatter(d["x"], d["y"], label=str(c), color=colors[c])
+        ax.scatter(d["x"], d["y"], label=str(c), color=colors[c],
+                   s=float(_opt(options, "point_size")), alpha=float(_opt(options, "point_alpha")))
         if label_mark:
             _annotate_xy(
                 ax,
@@ -1661,9 +2352,7 @@ def plot_scatter_2D(df: pd.DataFrame, x_col: str, y_col: str, group_col: str,
                    
     if show_legend == True:
         # remove duplicatas de label na legenda
-        handles, labels = ax.get_legend_handles_labels()
-        uniq = dict(zip(labels, handles))
-        ax.legend(uniq.values(), uniq.keys())
+        _legend(ax, options, dedupe=True)
         
     ax.spines[["top", "right"]].set_visible(False)
     plt.tight_layout()
@@ -1685,7 +2374,8 @@ def plot_scatter_3D(
     color_mode: str = "Palette (multi-color)",
     label_mark: bool = False,
     trend_mode: str = "None",
-    show_legend: bool = False
+    show_legend: bool = False,
+    options=None
 ):
     from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
@@ -1728,8 +2418,8 @@ def plot_scatter_3D(
                 d["x"].to_numpy(dtype=float),
                 d["y"].to_numpy(dtype=float),
                 d["z"].to_numpy(dtype=float),
-                s=30,
-                alpha=0.75,
+                s=float(_opt(options, "point_size", 30.0)),
+                alpha=float(_opt(options, "point_alpha", 0.75)),
                 color=color_map[c],
                 depthshade=True,
                 label=f"{c} (n={len(d)})"
@@ -1766,8 +2456,8 @@ def plot_scatter_3D(
             tmp["x"].to_numpy(dtype=float),
             tmp["y"].to_numpy(dtype=float),
             tmp["z"].to_numpy(dtype=float),
-            s=30,
-            alpha=0.75,
+            s=float(_opt(options, "point_size", 30.0)),
+            alpha=float(_opt(options, "point_alpha", 0.75)),
             color=single_color,
             depthshade=True,
             label="Data"
@@ -1796,24 +2486,10 @@ def plot_scatter_3D(
                 )
 
     # ==========================================================
-    # LEGENDA (CORRIGIDA)
+    # LEGENDA (sem rótulos repetidos, na posição escolhida)
     # ==========================================================
     if show_legend:
-        handles, labels = ax.get_legend_handles_labels()
-
-        if len(handles) > 0:
-            # remove duplicatas
-            uniq = dict(zip(labels, handles))
-            ax.legend(
-                uniq.values(),
-                uniq.keys(),
-                loc="upper left",
-                bbox_to_anchor=(1.02, 1),   # posiciona fora do eixo 3D
-                borderaxespad=0
-            )
-
-    if show_legend == True:
-        ax.legend()
+        _legend(ax, options, dedupe=True)
 
     plt.tight_layout()
     return fig
