@@ -5750,6 +5750,62 @@ class MainWindow(QMainWindow):
     # the incoming STEP2/3 tab (if any) - leaving other tabs untouched.
     STEP_DF_TABS = {3: "df_name_view", 4: "df_name_view5"}
 
+    # ------------------------------------------------------------------
+    # Dimensões do dataframe ("50 Columns" sobre "200 Rows") ao lado direito da caixa com o nome do arquivo
+    # (STEP 2, STEP 3, STATISTICS e PLOT).
+    # ------------------------------------------------------------------
+    DF_DIMS_COLOR = "#4AA3DF"      # azul dos botões "Select DataFrame" (bordas dos grupos: #2A4A6B, escuro demais p/ texto)
+    DF_DIMS_TABS = {"step2": 3, "step3": 4}        # chave -> índice da aba (STEP_DF_TABS); as outras usam atributo próprio
+    DF_DIMS_ATTR = {"stats": ("stats_df", "df_name_view_stats"), "plot": ("plot_df", "df_name_view_plot"),
+                    # ETAPA 4 e ETAPA 5 (AD) mostram os mesmos dataframes interno/externo (self.df_int / self.df_ext)
+                    "int_skl": ("df_int", "df_name_view_int_skl"), "ext_skl": ("df_ext", "df_name_view_ext_skl"),
+                    "int_ad": ("df_int", "df_name_view_int_AD"), "ext_ad": ("df_ext", "df_name_view_ext_AD")}
+    DF_BOX_WIDTH = 600             # largura padrão das caixas com o nome do dataframe selecionado
+
+    def _make_df_dims_label(self, key, line_edit):
+        """Rótulo pequeno e azul, a colocar à direita da caixa `line_edit`: colunas em cima e linhas embaixo."""
+        lbl = QLabel()
+        lbl.setStyleSheet(f"color: {self.DF_DIMS_COLOR}; font-size: 10px; font-weight: bold; background: transparent;")
+        lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        lbl.setMinimumWidth(78)
+        if not hasattr(self, "_df_dims_labels"):
+            self._df_dims_labels, self._df_dims = {}, {}
+        self._df_dims_labels[key] = lbl
+        self._df_dims[key] = None
+        # o texto da caixa muda junto com o dataframe: lê as dimensões depois que o dataframe já foi atribuído
+        line_edit.textChanged.connect(lambda _t, k=key: QTimer.singleShot(0, lambda: self._update_df_dims(k)))
+        self._tr("df_dims_cols", lambda _t, k=key: self._render_df_dims(k), n=0)     # refaz o texto ao trocar o idioma
+        return lbl
+
+    def _render_df_dims(self, key):
+        lbl = getattr(self, "_df_dims_labels", {}).get(key)
+        if lbl is None:
+            return
+        dims = self._df_dims.get(key)
+        if not dims:
+            lbl.clear()
+            return
+        n_rows, n_cols = (f"{n:,}".replace(",", ".") if self._idioma == "pt" else f"{n:,}" for n in dims)
+        lbl.setText(f"{i18n.t('df_dims_cols', self._idioma, n=n_cols)}<br>{i18n.t('df_dims_rows', self._idioma, n=n_rows)}")
+
+    def _update_df_dims(self, key):
+        """Relê o nº de linhas e colunas do dataframe que a caixa do `key` descreve e atualiza o rótulo."""
+        if key not in getattr(self, "_df_dims_labels", {}):
+            return
+        if key in self.DF_DIMS_TABS:
+            idx = self.DF_DIMS_TABS[key]
+            box = getattr(self, self.STEP_DF_TABS[idx], None)
+            if self.tabs.currentIndex() == idx:
+                df = getattr(self, "df_selecionado", None)
+            else:
+                df = getattr(self, "_step_df_cache", {}).get(idx, (None, ""))[0]
+        else:
+            attr, box_name = self.DF_DIMS_ATTR[key]
+            df, box = getattr(self, attr, None), getattr(self, box_name, None)
+        has_name = box is not None and bool(box.text().strip())
+        self._df_dims[key] = (len(df), df.shape[1]) if has_name and isinstance(df, pd.DataFrame) else None
+        self._render_df_dims(key)
+
     def _on_main_tab_changed(self, new_index):
         prev_index = getattr(self, "_current_df_tab_index", None)
 
@@ -5766,6 +5822,8 @@ class MainWindow(QMainWindow):
                 label_widget.setText(cached_label)
 
         self._current_df_tab_index = new_index
+        for key in self.DF_DIMS_TABS:
+            self._update_df_dims(key)
 
         # Ao abrir a aba STEP 5 (Applicability Domain), o grupo Interpretability Tools precisa dos
         # modelos/conjuntos da USI atual (carregada ou recém-treinada no Step 4).
@@ -8843,6 +8901,7 @@ class MainWindow(QMainWindow):
         dataframe), so STEP2's dropdowns never go stale relative to the "Select
         DataFrame" description at the top of the tab.
         """
+        self._update_df_dims("step2")
         if getattr(self, "df_selecionado", None) is None:
             self.list_columns.clear()
             return
@@ -10254,6 +10313,7 @@ class MainWindow(QMainWindow):
     def _refresh_plot_dataframe_widgets(self):
         """Repopula as listas X/Y/Z da aba PLOT a partir de self.plot_df (vazias se não houver)."""
         df = getattr(self, "plot_df", None)
+        self._update_df_dims("plot")
         self._plot_all_cols, self._plot_numeric_cols = [], []
         if df is None:
             for lw in (self.lw_plot_x, self.lw_plot_y, self.lw_plot_z):
@@ -10936,6 +10996,7 @@ class MainWindow(QMainWindow):
         must be called any time self.stats_df changes, so its dropdowns never go stale
         relative to the "Select DataFrame" description at the top of the tab.
         """
+        self._update_df_dims("stats")
         if getattr(self, "stats_df", None) is None:
             self.list_columns_stat.clear()
             # "Tamanho da População (N)" não é resetado aqui: é editável mesmo sem
@@ -13029,6 +13090,7 @@ class MainWindow(QMainWindow):
         dataframe), so STEP4's dropdowns never go stale relative to the "Select
         DataFrame" description at the top of the tab.
         """
+        self._update_df_dims("step3")
         if getattr(self, "df_selecionado", None) is None:
             # No dataframe loaded (e.g. right after "New Project"): just blank every dependent
             # combo instead of falling into the except below, which would otherwise pop a
@@ -19730,6 +19792,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "df_name_view_int_skl"):
             self.df_name_view_int_skl.setText(os.path.basename(file_path))
         self._df_int_path = self._to_project_relative_path(file_path)
+        self._update_df_dims("int_skl"); self._update_df_dims("int_ad")
 
         # Ao carregar manualmente (botão "Select Internal DataFrame", não a restauração de Previous
         # Project), já define a USI que o próximo Run Screening vai usar - assim "View Split" clicado
@@ -19797,6 +19860,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "df_name_view_ext_skl"):
             self.df_name_view_ext_skl.setText(os.path.basename(file_path))
         self._df_ext_path = self._to_project_relative_path(file_path)
+        self._update_df_dims("ext_skl"); self._update_df_dims("ext_ad")
 
         self._update_predict_descriptor_range_inputs(getattr(self, "df_ext", None) if getattr(self, "chk_pd_external", None) and self.chk_pd_external.isChecked() else None)
         # STEP 6 "External Validation, Refit and Prediction" group's "X range (external df)" — mesma heurística de
@@ -21570,13 +21634,17 @@ class MainWindow(QMainWindow):
             # Criar caixa de texto onde será exibido o endereço do dataframe selecionado:
             df_name_view = QLineEdit()
             df_name_view.setReadOnly(True)
+            df_name_view.setFixedWidth(self.DF_BOX_WIDTH)
             # df_name_view.setFixedHeight(100)
             df_name_view.setStyleSheet("background-color: #6E8CA8; color: #6E8CA8; border: 1px solid #ccc; border-radius: 4px; padding: 5px;")
             self.df_name_view = df_name_view
             
             # Adicionar o botão e a caixa ao layout de botão:
+            btn_layout.addStretch()
             btn_layout.addWidget(btn_select_df)
             btn_layout.addWidget(df_name_view)
+            btn_layout.addWidget(self._make_df_dims_label("step2", df_name_view))
+            btn_layout.addStretch()
             
             # Adicionar o layout de botão ao layout principal:
             l3.addLayout(btn_layout)
@@ -22116,6 +22184,7 @@ class MainWindow(QMainWindow):
             # Criar caixa de texto onde será exibido o endereço do dataframe selecionado:
             df_name_view5 = QLineEdit()
             df_name_view5.setReadOnly(True)
+            df_name_view5.setFixedWidth(self.DF_BOX_WIDTH)
             # df_name_view4.setFixedHeight(100)
             df_name_view5.setStyleSheet("background-color: #6E8CA8; color: #6E8CA8; border: 1px solid #ccc; border-radius: 4px; padding: 5px;")
             self.df_name_view5 = df_name_view5
@@ -22130,10 +22199,13 @@ class MainWindow(QMainWindow):
             self.ed_rd_session_id.setStyleSheet("background-color: #6E8CA8; color: #6E8CA8; border: 1px solid #ccc; border-radius: 4px; padding: 5px;")
 
             # Adicionar o botão e a caixa ao layout de botão:
+            btn_layout5.addStretch()
             btn_layout5.addWidget(btn_select_df5)
             btn_layout5.addWidget(df_name_view5)
+            btn_layout5.addWidget(self._make_df_dims_label("step3", df_name_view5))
             btn_layout5.addWidget(rd_random_label)
             btn_layout5.addWidget(self.ed_rd_session_id)
+            btn_layout5.addStretch()
 
             # Adicionar o layout de botão ao layout principal:
             l5.addLayout(btn_layout5)
@@ -22850,6 +22922,7 @@ class MainWindow(QMainWindow):
             g14_15_17_layout = QHBoxLayout()
             g15_17_layout = QVBoxLayout()
             g15_17_layout.addWidget(g15)
+            g15_17_layout.addStretch()      # colapsado, o grupo fica no topo (como g14 abaixo), não centralizado
             # g14 fica num QVBoxLayout próprio com addStretch() após ele: sem isso, o
             # QHBoxLayout abaixo estica g14 verticalmente até igualar a altura de g15
             # (mais alto), mesmo já sem o addStretch() interno de g14 - deixando um
@@ -22980,7 +23053,7 @@ class MainWindow(QMainWindow):
 
             df_name_view_int_skl = QLineEdit()
             df_name_view_int_skl.setReadOnly(True)
-            df_name_view_int_skl.setFixedWidth(400)
+            df_name_view_int_skl.setFixedWidth(self.DF_BOX_WIDTH)
             df_name_view_int_skl.setStyleSheet("background-color: #6E8CA8; color: #6E8CA8; border: 1px solid #ccc; border-radius: 4px; padding: 5px;")
             self.df_name_view_int_skl = df_name_view_int_skl
 
@@ -22992,7 +23065,7 @@ class MainWindow(QMainWindow):
 
             df_name_view_ext_skl = QLineEdit()
             df_name_view_ext_skl.setReadOnly(True)
-            df_name_view_ext_skl.setFixedWidth(400)
+            df_name_view_ext_skl.setFixedWidth(self.DF_BOX_WIDTH)
             df_name_view_ext_skl.setStyleSheet("background-color: #6E8CA8; color: #6E8CA8; border: 1px solid #ccc; border-radius: 4px; padding: 5px;")
             self.df_name_view_ext_skl = df_name_view_ext_skl
 
@@ -23021,6 +23094,7 @@ class MainWindow(QMainWindow):
             head_skl1.addStretch()
             head_skl1.addWidget(btn_select_df_int_skl, alignment=Qt.AlignRight)
             head_skl1.addWidget(df_name_view_int_skl, alignment=Qt.AlignLeft)
+            head_skl1.addWidget(self._make_df_dims_label("int_skl", df_name_view_int_skl))
             head_skl1.addWidget(random_label_skl, alignment=Qt.AlignRight)
             head_skl1.addWidget(self.ed_skl_random_state, alignment=Qt.AlignLeft)
             head_skl1.addStretch()
@@ -23028,6 +23102,7 @@ class MainWindow(QMainWindow):
             head_skl2.addStretch()
             head_skl2.addWidget(btn_select_df_ext_skl, alignment=Qt.AlignRight)
             head_skl2.addWidget(df_name_view_ext_skl, alignment=Qt.AlignLeft)
+            head_skl2.addWidget(self._make_df_dims_label("ext_skl", df_name_view_ext_skl))
             head_skl2.addWidget(USI_label_skl, alignment=Qt.AlignRight)
             head_skl2.addWidget(self.ed_skl_USI, alignment=Qt.AlignLeft)
             # "Remove USI": apaga a pasta inteira da USI selecionada (mesmo estilo "danger" do Remove Model).
@@ -23697,7 +23772,7 @@ class MainWindow(QMainWindow):
             # Criar caixa de texto onde será exibido o endereço do dataframe selecionado:
             df_name_view_int_AD = QLineEdit()
             df_name_view_int_AD.setReadOnly(True)
-            df_name_view_int_AD.setFixedWidth(500)
+            df_name_view_int_AD.setFixedWidth(self.DF_BOX_WIDTH)
             df_name_view_int_AD.setStyleSheet("background-color: #6E8CA8; color: #6E8CA8; border: 1px solid #ccc; border-radius: 4px; padding: 5px;")
             self.df_name_view_int_AD = df_name_view_int_AD
 
@@ -23728,7 +23803,7 @@ class MainWindow(QMainWindow):
             # Criar caixa de texto onde será exibido o endereço do dataframe selecionado:
             df_name_view_ext_AD = QLineEdit()
             df_name_view_ext_AD.setReadOnly(True)
-            df_name_view_ext_AD.setFixedWidth(500)
+            df_name_view_ext_AD.setFixedWidth(self.DF_BOX_WIDTH)
             df_name_view_ext_AD.setStyleSheet("background-color: #6E8CA8; color: #6E8CA8; border: 1px solid #ccc; border-radius: 4px; padding: 5px;")
             self.df_name_view_ext_AD = df_name_view_ext_AD
 
@@ -23736,11 +23811,13 @@ class MainWindow(QMainWindow):
             head_lay1.addStretch()
             head_lay1.addWidget(btn_select_df_int_AD, alignment=Qt.AlignRight)
             head_lay1.addWidget(df_name_view_int_AD, alignment=Qt.AlignLeft)
+            head_lay1.addWidget(self._make_df_dims_label("int_ad", df_name_view_int_AD))
             head_lay1.addStretch()
 
             head_lay2.addStretch()
             head_lay2.addWidget(btn_select_df_ext_AD, alignment=Qt.AlignRight)
             head_lay2.addWidget(df_name_view_ext_AD, alignment=Qt.AlignLeft)
+            head_lay2.addWidget(self._make_df_dims_label("ext_ad", df_name_view_ext_AD))
             head_lay2.addStretch()
 
             # --- Group: parâmetros ---
@@ -24949,11 +25026,15 @@ class MainWindow(QMainWindow):
             # Criar caixa de texto onde será exibido o nome do dataframe selecionado:
             df_name_view_stats = QLineEdit()
             df_name_view_stats.setReadOnly(True)
+            df_name_view_stats.setFixedWidth(self.DF_BOX_WIDTH)
             df_name_view_stats.setStyleSheet("background-color: #6E8CA8; color: #6E8CA8; border: 1px solid #ccc; border-radius: 4px; padding: 5px;")
             self.df_name_view_stats = df_name_view_stats
 
+            btn_layout10.addStretch()
             btn_layout10.addWidget(btn_select_df_stats)
             btn_layout10.addWidget(df_name_view_stats)
+            btn_layout10.addWidget(self._make_df_dims_label("stats", df_name_view_stats))
+            btn_layout10.addStretch()
             l10.addLayout(btn_layout10)
 
             # ---------------------------------------------------------------------------------------------
@@ -25566,16 +25647,20 @@ class MainWindow(QMainWindow):
             btn_select_df_plot.clicked.connect(self.select_dataframe_plot)
             df_name_view_plot = QLineEdit()
             df_name_view_plot.setReadOnly(True)
+            df_name_view_plot.setFixedWidth(self.DF_BOX_WIDTH)
             df_name_view_plot.setStyleSheet("background-color: #6E8CA8; color: #6E8CA8; border: 1px solid #ccc; border-radius: 4px; padding: 5px;")
             self.df_name_view_plot = df_name_view_plot
+            btn_layout11.addStretch()
             btn_layout11.addWidget(btn_select_df_plot)
             btn_layout11.addWidget(df_name_view_plot)
+            btn_layout11.addWidget(self._make_df_dims_label("plot", df_name_view_plot))
             # "Transpose": no canto direito da caixa com o nome do arquivo. Marcado, a tabela usada (e exibida)
             # é a transposta: linhas viram colunas e colunas viram linhas.
             self.chk_plot_transpose = QCheckBox(); self._tr("plot_chk_transpose", self.chk_plot_transpose.setText)
             self._tr("plot_tip_transpose", self.chk_plot_transpose.setToolTip)
             self.chk_plot_transpose.toggled.connect(self._on_plot_transpose_toggled)
             btn_layout11.addWidget(self.chk_plot_transpose)
+            btn_layout11.addStretch()
 
             # 2) Dimensions (mutuamente exclusivas; 1D por padrão)
             self.ck_plot_1d = QCheckBox("1D"); self.ck_plot_2d = QCheckBox("2D"); self.ck_plot_3d = QCheckBox("3D")

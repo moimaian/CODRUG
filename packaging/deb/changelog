@@ -601,6 +601,15 @@ codrug (1.2.0-1) unstable; urgency=low
     X, alunos em Y) dá uma linha por aluno ao longo dos meses. Caso
     contrário, as colunas seguem numeradas como antes. Manuais
     atualizados.
+  * ETAPA 2 a ETAPA 5, STATS e PLOT: à direita da caixa com o nome do
+    dataframe, texto pequeno em azul com o nº de colunas (em cima) e de
+    linhas (embaixo) do dataframe selecionado (nas ETAPAS 4 e 5, do
+    interno e do externo), atualizado ao carregar, trocar de aba, trocar
+    de idioma e, no PLOT, ao marcar Transpose. Todas as caixas com o
+    nome do dataframe têm agora 600 px e a linha fica centralizada.
+    Manuais atualizados.
+  * ETAPA 3: o grupo Dimensionality Reduction, ao ser colapsado, fica no
+    topo (como os demais) em vez de centralizado na vertical.
 
  -- Moisés Maia Neto <moimaian@gmail.com>  Tue, 13 Oct 2026 03:18:10 -0300
 

@@ -1959,6 +1959,8 @@ _TEXTOS = {
     "plot_chk_legend": {"en": "Show legend", "pt": "Mostrar legenda"},
     "plot_chk_label": {"en": "Show label mark", "pt": "Mostrar valores nos pontos"},
     "plot_chk_transpose": {"en": "Transpose", "pt": "Transpor"},
+    "df_dims_cols": {"en": "{n} Columns", "pt": "{n} Colunas"},
+    "df_dims_rows": {"en": "{n} Rows", "pt": "{n} Linhas"},
     "plot_tip_transpose": {
         "en": "Use the transposed table: rows become columns and columns become rows. The first column of the "
               "transposed table (\"Index\") holds the original column names; the other columns are named after the "
