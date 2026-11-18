@@ -610,6 +610,36 @@ codrug (1.2.0-1) unstable; urgency=low
     Manuais atualizados.
   * ETAPA 3: o grupo Dimensionality Reduction, ao ser colapsado, fica no
     topo (como os demais) em vez de centralizado na vertical.
+  * PLOT, papéis das colunas: a seleção é lida do mesmo jeito em qualquer
+    gráfico (X numérica = eixo; X categórica = categorias e cores; Y =
+    valores; Z = 3º eixo no 3D). As caixas 1D/2D/3D viram uma só, "3D".
+    Uma linha "Interpretação" sob as listas mostra, ao vivo, o papel de
+    cada coluna ou o motivo de a seleção ser inválida; papéis que o
+    gráfico não usa (ex.: X numérica no Box Plot) avisam e pedem
+    confirmação em vez de serem ignorados. Bar com X numérico resume os
+    valores repetidos de X pela Statistic; Line e Area com X categórico
+    agregam por categoria (Statistic); "cat,cat | num" funciona em todos
+    os tipos (1ª categórica = eixo, demais = cores); nada selecionado
+    pede uma seleção em vez de plotar a tabela inteira. Rótulos de eixo
+    e limites padronizados. Núcleo em module_graph_generator.py
+    (resolve_roles/execute_plan), o mesmo do GraphGenerator. Projetos
+    antigos (dim_1d/dim_2d) abrem normalmente. Manuais atualizados.
+  * PLOT, Histogram e Density(KDE) por categoria: corrige o grupo que
+    sumia. O 1º grupo com menos da metade das linhas (ex.: Inactive =
+    25%) era tomado como coluna X; extract_x_y agora só conta valores
+    preenchidos. Histogram passa a usar as mesmas faixas em todas as
+    séries; Density usa grade fina por série (picos estreitos não se
+    perdem) e ganha "Pico = 1" para comparar formas. Manuais atualizados.
+  * PLOT, Bar: opcoes de Statistic Single Value, Mean ± SD, Median ± IQR e
+    Mode. O desvio padrao (Mean ± SD) ou Q1 a Q3 (Median ± IQR) sao
+    desenhados no topo das barras e, com Show label mark, escritos acima
+    delas ("valor ± DP" ou "mediana [Q1; Q3]"); categoria com um so valor
+    fica sem marcacao. Single Value vira o padrao quando cada categoria
+    ocorre uma vez (Mean ± SD quando alguma se repete) ate o usuario
+    escolher; o rotulo do eixo Y acompanha. O Line (X categorico) tambem
+    desenha a barra de erro em cada ponto, na cor da serie, com o mesmo
+    texto no rotulo; a Area usa so o valor central. Projetos antigos (Mean, Median, Single value) abrem normalmente
+    (module_graph_generator.py, CODRUG.py, BIN/i18n.py). Manuais atualizados.
 
  -- Moisés Maia Neto <moimaian@gmail.com>  Tue, 13 Oct 2026 03:18:10 -0300
 

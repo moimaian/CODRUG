@@ -12,14 +12,16 @@
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-"""Funções de plotagem da aba PLOT (Gerador de Gráficos) do CODRUG.
+"""Funções de plotagem da aba PLOT (Gerador de Gráficos) do CODRUG, sem nenhuma dependência de Qt.
 
-Código portado do GraphGenerator (mesmo autor), sem nenhuma dependência de Qt: cada plotter recebe
-um DataFrame e devolve uma matplotlib Figure. A interface (aba PLOT em CODRUG.py) só escolhe as
-colunas, monta o DataFrame de entrada e exibe a figura devolvida.
+Cada plotter recebe um DataFrame e devolve uma matplotlib Figure. Acima deles fica a camada de PAPÉIS DAS COLUNAS
+(seção final deste arquivo): resolve_roles() decide, só pelos tipos das colunas selecionadas e pelo tipo de gráfico,
+o que cada coluna faz (eixo, cores/grupos, valores, etapas...) e execute_plan() monta os dados e chama o plotter.
+A interface (aba PLOT em CODRUG.py) só escolhe as colunas, pergunta o que for preciso ao usuário e exibe a figura.
+O mesmo núcleo é usado pelo GraphGenerator (graph_core.py).
 
-Convenção do DataFrame de entrada dos plotters 1D (ver extract_x_y): coluna "X" explícita (ou a
-primeira coluna não numérica) como eixo X e as demais colunas numéricas como séries Y."""
+Convenção do DataFrame de entrada dos plotters (ver extract_x_y): coluna "X" explícita (ou a primeira coluna não
+numérica) como eixo X e as demais colunas numéricas como séries Y."""
 
 import numpy as np
 import pandas as pd
@@ -67,17 +69,23 @@ CHART_TYPES_3D = ["Scatter"]
 # com _opt(); sem a chave, usam o padrão do catálogo.
 # ----------------------------------------------------------------------------------------------------------
 COMMON_OPTIONS = [("samples", "int", 0, 0, 10_000_000, 100)]      # 0 = todas as linhas
+# Estatística (opção "bar_stat") do Bar, Line e Area: centro + dispersão que o Bar desenha no topo das barras.
+STAT_SINGLE, STAT_MEAN, STAT_MEDIAN, STAT_MODE = "Single Value", "Mean ± SD", "Median ± IQR", "Mode"
+BAR_STATS = [STAT_SINGLE, STAT_MEAN, STAT_MEDIAN, STAT_MODE]
 CHART_OPTIONS = {
     "Bar": [("bar_width", "float", 0.8, 0.1, 1.0, 0.05),
             ("bar_sort", "choice", "None", ["None", "Ascending", "Descending"]),
             ("bar_top", "int", 0, 0, 1000, 1),
-            ("bar_stat", "choice", "Mean", ["Mean", "Median", "Mode", "Single value"])],
+            ("bar_stat", "choice", STAT_MEAN, BAR_STATS)],
     "Line": [("line_width", "float", 1.5, 0.5, 10.0, 0.5),
-             ("marker_size", "float", 6.0, 0.0, 30.0, 1.0)],
+             ("marker_size", "float", 6.0, 0.0, 30.0, 1.0),
+             ("bar_stat", "choice", STAT_MEAN, BAR_STATS)],
     "Scatter": [("point_size", "float", 36.0, 2.0, 500.0, 2.0),
                 ("point_alpha", "float", 0.85, 0.1, 1.0, 0.05)],
-    "Area (Stacked)": [("area_stacked_alpha", "float", 1.0, 0.1, 1.0, 0.05)],
-    "Area (Overlapped)": [("area_overlap_alpha", "float", 0.6, 0.1, 1.0, 0.05)],
+    "Area (Stacked)": [("area_stacked_alpha", "float", 1.0, 0.1, 1.0, 0.05),
+                       ("bar_stat", "choice", STAT_MEAN, BAR_STATS)],
+    "Area (Overlapped)": [("area_overlap_alpha", "float", 0.6, 0.1, 1.0, 0.05),
+                          ("bar_stat", "choice", STAT_MEAN, BAR_STATS)],
     "Box Plot": [("box_whisker", "float", 1.5, 0.5, 5.0, 0.1),
                  ("box_width", "float", 0.5, 0.1, 1.0, 0.05),
                  ("box_outliers", "bool", True)],
@@ -92,7 +100,8 @@ CHART_OPTIONS = {
                   ("hist_cumulative", "bool", False)],
     "Density(KDE)": [("kde_bw", "float", 1.0, 0.1, 5.0, 0.1),
                      ("kde_points", "int", 400, 50, 2000, 50),
-                     ("kde_fill", "bool", False)],
+                     ("kde_fill", "bool", False),
+                     ("kde_peak", "bool", False)],
     "Sankey": [("sankey_orient", "choice", "Horizontal", SANKEY_ORIENTATIONS),
                ("sankey_sort", "choice", "None", ["None", "Ascending", "Descending"]),
                ("sankey_top", "int", SANKEY_MAX_NODES_PER_STAGE, 1, SANKEY_MAX_NODES_PER_STAGE, 1),
@@ -201,14 +210,22 @@ def excessive_marks(chart: str, n_rows: int, n_series: int = 1, label_mark: bool
     return None
 
 
-BAR_STATS = ["Mean", "Median", "Mode", "Single value"]
-SINGLE_VALUE = "Single value"       # cada categoria aparece uma só vez: mostra o valor, sem desvio padrão
+SINGLE_VALUE = STAT_SINGLE          # cada categoria aparece uma só vez: mostra o valor, sem dispersão
 
 
 def bar_stat_slug(stat) -> str:
-    """Nome curto da estatística ("mean", "median", "mode" ou "single"), usado nas chaves de tradução."""
+    """Nome curto da estatística ("mean", "median", "mode" ou "single"), usado nas chaves de tradução. Aceita também
+    os nomes antigos ("Mean", "Median", "Single value") de projetos salvos."""
     s = str(stat).strip().lower()
-    return "single" if s.startswith("single") else s
+    for slug in ("single", "median", "mode", "mean"):
+        if s.startswith(slug):
+            return slug
+    return "mean"
+
+
+def normalize_bar_stat(stat) -> str:
+    """Nome atual da estatística ("Single Value", "Mean ± SD", "Median ± IQR" ou "Mode") para um nome antigo ou atual."""
+    return {"single": STAT_SINGLE, "mean": STAT_MEAN, "median": STAT_MEDIAN, "mode": STAT_MODE}[bar_stat_slug(stat)]
 
 
 def is_single_value(stat) -> bool:
@@ -217,7 +234,7 @@ def is_single_value(stat) -> bool:
 
 def repeated_categories(x, ydf: pd.DataFrame):
     """Categorias de `x` com mais de um valor em alguma coluna de `ydf`: [(categoria, nº de valores)], na ordem de
-    aparição. Vazio quando cada categoria tem no máximo um valor (condição da estatística "Single value")."""
+    aparição. Vazio quando cada categoria tem no máximo um valor (condição da estatística "Single Value")."""
     x = pd.Series(np.asarray(x, dtype=object), index=ydf.index)
     keep = x.notna()
     y = ydf[keep].apply(_series_to_numeric)
@@ -227,7 +244,7 @@ def repeated_categories(x, ydf: pd.DataFrame):
 
 def repeated_x_values(series):
     """Séries [(rótulo, x, y)] com valores de X repetidos: [(rótulo, valor de X, nº de ocorrências)] (só o primeiro
-    valor repetido de cada série) - o "Single value" do Bar agrupado exige um valor por (série, X)."""
+    valor repetido de cada série) - o "Single Value" do Bar agrupado exige um valor por (série, X)."""
     out = []
     for lab, x, _y in series:
         vc = pd.Series(np.asarray(x)).value_counts()
@@ -265,6 +282,36 @@ def summarize_by_category(x, ydf: pd.DataFrame, stat: str = "Mean"):
     center = center.reset_index().rename(columns={"index": "X"})
     center.columns = ["X"] + list(y.columns)
     return center, sd.reset_index(drop=True)
+
+
+def _group_spread(g, stat):
+    """Dispersão desenhada no topo das barras para um groupby `g` (de Series ou DataFrame): (inferior, superior) com a
+    distância do centro até o fim da marcação. "Mean ± SD": desvio padrão amostral para os dois lados; "Median ± IQR":
+    da mediana até Q1 e até Q3. Mode e Single Value não têm dispersão (None, None). Categorias com um só valor ficam
+    sem marcação (NaN): não há desvio nem quartis de um valor só."""
+    slug = bar_stat_slug(stat)
+    if slug == "mean":
+        lo = hi = g.std(ddof=1)
+    elif slug == "median":
+        med = g.median()
+        lo, hi = med - g.quantile(0.25), g.quantile(0.75) - med
+    else:
+        return None, None
+    enough = g.count() >= 2
+    return lo.where(enough), hi.where(enough)
+
+
+def summarize_with_spread(x, ydf: pd.DataFrame, stat: str = "Mean ± SD"):
+    """Como summarize_by_category, mas devolve (centro, inferior, superior): a dispersão do topo das barras (ver
+    _group_spread) em DataFrames com as colunas de `ydf` (None para Mode e Single Value)."""
+    center, _sd = summarize_by_category(x, ydf, stat)
+    xs = pd.Series(np.asarray(x, dtype=object), index=ydf.index)
+    keep = xs.notna()
+    g = ydf[keep].apply(_series_to_numeric).groupby(xs[keep].astype(str).to_numpy(), sort=False)
+    lo, hi = _group_spread(g, stat)
+    if lo is None:
+        return center, None, None
+    return center, lo.reset_index(drop=True), hi.reset_index(drop=True)
 
 
 def sample_rows(df: pd.DataFrame, n) -> pd.DataFrame:
@@ -311,6 +358,33 @@ def empty_value_counts(df: pd.DataFrame):
     na ordem da tabela."""
     counts = df.isna().sum()
     return [(str(c), int(n)) for c, n in counts.items() if n > 0]
+
+
+def transpose_table(df: pd.DataFrame) -> pd.DataFrame:
+    """Transposta de `df`: as linhas viram colunas e as colunas viram linhas - os nomes originais das colunas ficam
+    na primeira coluna, "Index".
+    Se a primeira coluna de `df` for categórica e tiver um valor distinto e preenchido em cada linha (nomes de
+    alunos, de amostras...), ela é o rótulo das linhas: nomeia as colunas da transposta (um nome repetido recebe o
+    sufixo " (2)", " (3)"...) e não entra como dado. Caso contrário as colunas levam o número da linha original."""
+    first = df.iloc[:, 0] if df.shape[1] >= 2 else None
+    if first is not None and not column_is_numeric(first) and first.notna().all():
+        labels, seen = [], {"Index"}
+        for v in first.astype(str).str.strip():
+            name, k = v, 1
+            while name in seen:
+                k += 1
+                name = f"{v} ({k})"
+            seen.add(name)
+            labels.append(name)
+        t = df.iloc[:, 1:].T.reset_index()
+        t.columns = ["Index"] + labels
+    else:
+        idx = list(df.index)
+        names = [str(i) for i in idx] if len(set(map(str, idx))) == len(idx) else [str(i) for i in range(len(idx))]
+        t = df.T.reset_index()
+        t.columns = ["Index"] + names
+    t["Index"] = t["Index"].astype(str)
+    return t.infer_objects()
 
 
 def column_is_numeric(ser: pd.Series) -> bool:
@@ -374,7 +448,8 @@ def extract_x_y(df: pd.DataFrame):
         # Keep X numeric when it mostly is (e.g. an "epoch" index), instead of
         # always forcing it to string, so Line/Area/Scatter get a real numeric axis.
         x_num = pd.to_numeric(df[x_col], errors="coerce")
-        if x_num.notna().mean() >= 0.5:
+        filled = df[x_col].notna().sum()
+        if filled and x_num.notna().sum() / filled >= 0.5:
             x = x_num.to_numpy(dtype=float)
         else:
             x = df[x_col].astype(str).to_numpy()
@@ -382,7 +457,11 @@ def extract_x_y(df: pd.DataFrame):
     else:
         first = df.iloc[:, 0]
         first_num = pd.to_numeric(first, errors="coerce")
-        non_numeric_ratio = first_num.isna().mean()
+        # Só contam os valores PREENCHIDOS (mesma regra de column_is_numeric): uma coluna numérica com muitas
+        # lacunas (ex.: as tabelas largas de Histogram/Density, em que cada grupo é uma coluna completada com NaN)
+        # não pode virar o "X" e sumir do gráfico.
+        filled = first.notna().sum()
+        non_numeric_ratio = ((first_num.isna() & first.notna()).sum() / filled) if filled else 0.0
 
         # Case 2: first column looks categorical (names)
         if non_numeric_ratio >= 0.5:
@@ -604,13 +683,25 @@ def _fmt_val(v):
     except Exception:
         return str(v)
 
-def _annotate_points(ax, xs, ys, color=None, dx=4, dy=4):
-    # anota valores ao lado do ponto
-    for x, y in zip(xs, ys):
+def _spread_text(h, lo, hi, kind="sd"):
+    """Texto do valor `h` com a dispersão (distâncias `lo`/`hi` até o fim da marcação): "valor ± desvio" (kind "sd") ou
+    "mediana [Q1; Q3]" ("iqr"); só o valor quando a dispersão é indefinida (None ou NaN)."""
+    txt = _fmt_val(h)
+    if lo is None or hi is None or not (np.isfinite(lo) and np.isfinite(hi)):
+        return txt
+    if kind == "iqr":
+        return f"{txt} [{_fmt_val(h - lo)}; {_fmt_val(h + hi)}]"
+    return f"{txt} ± {_fmt_val(hi)}"
+
+
+def _annotate_points(ax, xs, ys, color=None, dx=4, dy=4, lo=None, hi=None, kind="sd"):
+    # anota valores ao lado do ponto; com `lo`/`hi` (dispersão de cada ponto), escreve "valor ± desvio" / "mediana [Q1; Q3]"
+    for k, (x, y) in enumerate(zip(xs, ys)):
         if not np.isfinite(y):
             continue
+        spread = lo is not None and k < len(lo) and k < len(hi)
         ax.annotate(
-            _fmt_val(y),
+            _spread_text(y, lo[k], hi[k], kind) if spread else _fmt_val(y),
             (x, y),
             textcoords="offset points",
             xytext=(dx, dy),
@@ -654,27 +745,45 @@ def _annotate_points_with_text(ax, xs, ys, texts, color=None, dx=4, dy=4):
             color=color
         )
 
-def _annotate_bars(ax, bars, dy=3, sd=None):
-    """Escreve o valor de cada barra acima dela; com `sd` (desvios padrão), escreve "valor ± desvio"."""
+def _annotate_bars(ax, bars, dy=3, sd=None, lo=None, hi=None, kind="sd"):
+    """Escreve o valor de cada barra acima dela (acima da marcação de dispersão, se houver). `lo`/`hi`: distâncias do
+    topo da barra até o fim da marcação (`sd` = o mesmo desvio para os dois lados). `kind`: "sd" escreve
+    "valor ± desvio"; "iqr" escreve "mediana [Q1; Q3]". Barras sem dispersão (NaN) levam só o valor."""
+    if sd is not None and lo is None:
+        lo = hi = sd
     for k, b in enumerate(bars):
         h = b.get_height()
         if not np.isfinite(h):
             continue
-        txt = _fmt_val(h)
-        if sd is not None and k < len(sd) and np.isfinite(sd[k]):
-            txt += f" ± {_fmt_val(sd[k])}"
+        has = lo is not None and k < len(lo) and k < len(hi) and np.isfinite(lo[k]) and np.isfinite(hi[k])
+        txt = _spread_text(h, lo[k], hi[k], kind) if has else _fmt_val(h)
+        anchor = h
+        if has:
+            anchor = h + hi[k] if h >= 0 else h - lo[k]
         ax.annotate(
             txt,
-            (b.get_x() + b.get_width() / 2, h),
+            (b.get_x() + b.get_width() / 2, anchor),
             textcoords="offset points",
             xytext=(0, dy if h >= 0 else -dy),
             ha="center",
             va="bottom" if h >= 0 else "top",
-            fontsize=12 if sd is None else 10,      # "valor ± desvio" é mais largo: fonte menor evita sobreposição
+            fontsize=12 if lo is None else 10,      # "valor ± desvio" é mais largo: fonte menor evita sobreposição
             weight="bold",
             color="#222222"
             # color=b.get_facecolor()
         )
+
+
+def _draw_spread(ax, pos, y, lo, hi, color="#222222"):
+    """Marcação de dispersão (barra de erro com travessões): de y-lo até y+hi. NaN em lo/hi = sem marcação."""
+    if lo is None:
+        return
+    pos, y = np.asarray(pos, dtype=float), np.asarray(y, dtype=float)
+    lo, hi = np.asarray(lo, dtype=float), np.asarray(hi, dtype=float)
+    ok = np.isfinite(pos) & np.isfinite(y) & np.isfinite(lo) & np.isfinite(hi)
+    if ok.any():
+        ax.errorbar(pos[ok], y[ok], yerr=[np.clip(lo[ok], 0, None), np.clip(hi[ok], 0, None)], fmt="none",
+                    ecolor=color, elinewidth=1.4, capsize=4, capthick=1.4, zorder=4)
 
 
 # ======= 1D CHARTS =========
@@ -692,13 +801,17 @@ def plot_bar(
     single_color: str = "#1f77b4",
     options=None,
     yerr=None,
+    err_kind: str = "sd",
 ):
-    """Barras. `yerr` (DataFrame com as mesmas colunas e linhas de Y, ou None) traz o desvio padrão de cada barra
-    quando as linhas são estatísticas por categoria: ele não altera a escala do eixo Y (que parte de zero e
-    acompanha os valores das barras) e só aparece escrito, "valor ± desvio", acima das barras com label_mark."""
+    """Barras. `yerr` traz a dispersão de cada barra quando as linhas são estatísticas por categoria: um DataFrame
+    (mesmas colunas e linhas de Y) com o desvio padrão, ou uma tupla (inferior, superior) de DataFrames com a
+    distância do topo da barra até o fim da marcação (Q1 e Q3 da mediana). A marcação é desenhada no topo das barras
+    e, com label_mark, escrita acima dela: "valor ± desvio" (err_kind "sd") ou "mediana [Q1; Q3]" ("iqr")."""
     x, ydf = extract_x_y(df)
+    yerr_lo = yerr_hi = None
     if yerr is not None:
-        yerr = pd.DataFrame(yerr).reset_index(drop=True)
+        pair = yerr if isinstance(yerr, tuple) else (yerr, yerr)
+        yerr_lo, yerr_hi = (pd.DataFrame(v).reset_index(drop=True) for v in pair)
 
     # Opções: largura, ordenação pelo valor da 1ª série e "Top N" (maiores valores; 0 = todos)
     bw = float(_opt(options, "bar_width"))
@@ -715,16 +828,16 @@ def plot_bar(
             order = order[np.argsort(-np.nan_to_num(key[order], nan=-np.inf), kind="stable")]
         x = np.asarray(x)[order]
         ydf = ydf.iloc[order].reset_index(drop=True)
-        if yerr is not None:
-            yerr = yerr.iloc[order].reset_index(drop=True)
+        if yerr_lo is not None:
+            yerr_lo, yerr_hi = (v.iloc[order].reset_index(drop=True) for v in (yerr_lo, yerr_hi))
 
     fig, ax = plt.subplots(figsize=(12, 6))
 
     def _err(i):
-        """Desvios padrão da série i, só para o texto de label_mark (None sem `yerr`)."""
-        if yerr is None or i >= yerr.shape[1]:
-            return {}, None
-        return {}, np.nan_to_num(yerr.iloc[:, i].to_numpy(dtype=float), nan=0.0)
+        """(inferior, superior) da série i: distâncias do topo da barra até o fim da marcação (None sem `yerr`)."""
+        if yerr_lo is None or i >= yerr_lo.shape[1]:
+            return None, None
+        return yerr_lo.iloc[:, i].to_numpy(dtype=float), yerr_hi.iloc[:, i].to_numpy(dtype=float)
 
     x_pos = np.arange(len(x))
     n_series = len(ydf.columns)
@@ -748,14 +861,15 @@ def plot_bar(
 
         # Cores por categoria: a legenda lista as categorias (X categórico); com X numérico, só o nome da coluna.
         by_category = not np.issubdtype(np.asarray(x).dtype, np.number)
-        err_kw, sd = _err(0)
-        bars = ax.bar(x_pos, y, width=bw, label="_nolegend_" if by_category else str(col), color=bar_colors, **err_kw)
+        lo, hi = _err(0)
+        bars = ax.bar(x_pos, y, width=bw, label="_nolegend_" if by_category else str(col), color=bar_colors)
+        _draw_spread(ax, x_pos, y, lo, hi)
         if by_category:
             _label_category_artists(bars.patches, x)
         bars_by_series.append((x_pos, y, bars, None))  # (xcenters, y, bars, color)
 
         if label_mark:
-            _annotate_bars(ax, bars, sd=sd)
+            _annotate_bars(ax, bars, lo=lo, hi=hi, kind=err_kind)
 
     else:
         # General case: color per series (column)
@@ -767,13 +881,14 @@ def plot_bar(
         for i, col in enumerate(ydf.columns):
             y = ydf[col].to_numpy(dtype=float)
             pos = x_pos - (bw / 2 - width / 2) + i * width  # center of each bar in grouped layout
-            err_kw, sd = _err(i)
-            bars = ax.bar(pos, y, width=width, label=str(col), color=series_colors[i], **err_kw)
+            lo, hi = _err(i)
+            bars = ax.bar(pos, y, width=width, label=str(col), color=series_colors[i])
+            _draw_spread(ax, pos, y, lo, hi)
 
             bars_by_series.append((pos, y, bars, series_colors[i]))
 
             if label_mark:
-                _annotate_bars(ax, bars, sd=sd)
+                _annotate_bars(ax, bars, lo=lo, hi=hi, kind=err_kind)
 
     # -----------------------------
     # 2) TRENDLINE (numeric x_pos)
@@ -854,9 +969,15 @@ def plot_line(df: pd.DataFrame, dpi: int, trend_mode: str = "None", show_legend:
               color_mode: str = "Palette (multi-color)",
               palette_name: str = "Dark2",
               single_color: str = "#1f77b4",
-    options=None):
-
+    options=None, yerr=None, err_kind: str = "sd"):
+    """Linhas. `yerr` (como no plot_bar: DataFrame com o desvio padrão ou tupla (inferior, superior) de DataFrames, com as
+    colunas e linhas de Y) desenha, em cada ponto, a barra de erro na cor da série; com label_mark, o rótulo traz
+    "valor ± desvio" (err_kind "sd") ou "mediana [Q1; Q3]" ("iqr")."""
     x, ydf = extract_x_y(df)
+    yerr_lo = yerr_hi = None
+    if yerr is not None:
+        pair = yerr if isinstance(yerr, tuple) else (yerr, yerr)
+        yerr_lo, yerr_hi = (pd.DataFrame(v).reset_index(drop=True) for v in pair)
     fig, ax = plt.subplots(figsize=(12, 6))
 
     x_is_num = np.issubdtype(np.asarray(x).dtype, np.number)
@@ -869,8 +990,13 @@ def plot_line(df: pd.DataFrame, dpi: int, trend_mode: str = "None", show_legend:
         ms = float(_opt(options, "marker_size"))
         line = ax.plot(x_plot, yvals, marker="o" if ms > 0 else None, markersize=ms,
                        linewidth=float(_opt(options, "line_width")), label=str(col), color=colors[i])[0]
+        lo = hi = None
+        if yerr_lo is not None and i < yerr_lo.shape[1]:
+            lo, hi = yerr_lo.iloc[:, i].to_numpy(dtype=float), yerr_hi.iloc[:, i].to_numpy(dtype=float)
+            _draw_spread(ax, x_plot, yvals, lo, hi, color=line.get_color())
         if label_mark:
-            _annotate_points(ax, x_plot, yvals, color=line.get_color())
+            _annotate_points(ax, x_plot, yvals, color=line.get_color(), dx=8 if lo is not None else 4, lo=lo, hi=hi,
+                             kind=err_kind)
 
     if not x_is_num:
         ax.set_xticks(x_plot)
@@ -1689,10 +1815,18 @@ def plot_histogram(df: pd.DataFrame, dpi: int, trend_mode: str = "None", show_le
     n = len(ydf.columns)
     colors = _get_series_colors(n, color_mode, palette_name, single_color)
 
+    # Todas as séries usam as MESMAS faixas (bins): com faixas próprias de cada série, um grupo de valores pequenos
+    # (ex.: IC50 dos ativos, 0-0,7) ficaria com barras minúsculas ao lado de outro de valores grandes (1230) e
+    # pareceria ausente; com faixas comuns, as barras são comparáveis.
+    nb = int(_opt(options, "hist_bins"))
+    pooled = np.concatenate([ydf[c].dropna().to_numpy(dtype=float) for c in ydf.columns if ydf[c].notna().any()] or [np.array([])])
+    pooled = pooled[np.isfinite(pooled)]
+    bins = np.histogram_bin_edges(pooled, bins=nb) if pooled.size else nb
+
     # overlay hist para múltiplas séries
     for i, col in enumerate(ydf.columns):
         vals = ydf[col].dropna().to_numpy(dtype=float)
-        ax.hist(vals, bins=int(_opt(options, "hist_bins")), density=bool(_opt(options, "hist_density")),
+        ax.hist(vals, bins=bins, density=bool(_opt(options, "hist_density")),
                 cumulative=bool(_opt(options, "hist_cumulative")), alpha=0.6 if n > 1 else 0.8,
                 label=str(col), color=colors[i])
 
@@ -1715,21 +1849,24 @@ def plot_histogram(df: pd.DataFrame, dpi: int, trend_mode: str = "None", show_le
     plt.tight_layout()
     return fig
 
+def _kde_bw(values: np.ndarray, bw_scale: float = 1.0) -> float:
+    """Largura de banda do KDE (regra de Silverman); 0 se não houver como calcular (menos de 2 valores ou sem variação)."""
+    v = values[np.isfinite(values)]
+    if v.size < 2:
+        return 0.0
+    std = np.std(v, ddof=1)
+    if std <= 0:
+        return 0.0
+    return float(1.06 * std * (v.size ** (-1 / 5)) * float(bw_scale))
+
+
 def _kde_1d(values: np.ndarray, grid: np.ndarray, bw_scale: float = 1.0):
     """KDE simples (gaussiana) sem SciPy."""
     v = values[np.isfinite(values)]
-    if v.size < 2:
-        return np.zeros_like(grid)
-
-    # Silverman's rule of thumb
-    std = np.std(v, ddof=1)
-    if std <= 0:
-        return np.zeros_like(grid)
-
-    n = v.size
-    bw = 1.06 * std * (n ** (-1 / 5)) * float(bw_scale)
+    bw = _kde_bw(v, bw_scale)
     if bw <= 0:
         return np.zeros_like(grid)
+    n = v.size
 
     # KDE
     diff = (grid[:, None] - v[None, :]) / bw
@@ -1762,12 +1899,24 @@ def plot_density(df: pd.DataFrame, dpi: int, trend_mode: str = "None", show_lege
 
     grid = np.linspace(xmin, xmax, int(_opt(options, "kde_points")))
 
+    bw_scale, npts = float(_opt(options, "kde_bw")), int(_opt(options, "kde_points"))
+    peak_one = bool(_opt(options, "kde_peak"))
     for i, col in enumerate(ydf.columns):
         vals = ydf[col].dropna().to_numpy(dtype=float)
-        dens = _kde_1d(vals, grid, float(_opt(options, "kde_bw")))
-        ax.plot(grid, dens, label=str(col), color=colors[i], linewidth=2)
+        # Grade própria da série: a comum (todo o intervalo dos dados) mais uma grade fina sobre o intervalo dela.
+        # Só com a comum, um grupo de valores pequenos num intervalo grande (ex.: 0-0,7 em 0-1230) cairia em um ou dois
+        # pontos e a curva seria perdida.
+        g_i = grid
+        bw_i = _kde_bw(vals, bw_scale)
+        if bw_i > 0:
+            v_ok = vals[np.isfinite(vals)]
+            g_i = np.union1d(grid, np.linspace(v_ok.min() - 3 * bw_i, v_ok.max() + 3 * bw_i, npts))
+        dens = _kde_1d(vals, g_i, bw_scale)
+        if peak_one and np.nanmax(dens) > 0:          # compara só a FORMA das curvas (pico = 1)
+            dens = dens / np.nanmax(dens)
+        ax.plot(g_i, dens, label=str(col), color=colors[i], linewidth=2)
         if bool(_opt(options, "kde_fill")):
-            ax.fill_between(grid, dens, color=colors[i], alpha=0.25)
+            ax.fill_between(g_i, dens, color=colors[i], alpha=0.25)
 
     if xlabel:
         ax.set_xlabel(xlabel)
@@ -1834,18 +1983,24 @@ def grouped_values_frame(df: pd.DataFrame, y_cols, cat_cols):
 
 def plot_grouped_xy(chart: str, series, dpi: int = 300, trend_mode: str = "None", show_legend: bool = False,
                     title: str = "", xlabel: str = "", ylabel: str = "", label_mark: bool = False,
-                    palette_name: str = "Dark2", single_color: str = "#1f77b4", options=None):
+                    palette_name: str = "Dark2", single_color: str = "#1f77b4", options=None,
+                    x_labels=None, color_mode: str = "Palette (multi-color)", spread=None, spread_kind: str = "sd"):
     """Gráfico com o eixo X na escala de uma coluna numérica e uma série (cor) por categoria: `series` é a lista
     [(rótulo, x, y)] de build_grouped_series. `chart`: Scatter, Line, Area (Overlapped), Area (Stacked) ou Bar
     (barras agrupadas por valor de X, com a estatística bar_stat de cada categoria em cada X). A legenda lista as
-    categorias (rótulos das séries); as cores sempre vêm da paleta, pois é ela que distingue as categorias."""
+    categorias (rótulos das séries); as cores sempre vêm da paleta, pois é ela que distingue as categorias.
+    `spread` (só no Line): para cada série, (inferior, superior) com a dispersão de cada ponto (ver aggregate_series)."""
     if chart not in GROUPED_XY_CHARTS:
         raise ValueError(f"{chart} does not support categories on a numeric X.")
     series = [(lab, np.asarray(x, dtype=float), np.asarray(y, dtype=float)) for lab, x, y in series]
     if not series:
         raise ValueError("No valid (X, Y) values for the selected columns.")
     n = len(series)
-    colors = _get_series_colors(n, "Palette", palette_name, single_color)
+    # Com várias séries as cores vêm da paleta (é ela que distingue as categorias); com uma só, vale o modo escolhido.
+    if n == 1 and str(color_mode).startswith("Single"):
+        colors = [single_color]
+    else:
+        colors = _get_series_colors(n, "Palette", palette_name, single_color)
     fig, ax = plt.subplots(figsize=(12, 6))
     trend_xy = []                                   # (rótulo, cor, xs, ys) usados pelas linhas de tendência
 
@@ -1858,17 +2013,21 @@ def plot_grouped_xy(chart: str, series, dpi: int = 300, trend_mode: str = "None"
             trend_xy.append((lab, c, x, y))
     elif chart in ("Line", "Area (Overlapped)"):
         ms = float(_opt(options, "marker_size"))
-        for (lab, x, y), c in zip(series, colors):
+        for k, ((lab, x, y), c) in enumerate(zip(series, colors)):
             o = np.argsort(x, kind="stable")
             x, y = x[o], y[o]
+            lo = hi = None
+            if chart == "Line" and spread is not None and spread[k][0] is not None:
+                lo, hi = spread[k][0][o], spread[k][1][o]
             if chart == "Line":
                 ax.plot(x, y, marker="o" if ms > 0 else None, markersize=ms, linewidth=float(_opt(options, "line_width")),
                         label=lab, color=c)
+                _draw_spread(ax, x, y, lo, hi, color=c)
             else:
                 ax.fill_between(x, y, alpha=float(_opt(options, "area_overlap_alpha")), color=c, label=lab)
                 ax.plot(x, y, marker="o", linestyle="None", color=c, markersize=4)
             if label_mark:
-                _annotate_points(ax, x, y, color="#222222")
+                _annotate_points(ax, x, y, color="#222222", dx=8 if lo is not None else 4, lo=lo, hi=hi, kind=spread_kind)
             trend_xy.append((lab, c, x, y))
     elif chart == "Area (Stacked)":
         grid = np.unique(np.concatenate([x for _, x, _ in series]))
@@ -1882,7 +2041,8 @@ def plot_grouped_xy(chart: str, series, dpi: int = 300, trend_mode: str = "None"
             trend_xy.append((lab, c, grid, layer))
     else:                                           # Bar: barras agrupadas por valor de X
         stat = bar_stat_slug(_opt(options, "bar_stat"))
-        uniq = np.unique(np.concatenate([x for _, x, _ in series]))
+        uniq = (np.arange(len(x_labels), dtype=float) if x_labels is not None
+                else np.unique(np.concatenate([x for _, x, _ in series])))
         pos = {v: i for i, v in enumerate(uniq)}
         bw = float(_opt(options, "bar_width"))
         width = bw / n
@@ -1890,14 +2050,21 @@ def plot_grouped_xy(chart: str, series, dpi: int = 300, trend_mode: str = "None"
             g = pd.Series(y).groupby(x)
             center = (g.first() if stat == "single" else g.median() if stat == "median"
                       else g.agg(_group_mode) if stat == "mode" else g.mean())
-            sd = None if stat == "single" else g.std(ddof=1).fillna(0.0).to_numpy(dtype=float)
+            lo, hi = _group_spread(g, stat)
+            lo = None if lo is None else lo.to_numpy(dtype=float)
+            hi = None if hi is None else hi.to_numpy(dtype=float)
             xs_pos = np.array([pos[v] for v in center.index], dtype=float) - (bw / 2 - width / 2) + k * width
             bars = ax.bar(xs_pos, center.to_numpy(dtype=float), width=width, color=c, label=lab)
+            _draw_spread(ax, xs_pos, center.to_numpy(dtype=float), lo, hi)
             if label_mark:
-                _annotate_bars(ax, bars, sd=sd)
+                _annotate_bars(ax, bars, lo=lo, hi=hi, kind="iqr" if stat == "median" else "sd")
             trend_xy.append((lab, c, np.array([pos[v] for v in center.index], dtype=float), center.to_numpy(dtype=float)))
         ax.set_xticks(np.arange(len(uniq)))
         ax.set_xticklabels([_fmt_val(v) for v in uniq], rotation=0 if len(uniq) <= 12 else 90, ha="center")
+
+    if x_labels is not None:                        # eixo X categórico: as posições 0..n-1 levam o nome da categoria
+        ax.set_xticks(np.arange(len(x_labels)))
+        ax.set_xticklabels([str(c) for c in x_labels], rotation=0 if len(x_labels) <= 12 else 90, ha="center")
 
     if trend_mode != "None":
         for lab, c, xs, ys in trend_xy:
@@ -2494,3 +2661,485 @@ def plot_scatter_3D(
     plt.tight_layout()
     return fig
 
+
+
+# ==========================================================================================================
+# PAPÉIS DAS COLUNAS
+# ----------------------------------------------------------------------------------------------------------
+# A seleção de colunas é lida da mesma forma em qualquer gráfico: o papel de cada coluna depende do que ela É
+# (numérica ou categórica) e de onde foi marcada (X, Y ou Z), e não de uma "dimensão" escolhida antes.
+#
+#   X numérica (no máx. uma)  -> EIXO horizontal
+#   X categórica (uma ou mais) -> CATEGORIAS no eixo / CORES (grupos), conforme o gráfico
+#   Y numérica                 -> VALORES
+#   Z numérica (só no 3D)      -> terceiro eixo
+#
+# CHART_ROLES declara, por tipo de gráfico, a família de regras que vale para ele. resolve_roles() aplica a
+# regra e devolve um RolePlan (ou levanta PlanError com a chave da mensagem); papéis que o gráfico não usa viram
+# `notices` (a interface avisa em vez de ignorar em silêncio). execute_plan() monta os dados e desenha.
+#
+#  família "axis"   Bar, Line, Scatter, Area (S/O): X numérico = eixo; X categórico = categorias no eixo; as outras
+#                   colunas categóricas de X viram cores (uma série por categoria); Y = valores (agregados pela
+#                   Statistic quando uma categoria/valor de X se repete; só o Scatter mostra todas as instâncias);
+#                   Y vazio = contagem das categorias de X.
+#  família "values" Box Plot, Violin, Histogram, Density(KDE), Heatmap: o que se desenha são os VALORES numéricos
+#                   (Y; com Y vazio, as colunas numéricas de X); X categórico agrupa (Box/Violin: uma caixa por
+#                   categoria; Histogram/Density: uma curva por categoria; Heatmap: não usa) ; X numérico com Y
+#                   preenchido não é usado (aviso).
+#  família "flow"   Sankey, Sankey Chord: todas as colunas de X (numéricas ou não) são as etapas, na ordem de
+#                   seleção; Y (no máx. uma) = peso do fluxo.
+#  3D               Scatter: X numérico = eixo X, Y, Z; X categórico = cores.
+# ==========================================================================================================
+CHART_ROLES = {
+    "Bar":               {"family": "axis", "aggregates": True},
+    "Line":              {"family": "axis", "aggregates": True},
+    "Area (Stacked)":    {"family": "axis", "aggregates": True},
+    "Area (Overlapped)": {"family": "axis", "aggregates": True},
+    "Scatter":           {"family": "axis", "aggregates": False},
+    "Box Plot":          {"family": "values", "groups": "combined"},
+    "Violin":            {"family": "values", "groups": "combined"},
+    "Histogram":         {"family": "values", "groups": "curves"},
+    "Density(KDE)":      {"family": "values", "groups": "curves"},
+    "Heatmap":           {"family": "values", "groups": None},
+    "Sankey":            {"family": "flow"},
+    "Sankey Chord":      {"family": "flow"},
+}
+
+
+class PlanError(Exception):
+    """Seleção inválida (ou gráfico ilegível): `key` é a chave da mensagem (i18n) e `params` os valores dela."""
+    def __init__(self, key: str, **params):
+        super().__init__(key)
+        self.key, self.params = key, params
+
+
+class RolePlan:
+    """Resultado de resolve_roles: o que cada coluna selecionada faz neste gráfico."""
+    def __init__(self, chart, kind, axis=None, axis_numeric=False, groups=(), values=(), stages=(), weight=None,
+                 z=None, auto_group=None, notices=(), summary=()):
+        self.chart, self.kind = chart, kind
+        self.axis, self.axis_numeric = axis, axis_numeric
+        self.groups, self.values, self.stages = list(groups), list(values), list(stages)
+        self.weight, self.z, self.auto_group = weight, z, auto_group
+        self.notices = list(notices)          # [(chave, parâmetros)]: papéis ignorados (a interface avisa)
+        self.summary = list(summary)          # [(papel, texto)]: leitura da seleção, para mostrar ao usuário
+
+    def __repr__(self):
+        return (f"RolePlan({self.chart!r}, {self.kind!r}, axis={self.axis!r}, groups={self.groups}, "
+                f"values={self.values}, stages={self.stages}, weight={self.weight!r}, notices={self.notices})")
+
+
+def _names(cols):
+    return ", ".join(str(c) for c in cols)
+
+
+def resolve_roles(chart: str, x_cols, y_cols, z_cols, is_numeric, dim3: bool = False, auto_group=None) -> RolePlan:
+    """Decide o papel de cada coluna selecionada (ver o bloco de comentários acima). `x_cols`, `y_cols` e `z_cols`
+    estão na ORDEM em que o usuário as selecionou; `is_numeric(col)` classifica a coluna; `auto_group` é o nome de
+    uma coluna Class/Group do arquivo (colore o Scatter sem categorias em X). Levanta PlanError se a seleção não
+    forma um gráfico."""
+    x_cols, y_cols, z_cols = list(x_cols), list(y_cols), list(z_cols)
+    num_x = [c for c in x_cols if is_numeric(c)]
+    cat_x = [c for c in x_cols if not is_numeric(c)]
+    bad = [c for c in y_cols + (z_cols if dim3 else []) if not is_numeric(c)]
+    if bad:
+        raise PlanError("rl_err_y_numeric", cols=_names(bad))
+    if not (x_cols or y_cols):
+        raise PlanError("rl_err_nothing")
+
+    if dim3:
+        if len(num_x) != 1 or len(y_cols) != 1 or len(z_cols) != 1:
+            raise PlanError("rl_err_3d_select")
+        auto = None if cat_x else auto_group
+        summ = [("axis", num_x[0]), ("y", y_cols[0]), ("z", z_cols[0])]
+        if cat_x:
+            summ.append(("colors", _names(cat_x)))
+        elif auto:
+            summ.append(("colors_auto", auto))
+        return RolePlan("Scatter", "scatter3d", axis=num_x[0], axis_numeric=True, groups=cat_x, values=y_cols,
+                        z=z_cols[0], auto_group=auto, summary=summ)
+
+    family = CHART_ROLES[chart]["family"]
+
+    # ---- fluxo: Sankey / Sankey Chord -----------------------------------------------------------------
+    if family == "flow":
+        if len(x_cols) < 2:
+            raise PlanError("rl_err_flow_two_x", chart=chart)
+        if len(y_cols) > 1:
+            raise PlanError("rl_err_flow_one_y", chart=chart)
+        summ = [("stages", " → ".join(x_cols))]
+        if y_cols:
+            summ.append(("weight", y_cols[0]))
+        return RolePlan(chart, "flow", stages=x_cols, weight=y_cols[0] if y_cols else None, summary=summ)
+
+    # ---- valores: Box Plot, Violin, Histogram, Density, Heatmap ---------------------------------------
+    if family == "values":
+        notices = []
+        values = list(y_cols) if y_cols else list(num_x)      # sem Y, as colunas numéricas de X são os valores
+        if not values:
+            raise PlanError("rl_err_need_numeric", chart=chart)
+        if y_cols and num_x:
+            notices.append(("rl_note_numx_ignored", {"chart": chart, "cols": _names(num_x)}))
+        groups = cat_x if CHART_ROLES[chart]["groups"] else []
+        if cat_x and not groups:
+            notices.append(("rl_note_catx_ignored", {"chart": chart, "cols": _names(cat_x)}))
+        summ = [("values", _names(values))]
+        if groups:
+            summ.append(("groups", _names(groups)))
+        return RolePlan(chart, "values", groups=groups, values=values, notices=notices, summary=summ)
+
+    # ---- eixo: Bar, Line, Scatter, Area ---------------------------------------------------------------
+    stat_part = [("stat", "")]
+    if len(num_x) > 1:
+        raise PlanError("rl_err_one_numeric_x", chart=chart, cols=_names(num_x))
+    if not y_cols:                                            # Y vazio: contagem das categorias
+        if num_x:
+            raise PlanError("rl_err_count_numeric_x", chart=chart, cols=_names(num_x))
+        return RolePlan(chart, "count", axis=cat_x[0], values=cat_x, summary=[("count", _names(cat_x))])
+    if not x_cols:                                            # Y sem X: falta o eixo (ou as categorias)
+        raise PlanError("rl_err_need_x", chart=chart)
+    if num_x:                                                 # eixo numérico (+ categorias = cores)
+        axis, groups = num_x[0], cat_x
+        kind = "axis_grouped" if groups else "axis_xy"
+        auto = auto_group if (not groups and chart == "Scatter" and len(y_cols) == 1) else None
+        # só o Bar agrega valores repetidos de X (Statistic); Line, Area e Scatter desenham os valores como estão
+        summ = [("axis", axis), ("values", _names(y_cols))] + (stat_part if chart == "Bar" else [])
+        if groups:
+            summ.append(("colors", _names(groups)))
+        elif auto:
+            summ.append(("colors_auto", auto))
+        return RolePlan(chart, kind, axis=axis, axis_numeric=True, groups=groups, values=y_cols, auto_group=auto,
+                        summary=summ)
+    axis, groups = cat_x[0], cat_x[1:]                        # eixo categórico (+ outras categorias = cores)
+    # eixo categórico: Bar, Line e Area agregam por categoria (Statistic); o Scatter mostra todos os pontos
+    summ = [("axis", axis), ("values", _names(y_cols))] + (stat_part if CHART_ROLES[chart]["aggregates"] else [])
+    if groups:
+        summ.append(("colors", _names(groups)))
+    return RolePlan(chart, "axis_category", axis=axis, axis_numeric=False, groups=groups, values=y_cols,
+                    summary=summ)
+
+
+# ----------------------------------------------------------------------------------------------------------
+# Montagem dos dados e desenho
+# ----------------------------------------------------------------------------------------------------------
+def _guard(chart, n_rows, n_series=1, label_mark=False, top_n=0, kind=None):
+    """Levanta PlanError("plot_msg_too_many_marks") se o gráfico teria marcações demais (ver excessive_marks)."""
+    over = excessive_marks("Series" if kind == "series" else chart, n_rows, n_series, label_mark, top_n)
+    if over is None:
+        return
+    what, n, limit = over
+    raise PlanError("plot_msg_too_many_marks", chart=chart, n=int(n), max=int(limit),
+                    what=f"plot_marks_what_{what}", tip=f"plot_marks_tip_{what}")
+
+
+def build_series(df: pd.DataFrame, x_col, y_cols):
+    """Séries [(rótulo, x, y)] de X numérico contra cada Y (sem categorias); linhas com X ou Y ausentes saem."""
+    xv = _series_to_numeric(df[x_col])
+    out = []
+    for yc in y_cols:
+        yv = _series_to_numeric(df[yc])
+        m = xv.notna() & yv.notna()
+        if m.any():
+            out.append((str(yc), xv[m].to_numpy(dtype=float), yv[m].to_numpy(dtype=float)))
+    return out
+
+
+def build_category_series(df: pd.DataFrame, axis_col, y_cols, group_cols):
+    """Como build_grouped_series, mas com um eixo X CATEGÓRICO: devolve (séries, categorias), onde o x de cada série
+    é a posição (0, 1, 2...) da categoria do eixo na ordem de aparição. Rótulo "Y | grupo" com várias colunas Y."""
+    cats = [c for c in pd.unique(df[axis_col].dropna().astype(str))]
+    pos = {c: i for i, c in enumerate(cats)}
+    xv = df[axis_col].astype(str).where(df[axis_col].notna()).map(pos)
+    g = group_labels(df, group_cols)
+    out = []
+    for yc in y_cols:
+        yv = _series_to_numeric(df[yc])
+        for grp in pd.unique(g.dropna()):
+            m = (g == grp) & xv.notna() & yv.notna()
+            if m.any():
+                out.append((grp if len(y_cols) == 1 else f"{yc} | {grp}", xv[m].to_numpy(dtype=float),
+                            yv[m].to_numpy(dtype=float)))
+    return out, cats
+
+
+def _value_xlabel(chart, plan, tr):
+    """Rótulo padrão do eixo X dos gráficos de valores: Histogram/Density mostram os valores nesse eixo."""
+    if chart in ("Histogram", "Density(KDE)"):
+        return plan.values[0] if len(plan.values) == 1 else tr("rl_default_values")
+    return ""
+
+
+def _value_ylabel(chart, plan, tr, opts):
+    """Rótulo padrão do eixo Y: Box/Violin mostram os valores; Histogram, a frequência (ou densidade); Density, a densidade."""
+    if chart in DISTRIBUTION_CHARTS:
+        return plan.values[0] if len(plan.values) == 1 else tr("rl_default_values")
+    if chart == "Histogram":
+        return tr("rl_default_density") if opts.get("hist_density") else tr("plot_default_ylabel_frequency")
+    if chart == "Density(KDE)":
+        return tr("rl_default_density_peak") if opts.get("kde_peak") else tr("rl_default_density")
+    return ""
+
+
+def aggregate_series(series, stat, with_spread=False):
+    """Cada série [(rótulo, x, y)] com os y de um mesmo x resumidos pela estatística (Single Value, Mean ± SD, Median ±
+    IQR, Mode). Com `with_spread`, devolve também, por série, (inferior, superior) com a dispersão de cada ponto
+    (arrays alinhados aos x devolvidos; (None, None) para Mode e Single Value)."""
+    slug = bar_stat_slug(stat)
+    out, spreads = [], []
+    for lab, x, y in series:
+        g = pd.Series(y).groupby(x)
+        center = (g.first() if slug == "single" else g.median() if slug == "median"
+                  else g.agg(_group_mode) if slug == "mode" else g.mean())
+        out.append((lab, center.index.to_numpy(dtype=float), center.to_numpy(dtype=float)))
+        if with_spread:
+            lo, hi = _group_spread(g, stat)
+            spreads.append((None, None) if lo is None else (lo.to_numpy(dtype=float), hi.to_numpy(dtype=float)))
+    return (out, spreads) if with_spread else out
+
+
+def _stat_default_ylabel(tr, stat, y_cols, chart=""):
+    """Rótulo padrão do eixo Y da Statistic; o Bar e o Line, que desenham a dispersão, dizem "Mean ± SD" / "Median ± IQR"."""
+    slug = bar_stat_slug(stat)
+    if chart in ("Bar", "Line") and slug in ("mean", "median"):
+        slug += "_sd" if slug == "mean" else "_iqr"
+    return tr(f"plot_ylabel_stat_{slug}") + (tr("plot_ylabel_stat_of", y=y_cols[0]) if len(y_cols) == 1 else "")
+
+
+def _single_value_error(rep, cats=None):
+    """Mensagem do "Single Value" com valores repetidos: `rep` = [(série, x, nº)]; com eixo categórico (`cats`),
+    o x é a posição da categoria e a mensagem traz o nome dela."""
+    def x_txt(v):
+        if cats is not None:
+            return str(cats[int(v)])
+        return f"X={v:g}" if isinstance(v, (int, float, np.floating)) else f"X={v}"
+    raise PlanError("plot_msg_single_value_repeated",
+                    repeated=", ".join(f"{lab}: {x_txt(v)} ({k})" for lab, v, k in rep[:10]) + (" ..." if len(rep) > 10 else ""))
+
+
+def suggest_bar_stat(plan, df: pd.DataFrame):
+    """Estatística padrão para a seleção `plan` (RolePlan) dos dados `df`: "Single Value" quando cada categoria (ou cada
+    valor de X) ocorre uma única vez, "Mean ± SD" quando alguma se repete. None quando a seleção não usa Statistic
+    (só Bar, e Line/Area com X categórico, resumem valores repetidos)."""
+    chart, kind = plan.chart, plan.kind
+    if chart == "Bar":
+        if kind not in ("axis_xy", "axis_grouped", "axis_category"):
+            return None
+    elif chart in ("Line", "Area (Stacked)", "Area (Overlapped)"):
+        if kind != "axis_category":
+            return None
+    else:
+        return None
+    y_cols = list(plan.values)
+    if kind == "axis_xy":
+        rep = repeated_x_values(build_series(df, plan.axis, y_cols))
+    elif plan.groups:
+        series = (build_grouped_series(df, plan.axis, y_cols, plan.groups) if kind == "axis_grouped"
+                  else build_category_series(df, plan.axis, y_cols, plan.groups)[0])
+        rep = repeated_x_values(series)
+    else:
+        ydf = pd.DataFrame({safe_series_name(c, "(Y)"): df[c] for c in y_cols})
+        rep = repeated_categories(df[plan.axis].to_numpy(dtype=object), ydf)
+    return STAT_MEAN if rep else STAT_SINGLE
+
+
+def execute_plan(plan: RolePlan, df: pd.DataFrame, options: dict, style: dict, tr=None):
+    """Monta os dados do `plan` a partir de `df` e devolve a Figure.
+    `options`: valores das opções do tipo de gráfico (inclui "samples" e "legend_loc"). `style`: dpi, trend_mode (já
+    efetivo), show_legend, label_mark, title, xlabel, ylabel, zlabel, color_mode, palette_name, single_color.
+    `tr(chave, **kw)` traduz os rótulos padrão dos eixos (sem ela, devolve a própria chave). Levanta PlanError."""
+    tr = tr or (lambda key, **kw: key)
+    opts = dict(options or {})
+    df = sample_rows(df, opts.pop("samples", 0)).copy()
+    chart, kind = plan.chart, plan.kind
+    dpi = style.get("dpi", 300)
+    st = dict(trend_mode=style.get("trend_mode", "None"), show_legend=style.get("show_legend", False),
+              label_mark=style.get("label_mark", False), color_mode=style.get("color_mode", COLOR_MODE_PALETTE),
+              palette_name=style.get("palette_name", "Dark2"), single_color=style.get("single_color") or "#1f77b4")
+    if chart not in TREND_ALLOWED:
+        st["trend_mode"] = "None"
+    title, xlabel, ylabel = (style.get("title") or ""), (style.get("xlabel") or ""), (style.get("ylabel") or "")
+    label_mark, top_n, stat = st["label_mark"], int(opts.get("bar_top", 0) or 0), opts.get("bar_stat", "Mean")
+
+    def plotter(df_, x_default="", y_default="", **extra):
+        return PLOTTERS[chart](df=df_, dpi=dpi, title=title, xlabel=xlabel or x_default, ylabel=ylabel or y_default,
+                               options=opts, **st, **extra)
+
+    # ---- 3D --------------------------------------------------------------------------------------------
+    if kind == "scatter3d":
+        group_col = plan.auto_group
+        color_mode = st["color_mode"]
+        if plan.groups:
+            df["__group__"] = group_labels(df, plan.groups)
+            df = df[df["__group__"].notna()]
+            if df.empty:
+                raise PlanError("rl_err_no_values")
+            group_col = "__group__"
+            _guard("Scatter", df["__group__"].nunique(), kind="series")
+            color_mode = COLOR_MODE_PALETTE                    # a cor é o que distingue as categorias
+        _guard("Scatter", len(df), 1, label_mark)
+        x, y, z = plan.axis, plan.values[0], plan.z
+        return plot_scatter_3D(
+            df=df, x_col=x, y_col=y, z_col=z, group_col=group_col,
+            title=title or f"3D Scatter: {x} vs {y} vs {z}", xlabel=xlabel or x, ylabel=ylabel or y,
+            zlabel=(style.get("zlabel") or "") or z, palette_name=st["palette_name"], single_color=st["single_color"],
+            color_mode=color_mode, label_mark=label_mark, show_legend=st["show_legend"], options=opts)
+
+    # ---- fluxo -----------------------------------------------------------------------------------------
+    if kind == "flow":
+        mapped = df[plan.stages].copy()
+        if plan.weight:
+            mapped["__weight__"] = df[plan.weight].values
+        is_chord = chart == "Sankey Chord"
+        return (plot_chord if is_chord else plot_sankey)(
+            df=mapped, dpi=dpi, show_legend=st["show_legend"], label_mark=label_mark, title=title, xlabel=xlabel,
+            ylabel=ylabel, color_mode=st["color_mode"], palette_name=st["palette_name"],
+            single_color=st["single_color"], stage_cols=list(plan.stages),
+            weight_col="__weight__" if plan.weight else None,
+            max_nodes=(opts.get("chord_top", CHORD_MAX_NODES) if is_chord else opts.get("sankey_top", SANKEY_MAX_NODES_PER_STAGE)),
+            options=opts)
+
+    # ---- valores: Box Plot, Violin, Histogram, Density, Heatmap ---------------------------------------
+    if kind == "values":
+        vals = [safe_series_name(c, "(Y)") for c in plan.values]
+        if plan.groups and CHART_ROLES[chart]["groups"] == "combined":          # Box Plot / Violin
+            labels = group_labels(df, plan.groups)
+            n_groups = labels.nunique()
+            if n_groups > DISTRIBUTION_MAX_GROUPS:
+                raise PlanError("rl_err_too_many_groups", chart=chart, col=_names(plan.groups), n=int(n_groups),
+                                max=DISTRIBUTION_MAX_GROUPS)
+            _guard(chart, n_groups, len(vals))
+            mapped = pd.DataFrame({"X": labels.astype(object)})
+            for c, v in zip(plan.values, vals):
+                mapped[v] = df[c]
+            mapped = mapped[mapped["X"].notna()]
+            return plotter(mapped, x_default=_names(plan.groups), y_default=_value_ylabel(chart, plan, tr, opts))
+        if plan.groups:                                                          # Histogram / Density: uma curva por categoria
+            wide = grouped_values_frame(df, plan.values, plan.groups)
+            _guard(chart, wide.shape[1], 1, kind="series")
+            return plotter(wide, x_default=_value_xlabel(chart, plan, tr), y_default=_value_ylabel(chart, plan, tr, opts))
+        mapped = pd.DataFrame({v: df[c] for c, v in zip(plan.values, vals)})
+        if chart == "Heatmap":
+            _guard(chart, len(mapped), len(vals))
+        elif chart in DISTRIBUTION_CHARTS:
+            _guard(chart, 1, len(vals))
+        return plotter(mapped, x_default=_value_xlabel(chart, plan, tr), y_default=_value_ylabel(chart, plan, tr, opts))
+
+    # ---- eixo: contagem --------------------------------------------------------------------------------
+    if kind == "count":
+        cols = plan.values
+        cats, seen = [], set()
+        for c in cols:
+            for v in pd.unique(df[c].dropna().astype(str)):
+                if v not in seen:
+                    seen.add(v)
+                    cats.append(v)
+        if not cats:
+            raise PlanError("rl_err_no_values")
+        mapped = pd.DataFrame({"X": cats})
+        for c in cols:
+            freq = df[c].dropna().astype(str).value_counts()
+            mapped[safe_series_name(c)] = pd.Series(freq).reindex(cats).fillna(0).astype(int).to_numpy()
+        _guard(chart, len(mapped), len(cols), label_mark, top_n)
+        return plotter(mapped, x_default=(cols[0] if len(cols) == 1 else tr("rl_default_category")),
+                       y_default=tr("plot_default_ylabel_frequency"))
+
+    y_cols = plan.values
+    y_name = y_cols[0] if len(y_cols) == 1 else tr("rl_default_values")
+    stat_label = _stat_default_ylabel(tr, stat, y_cols, chart)
+
+    # ---- eixo numérico, sem categorias -----------------------------------------------------------------
+    if kind == "axis_xy":
+        if chart == "Bar":                                    # uma barra por valor distinto de X (Statistic)
+            series = build_series(df, plan.axis, y_cols)
+            if not series:
+                raise PlanError("rl_err_no_values")
+            n_x = len(np.unique(np.concatenate([x for _, x, _ in series])))
+            _guard("Bar", n_x, len(series), label_mark, top_n)
+            if is_single_value(stat):
+                rep = repeated_x_values(series)
+                if rep:
+                    _single_value_error(rep)
+            return plot_grouped_xy("Bar", series, dpi=dpi, trend_mode=st["trend_mode"], show_legend=st["show_legend"],
+                                   title=title or f"Bar: {plan.axis} vs {_names(y_cols)}", xlabel=xlabel or plan.axis,
+                                   ylabel=ylabel or stat_label, label_mark=label_mark, palette_name=st["palette_name"],
+                                   single_color=st["single_color"], options=opts, color_mode=st["color_mode"])
+        _guard(chart, len(df), len(y_cols), label_mark)
+        if chart == "Scatter" and plan.auto_group:            # Class/Group do arquivo colore o Scatter (único Y)
+            return plot_scatter_2D(
+                df=df, x_col=plan.axis, y_col=y_cols[0], group_col=plan.auto_group, title=title or "Scatter Plot",
+                xlabel=xlabel or plan.axis, ylabel=ylabel or y_cols[0], palette_name=st["palette_name"],
+                single_color=st["single_color"], color_mode=st["color_mode"], label_mark=label_mark,
+                trend_mode=st["trend_mode"], show_legend=st["show_legend"], options=opts)
+        mapped = pd.DataFrame({"X": _series_to_numeric(df[plan.axis])})
+        for c in y_cols:
+            mapped[safe_series_name(c, "(Y)")] = df[c]
+        return plotter(mapped, x_default=plan.axis, y_default=y_name)
+
+    # ---- eixo numérico + categorias (cores) ------------------------------------------------------------
+    if kind in ("axis_grouped", "axis_category") and plan.groups:
+        spread = None
+        if kind == "axis_grouped":
+            series, cats = build_grouped_series(df, plan.axis, y_cols, plan.groups), None
+            x_default = plan.axis
+        else:
+            series, cats = build_category_series(df, plan.axis, y_cols, plan.groups)
+            x_default = plan.axis
+        if not series:
+            raise PlanError("rl_err_no_values")
+        _guard(chart, len(series), 1, kind="series")
+        if chart == "Bar":
+            n_x = len(cats) if cats is not None else len(np.unique(np.concatenate([x for _, x, _ in series])))
+            _guard("Bar", n_x, len(series), label_mark)
+            if is_single_value(stat):
+                rep = repeated_x_values(series)
+                if rep:
+                    _single_value_error(rep, cats)
+        else:
+            if kind == "axis_category" and chart != "Scatter":      # categorias repetidas: Line/Area mostram a Statistic
+                if is_single_value(stat):
+                    rep = repeated_x_values(series)
+                    if rep:
+                        _single_value_error(rep, cats)
+                if chart == "Line":                                  # o Line desenha também a dispersão (barra de erro)
+                    series, spread = aggregate_series(series, stat, with_spread=True)
+                else:
+                    series = aggregate_series(series, stat)
+            _guard(chart, max(len(x) for _, x, _ in series), len(series), label_mark)
+        aggregated = chart == "Bar" or (kind == "axis_category" and chart != "Scatter")
+        return plot_grouped_xy(
+            chart, series, dpi=dpi, trend_mode=st["trend_mode"], show_legend=st["show_legend"],
+            title=title or f"{chart}: {plan.axis} vs {_names(y_cols)} ({_names(plan.groups)})",
+            xlabel=xlabel or x_default, ylabel=ylabel or (stat_label if aggregated else y_name),
+            label_mark=label_mark, palette_name=st["palette_name"], single_color=st["single_color"], options=opts,
+            x_labels=cats, color_mode=st["color_mode"], spread=spread,
+            spread_kind="iqr" if bar_stat_slug(stat) == "median" else "sd")
+
+    # ---- eixo categórico, sem cores extras -------------------------------------------------------------
+    if chart == "Scatter":                                    # todos os pontos, coloridos pela categoria
+        mapped = pd.DataFrame({"X": df[plan.axis].astype(str)})
+        for c in y_cols:
+            mapped[safe_series_name(c, "(Y)")] = df[c]
+        _guard(chart, len(mapped), len(y_cols), label_mark)
+        return plotter(mapped, x_default=plan.axis, y_default=y_name)
+    single = is_single_value(stat)
+    suffix = "(value)" if single else f"({bar_stat_slug(stat)})"
+    ydf = pd.DataFrame({safe_series_name(c, suffix): df[c] for c in y_cols})
+    xv = df[plan.axis].to_numpy(dtype=object)
+    if single:
+        rep = repeated_categories(xv, ydf)
+        if rep:
+            raise PlanError("plot_msg_single_value_repeated",
+                            repeated=", ".join(f"{c} ({k})" for c, k in rep[:10]) + (" ..." if len(rep) > 10 else ""))
+    summary, lo, hi = summarize_with_spread(xv, ydf, stat)
+    if summary.empty:
+        raise PlanError("rl_err_no_values")
+    if chart == "Bar":
+        _guard("Bar", len(summary), len(y_cols), label_mark, top_n)
+        return plot_bar(df=summary, dpi=dpi, title=title, xlabel=xlabel or plan.axis, ylabel=ylabel or stat_label,
+                        options=opts, yerr=None if lo is None else (lo, hi),
+                        err_kind="iqr" if bar_stat_slug(stat) == "median" else "sd", **st)
+    _guard(chart, len(summary), len(y_cols), label_mark)
+    if chart == "Line" and lo is not None:                    # Line: barra de erro em cada ponto (como no Bar)
+        return plotter(summary, x_default=plan.axis, y_default=stat_label, yerr=(lo, hi),
+                       err_kind="iqr" if bar_stat_slug(stat) == "median" else "sd")
+    return plotter(summary, x_default=plan.axis, y_default=stat_label)

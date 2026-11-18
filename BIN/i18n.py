@@ -1982,7 +1982,6 @@ _TEXTOS = {
     "plot_lbl_ylabel": {"en": "Y-axis label:", "pt": "Rótulo do eixo Y:"},
     "plot_lbl_zlabel": {"en": "Z-axis label:", "pt": "Rótulo do eixo Z:"},
     "plot_btn_generate": {"en": "Generate chart", "pt": "Gerar gráfico"},
-    "plot_default_xlabel_category": {"en": "Category", "pt": "Categoria"},
     "plot_default_ylabel_frequency": {"en": "Count", "pt": "Contagem"},
     "plot_msg_no_df": {
         "en": "Please select a DataFrame (CSV or XLSX).",
@@ -2016,45 +2015,6 @@ _TEXTOS = {
         "pt": "O DPI deve ser um número inteiro válido (ex.: 300).",
     },
     "plot_msg_no_chart_type": {"en": "Please select a chart type.", "pt": "Selecione um tipo de gráfico."},
-    "plot_msg_1d_need_x": {
-        "en": "In 1D mode you must select at least ONE X column (classes/labels).",
-        "pt": "No modo 1D é preciso selecionar pelo menos UMA coluna X (classes/rótulos).",
-    },
-    "plot_msg_1d_freq_numeric_x": {
-        "en": "In 1D mode, to count the categories (no Y selected) X must be categorical. These X columns look "
-              "numeric: {cols}. Select one or more Y columns to plot a numeric X instead.",
-        "pt": "No modo 1D, para contar as categorias (sem Y selecionado) o X precisa ser categórico. Estas "
-              "colunas X parecem numéricas: {cols}. Selecione uma ou mais colunas Y para plotar um X numérico.",
-    },
-    "plot_msg_1d_no_freq_values": {
-        "en": "Selected X column(s) have no valid values to count or summarise.",
-        "pt": "A(s) coluna(s) X selecionada(s) não têm valores válidos para contar ou resumir.",
-    },
-    "plot_msg_1d_one_x_with_y": {
-        "en": "In 1D mode, when you select Y values, you must select exactly ONE X column.",
-        "pt": "No modo 1D, ao selecionar valores de Y é preciso selecionar exatamente UMA coluna X.",
-    },
-    "plot_msg_1d_bad_y": {
-        "en": "These Y columns are not numeric (or not mostly numeric): {cols}",
-        "pt": "Estas colunas Y não são numéricas (ou não são majoritariamente numéricas): {cols}",
-    },
-    "plot_msg_2d_select": {
-        "en": "In 2D mode you must select exactly ONE numeric X column (the scale of the X axis) and at least ONE numeric Y column. Categorical columns can also be selected in X: each category becomes a series with its own colour.",
-        "pt": "No modo 2D é preciso selecionar exatamente UMA coluna X numérica (a escala do eixo X) e pelo menos UMA coluna Y numérica. Colunas categóricas também podem ser selecionadas em X: cada categoria vira uma série com cor própria.",
-    },
-    "plot_msg_2d_x_numeric": {"en": "In 2D mode, X must be numeric.", "pt": "No modo 2D, o X precisa ser numérico."},
-    "plot_msg_2d_bad_y": {
-        "en": "In 2D mode, Y must be numeric. These Y columns look non-numeric: {cols}",
-        "pt": "No modo 2D, o Y precisa ser numérico. Estas colunas Y parecem não numéricas: {cols}",
-    },
-    "plot_msg_3d_select": {
-        "en": "In 3D mode you must select exactly ONE numeric column for X, Y, and Z. Categorical columns can also be selected in X: each category colours its points.",
-        "pt": "No modo 3D é preciso selecionar exatamente UMA coluna numérica para X, Y e Z. Colunas categóricas também podem ser selecionadas em X: cada categoria colore os seus pontos.",
-    },
-    "plot_msg_3d_bad": {
-        "en": "In 3D mode, Y and Z must be numeric. Non-numeric (or mostly non-numeric): {cols}",
-        "pt": "No modo 3D, Y e Z precisam ser numéricos. Não numéricas (ou majoritariamente não numéricas): {cols}",
-    },
     "plot_msg_3d_trend_ignored": {
         "en": "Trendline is not supported in 3D scatter. It will be ignored.",
         "pt": "Linha de tendência não é suportada no scatter 3D. Ela será ignorada.",
@@ -2062,46 +2022,6 @@ _TEXTOS = {
     "plot_msg_chart_error": {
         "en": "Chart generation error ({mode} mode):\n{e}",
         "pt": "Erro ao gerar o gráfico (modo {mode}):\n{e}",
-    },
-    "plot_msg_sankey_need_two_x": {
-        "en": "Sankey and Sankey Chord need at least TWO columns selected in X (stages of the diagram; for the Chord, source and target), in the order you selected them.",
-        "pt": "O Sankey e o Sankey Chord precisam de pelo menos DUAS colunas selecionadas em X (etapas do diagrama; no Chord, origem e destino), na ordem em que foram selecionadas.",
-    },
-    "plot_msg_sankey_one_y": {
-        "en": "Sankey and Sankey Chord accept at most ONE Y column (the numeric weight of each flow). Leave Y empty to count rows.",
-        "pt": "O Sankey e o Sankey Chord aceitam no máximo UMA coluna Y (o peso numérico de cada fluxo). Deixe o Y vazio para contar linhas.",
-    },
-    "plot_tooltip_chart_type": {
-        "en": "Sankey (1D): select two or more columns in X - each one is a stage and each category a node; "
-              "the ribbons show how many rows go from a category to the next column (stages follow the order "
-              "in which you selected the X columns). Optionally select ONE numeric Y column to use as the flow weight (sum) "
-              "instead of counting rows. Sankey Chord (1D): the categories form a circle and the ribbons "
-              "go from each one to any other (X columns are read in pairs, in the order you selected them: source, then target; equal names "
-              "are the same node). Box Plot / Violin: select the numeric Y column(s) to summarise; X is "
-              "optional and only groups the rows (up to 30 categories).",
-        "pt": "Sankey (1D): selecione duas ou mais colunas em X - cada uma é uma etapa e cada categoria um nó; "
-              "as faixas mostram quantas linhas vão de uma categoria para a coluna seguinte (as etapas seguem "
-              "a ordem em que você selecionou as colunas de X). Opcionalmente selecione UMA coluna numérica em Y como peso do fluxo "
-              "(soma) em vez de contar linhas. Sankey Chord (1D): as categorias formam um círculo e as "
-              "faixas vão de cada uma para qualquer outra (as colunas de X são lidas em pares, na ordem de seleção: origem e "
-              "depois destino; nomes iguais são o mesmo nó). Box Plot / Violin: selecione a(s) coluna(s) numérica(s) em Y a "
-              "resumir; o X é opcional e só agrupa as linhas (até 30 categorias).",
-    },
-    "plot_msg_distribution_need_y": {
-        "en": "{chart} summarises numeric values: select at least ONE numeric column in Y. X is optional "
-              "and only groups the rows into categories.",
-        "pt": "O {chart} resume valores numéricos: selecione pelo menos UMA coluna numérica em Y. O X é "
-              "opcional e apenas agrupa as linhas em categorias.",
-    },
-    "plot_msg_distribution_one_x": {
-        "en": "{chart} accepts at most ONE column in X (the grouping categories).",
-        "pt": "O {chart} aceita no máximo UMA coluna em X (as categorias de agrupamento).",
-    },
-    "plot_msg_distribution_too_many": {
-        "en": "Column '{col}' has {n} distinct values; {chart} supports up to {max} groups. Choose another "
-              "column in X or deselect X to plot only the Y columns.",
-        "pt": "A coluna '{col}' tem {n} valores distintos; o {chart} suporta até {max} grupos. Escolha outra "
-              "coluna em X ou desmarque o X para plotar só as colunas Y.",
     },
     "plot_opt_samples": {"en": 'Samples:', "pt": 'Amostras:'},
     "plot_opt_samples_tip": {
@@ -2119,17 +2039,15 @@ _TEXTOS = {
         "pt": 'Ordena as barras pelo valor da primeira coluna Y (ou pela contagem de cada classe, quando o Y está vazio; com X categórico e Y numérico, pela estatística da primeira coluna Y): crescente = da menor para a maior, decrescente = da maior para a menor.',
     },
     "plot_opt_bar_stat": {"en": 'Statistic:', "pt": 'Estatística:'},
-    "plot_opt_bar_stat_tip": {
-        "en": 'Bar with a categorical X and a numeric Y: each bar is the Mean, Median or Mode of the Y values of that category, and the Y axis scale follows those values, starting at zero. With Show label mark, each bar is labelled with the value and the standard deviation (value ± SD). \"Single value\" is for categories that occur only once: the bar is that value and the label shows only the value, without ± SD (if a category repeats, a message asks for another statistic). With Y empty the bars are the count of each category.',
-        "pt": 'Bar com X categórico e Y numérico: cada barra é a Média, Mediana ou Moda dos valores de Y daquela categoria, e a escala do eixo Y acompanha esses valores, a partir de zero. Com Mostrar valores nos pontos, cada barra recebe o valor e o desvio padrão (valor ± DP). \"Single value\" serve para categorias que ocorrem uma única vez: a barra é esse valor e o rótulo mostra só o valor, sem ± DP (se alguma categoria se repetir, uma mensagem pede outra estatística). Com o Y vazio, as barras são a contagem de cada categoria.',
-    },
     "plot_ylabel_stat_mean": {"en": "Mean", "pt": "Média"},
     "plot_ylabel_stat_median": {"en": "Median", "pt": "Mediana"},
     "plot_ylabel_stat_mode": {"en": "Mode", "pt": "Moda"},
     "plot_ylabel_stat_single": {"en": "Value", "pt": "Valor"},
+    "plot_ylabel_stat_mean_sd": {"en": "Mean ± SD", "pt": "Média ± DP"},
+    "plot_ylabel_stat_median_iqr": {"en": "Median ± IQR", "pt": "Mediana ± IQR"},
     "plot_msg_single_value_repeated": {
-        "en": "The statistic \"Single value\" needs each category to occur only once (a single numeric value per bar), but these occur more than once (occurrences in parentheses):\n\n{repeated}\n\nChoose Mean, Median or Mode in \"Statistic\" to summarize the repeated values.",
-        "pt": "A estatística \"Single value\" exige que cada categoria ocorra uma única vez (um único valor numérico por barra), mas estas ocorrem mais de uma vez (ocorrências entre parênteses):\n\n{repeated}\n\nEscolha Mean, Median ou Mode em \"Estatística\" para resumir os valores repetidos.",
+        "en": "The statistic \"Single Value\" needs each category to occur only once (a single numeric value per bar), but these occur more than once (occurrences in parentheses):\n\n{repeated}\n\nChoose Mean ± SD, Median ± IQR or Mode in \"Statistic\" to summarize the repeated values.",
+        "pt": "A estatística \"Single Value\" exige que cada categoria ocorra uma única vez (um único valor numérico por barra), mas estas ocorrem mais de uma vez (ocorrências entre parênteses):\n\n{repeated}\n\nEscolha Mean ± SD, Median ± IQR ou Mode em \"Estatística\" para resumir os valores repetidos.",
     },
     "plot_ylabel_stat_of": {"en": " of {y}", "pt": " de {y}"},
     "plot_msg_too_many_marks": {
@@ -2291,10 +2209,6 @@ _TEXTOS = {
         "en": 'Order of the categories around the circle. None = order of appearance (X columns in the order you selected them); Ascending / Descending = by total flow (in + out; the sum of Y when a weight is selected).',
         "pt": 'Ordem das categorias no círculo. None = ordem de aparição (colunas de X na ordem em que você as selecionou); Ascending / Descending = pelo fluxo total (entrada + saída; soma do Y quando há peso).',
     },
-    "plot_tip_selection_order": {
-        "en": 'Hold Ctrl and click to select several columns. The order in which you select them is the order used in the chart (stages of the Sankey, source and target of the Chord, series, bars, boxes...), unless a Sort option (Ascending / Descending) is chosen.',
-        "pt": 'Segure Ctrl e clique para selecionar várias colunas. A ordem em que você as seleciona é a ordem usada no gráfico (etapas do Sankey, origem e destino do Chord, séries, barras, caixas...), a menos que uma opção Sort (Ascending / Descending) seja escolhida.',
-    },
     "plot_opt_sankey_orient": {"en": 'Orientation:', "pt": 'Orientação:'},
     "plot_opt_sankey_orient_tip": {
         "en": 'Sankey direction: Horizontal = stages from left to right; Vertical = stages from top to bottom.',
@@ -2335,6 +2249,44 @@ _TEXTOS = {
     "plot_msg_saved": {"en": "File saved to:\n{path}", "pt": "Arquivo salvo em:\n{path}"},
     "plot_msg_save_error": {"en": "Error saving the chart:\n{e}", "pt": "Erro ao salvar o gráfico:\n{e}"},
     "plot_dlg_pick_color": {"en": "Pick color", "pt": "Escolher cor"},
+    # --- Papéis das colunas (aba PLOT): interpretação da seleção, erros, avisos e textos que mudaram ---
+    'rl_interp': {"en": 'Interpretation:', "pt": 'Interpretação:'},
+    'rl_role_axis': {"en": 'X axis', "pt": 'eixo X'},
+    'rl_role_y': {"en": 'Y axis', "pt": 'eixo Y'},
+    'rl_role_z': {"en": 'Z axis', "pt": 'eixo Z'},
+    'rl_role_colors': {"en": 'colors', "pt": 'cores'},
+    'rl_role_colors_auto': {"en": 'colors (class column)', "pt": 'cores (coluna de classe)'},
+    'rl_role_values': {"en": 'values', "pt": 'valores'},
+    'rl_role_groups': {"en": 'groups', "pt": 'grupos'},
+    'rl_role_count': {"en": 'count of', "pt": 'contagem de'},
+    'rl_role_stages': {"en": 'stages', "pt": 'etapas'},
+    'rl_role_weight': {"en": 'weight', "pt": 'peso'},
+    'rl_role_stat': {"en": 'statistic', "pt": 'estatística'},
+    'rl_err_nothing': {"en": 'Select at least one column in X or Y.', "pt": 'Selecione pelo menos uma coluna em X ou em Y.'},
+    'rl_err_need_x': {"en": '{chart} needs a column in X: the numeric axis column or the categories.', "pt": 'O {chart} precisa de uma coluna em X: a coluna numérica do eixo ou as categorias.'},
+    'rl_err_y_numeric': {"en": 'Y (and Z) columns must be numeric. Non-numeric: {cols}', "pt": 'As colunas de Y (e Z) precisam ser numéricas. Não numéricas: {cols}'},
+    'rl_err_one_numeric_x': {"en": '{chart} accepts at most ONE numeric column in X (the axis one). Numeric columns in X: {cols}. Move the others to Y.', "pt": 'O {chart} aceita no máximo UMA coluna numérica em X (a do eixo). Colunas numéricas em X: {cols}. Mova as demais para Y.'},
+    'rl_err_count_numeric_x': {"en": 'With Y empty, {chart} counts the categories of X, but these column(s) are numeric: {cols}. Select the numeric column with the values in Y, or use categorical columns in X.', "pt": 'Com o Y vazio, o {chart} conta as categorias de X, mas esta(s) coluna(s) é(são) numérica(s): {cols}. Selecione em Y a coluna numérica com os valores ou use colunas categóricas em X.'},
+    'rl_err_need_numeric': {"en": '{chart} summarizes numeric values: select at least ONE numeric column in Y (or in X, with Y empty). Categorical columns in X group the values.', "pt": 'O {chart} resume valores numéricos: selecione pelo menos UMA coluna numérica em Y (ou em X, com o Y vazio). Colunas categóricas em X agrupam os valores.'},
+    'rl_err_flow_two_x': {"en": '{chart} needs at least TWO columns in X (the stages of the diagram; in the Chord, source and target).', "pt": 'O {chart} precisa de pelo menos DUAS colunas em X (as etapas do diagrama; no Chord, origem e destino).'},
+    'rl_err_flow_one_y': {"en": '{chart} accepts at most ONE column in Y (the numeric weight of each flow). Leave Y empty to count rows.', "pt": 'O {chart} aceita no máximo UMA coluna em Y (o peso numérico de cada fluxo). Deixe o Y vazio para contar linhas.'},
+    'rl_err_3d_select': {"en": 'In 3D, select exactly ONE numeric column in X (the axis), ONE in Y and ONE in Z. Categorical columns in X color the points.', "pt": 'No 3D, selecione exatamente UMA coluna numérica em X (o eixo), UMA em Y e UMA em Z. Colunas categóricas em X colorem os pontos.'},
+    'rl_err_no_values': {"en": 'The selected columns have no valid values for this chart.', "pt": 'As colunas selecionadas não têm valores válidos para este gráfico.'},
+    'rl_err_too_many_groups': {"en": "Column '{col}' has {n} groups; {chart} supports up to {max}. Choose another column in X or reduce the categories.", "pt": "A coluna '{col}' tem {n} grupos; o {chart} suporta até {max}. Escolha outra coluna em X ou reduza as categorias."},
+    'rl_note_numx_ignored': {"en": '{chart} draws only the Y values: the numeric column(s) in X ({cols}) will not be used.', "pt": 'O {chart} desenha só os valores de Y: a(s) coluna(s) numérica(s) em X ({cols}) não será(ão) usada(s).'},
+    'rl_note_catx_ignored': {"en": '{chart} does not use categorical columns: {cols} will be ignored.', "pt": 'O {chart} não usa colunas categóricas: {cols} será(ão) ignorada(s).'},
+    'rl_notice_title': {"en": 'Notice', "pt": 'Aviso'},
+    'rl_notice_question': {"en": 'Continue anyway?', "pt": 'Continuar mesmo assim?'},
+    'rl_default_values': {"en": 'Values', "pt": 'Valores'},
+    'rl_default_category': {"en": 'Category', "pt": 'Categoria'},
+    'rl_default_density': {"en": 'Density', "pt": 'Densidade'},
+    'rl_tip_3d': {"en": '3D Scatter: one numeric column in X (the axis), one in Y and one in Z. Categorical columns in X color the points.', "pt": 'Scatter 3D: uma coluna numérica em X (o eixo), uma em Y e uma em Z. Colunas categóricas em X colorem os pontos.'},
+    'plot_tip_selection_order': {"en": 'Hold Ctrl (or Shift) to select several columns. The order in which you select them is the order used in the chart (Sankey stages, Chord source and target, series, bars, boxes...), unless a Sort imposes the order by value.\\n\\nRoles: numeric X = axis; categorical X = categories and colors; Y = values; Z = third axis (3D).', "pt": 'Segure Ctrl (ou Shift) para marcar várias colunas. A ordem em que você as marca é a ordem usada no gráfico (etapas do Sankey, origem e destino do Chord, séries, barras, caixas...), a menos que um Sort imponha a ordem pelo valor.\\n\\nPapéis: X numérica = eixo; X categórica = categorias e cores; Y = valores; Z = terceiro eixo (3D).'},
+    'plot_tooltip_chart_type': {"en": 'Bar, Line, Scatter, Area: numeric X = axis, categorical X = categories (the other categorical columns become colors), Y = values (empty Y = count of categories). Box Plot, Violin, Histogram, Density, Heatmap: the values are Y (or the numeric X columns with Y empty); categorical X groups. Sankey and Sankey Chord: all X columns are the stages; Y (optional) = weight. The Interpretation line shows how the selection will be read.', "pt": 'Bar, Line, Scatter, Area: X numérica = eixo, X categórica = categorias (as demais categóricas viram cores), Y = valores (Y vazio = contagem das categorias). Box Plot, Violin, Histogram, Density, Heatmap: os valores são o Y (ou as numéricas de X com o Y vazio); X categórico agrupa. Sankey e Sankey Chord: todas as colunas de X são as etapas; Y (opcional) = peso. A linha Interpretação mostra como a seleção será lida.'},
+    'plot_opt_bar_stat_tip': {"en": 'Summarizes the Y values of each category (or X value). Single Value: the value itself, for categories that occur only once (chosen automatically in that case; if a category repeats, a message asks for another statistic). Mean ± SD: the mean, with the standard deviation marked (on top of the bar, or as an error bar on the line point). Median ± IQR: the median, with a mark from Q1 to Q3. Mode: the mode. With Show label mark, the label shows the value and the spread (value ± SD or median [Q1; Q3]). Categories with a single value get no mark. The Area uses only the central value. It applies to Bar, Line and Area with a categorical X and to the Bar with a numeric X; empty Y = count of the categories.', "pt": 'Resume os valores de Y de cada categoria (ou valor de X). Single Value: o próprio valor, para categorias que ocorrem uma única vez (escolhido automaticamente nesse caso; se alguma se repetir, uma mensagem pede outra estatística). Mean ± SD: a média, com o desvio padrão marcado (no topo da barra ou como barra de erro no ponto da linha). Median ± IQR: a mediana, com a marcação de Q1 a Q3. Mode: a moda. Com Mostrar valores nos pontos, o rótulo traz o valor e a dispersão (valor ± DP ou mediana [Q1; Q3]). Categorias com um único valor ficam sem marcação. A Area usa só o valor central. Vale para Bar, Line e Area com X categórico e para o Bar com X numérico; Y vazio = contagem das categorias.'},
+    'plot_opt_kde_peak': {"en": 'Peak = 1', "pt": 'Pico = 1'},
+    'plot_opt_kde_peak_tip': {"en": 'Scales each curve so that its highest point is 1, to compare the SHAPES of groups whose values have very different spreads (a narrow group otherwise has a much taller curve, and the wider ones look flat).', "pt": 'Ajusta cada curva para que o seu ponto mais alto seja 1, a fim de comparar as FORMAS de grupos cujos valores têm dispersões muito diferentes (um grupo estreito, caso contrário, tem uma curva muito mais alta e os mais largos parecem planos).'},
+    'rl_default_density_peak': {"en": 'Relative density (peak = 1)', "pt": 'Densidade relativa (pico = 1)'},
 }
 
 
