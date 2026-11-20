@@ -404,6 +404,375 @@ try:
     from sklearn.manifold import TSNE
     from sklearn.tree import plot_tree
     import joblib
+
+    from sklearn.cross_decomposition import PLSRegression
+
+    def _pls_components_limit(n_components, n_samples, n_features):
+        """n_components pedido, limitado ao que o PLS suporta nos dados do fit: no máximo
+        min(n_samples - 1, n_features) e no mínimo 1. Numa validação cruzada com poucos descritores
+        (ou poucas amostras por fold) um valor da grade de Tuning acima do limite faria o scikit-learn
+        lançar "n_components upper bound is ..."; aqui ele é reduzido ao limite e o fit segue."""
+        return int(max(1, min(int(n_components), int(n_samples) - 1, int(n_features))))
+
+    class _FeasiblePLSRegression(PLSRegression):
+        """PLSRegression (regressão por mínimos quadrados parciais) com duas adaptações:
+        (1) n_components acima do limite dos dados do fit é reduzido a ele (guardado em
+        n_components_used_), em vez de falhar - ver _pls_components_limit; get_params continua
+        devolvendo o valor pedido (exigido por clone/Tuning). (2) predict sempre devolve um vetor 1D
+        (n_amostras,), como os demais regressores, qualquer que seja a versão do scikit-learn."""
+
+        def fit(self, X, y, **fit_params):
+            X_arr = np.asarray(X)
+            requested = self.n_components
+            self.n_components_used_ = _pls_components_limit(requested, X_arr.shape[0], X_arr.shape[1])
+            if self.n_components_used_ == requested:
+                return super().fit(X, y, **fit_params)
+            self.n_components = self.n_components_used_
+            try:
+                return super().fit(X, y, **fit_params)
+            finally:
+                self.n_components = requested
+
+        def predict(self, X, copy=True):
+            return np.asarray(super().predict(X, copy=copy)).reshape(len(X), -1)[:, 0]
+
+    from sklearn.gaussian_process import GaussianProcessRegressor
+    from sklearn.gaussian_process.kernels import (
+        ConstantKernel, RBF, Matern, RationalQuadratic, WhiteKernel,
+    )
+
+    # Núcleos selecionáveis do GaussianProcessRegressor pelo NOME (texto), para que o Tuning possa
+    # varrê-los como qualquer outro hiperparâmetro (a grade da UI é feita de textos separados por vírgula).
+    _GPR_KERNEL_BUILDERS = {
+        "RBF": lambda: RBF(length_scale=1.0),
+        "Matern32": lambda: Matern(length_scale=1.0, nu=1.5),
+        "Matern52": lambda: Matern(length_scale=1.0, nu=2.5),
+        "RationalQuadratic": lambda: RationalQuadratic(length_scale=1.0, alpha=1.0),
+    }
+
+    class _KernelGPR(GaussianProcessRegressor):
+        """GaussianProcessRegressor (regressão por processo gaussiano) com o núcleo escolhido pelo
+        NOME - kernel = "RBF", "Matern32", "Matern52" ou "RationalQuadratic" - em vez de um objeto
+        (que não cabe na grade de hiperparâmetros em texto da UI). O núcleo efetivo é
+        ConstantKernel * <núcleo> + WhiteKernel: a constante ajusta a amplitude e o WhiteKernel o ruído
+        dos dados (importante em QSAR, cujos rótulos experimentais são ruidosos); os comprimentos de
+        escala, a amplitude e o ruído são otimizados pela verossimilhança marginal a cada fit
+        (resultado em kernel_). get_params continua devolvendo o nome (exigido por clone/Tuning).
+        predict(X, return_std=True) também devolve o desvio-padrão da predição (a incerteza)."""
+
+        def fit(self, X, y):
+            name = self.kernel if isinstance(self.kernel, str) else None
+            if name is None:
+                return super().fit(X, y)
+            if name not in _GPR_KERNEL_BUILDERS:
+                raise ValueError(f"Unknown GaussianProcessRegressor kernel '{name}'. "
+                                 f"Choose one of: {', '.join(_GPR_KERNEL_BUILDERS)}.")
+            requested = self.kernel
+            self.kernel = (ConstantKernel(1.0, (1e-3, 1e3)) * _GPR_KERNEL_BUILDERS[name]()
+                           + WhiteKernel(noise_level=0.1, noise_level_bounds=(1e-5, 1e1)))
+            try:
+                return super().fit(X, y)
+            finally:
+                self.kernel = requested
+
+        def predict(self, X, return_std=False, return_cov=False):
+            # o predict do scikit-learn consulta self.kernel (aqui, o nome); troca-o pelo núcleo já
+            # ajustado (kernel_) só durante a predição
+            if not isinstance(self.kernel, str):
+                return super().predict(X, return_std=return_std, return_cov=return_cov)
+            requested = self.kernel
+            self.kernel = self.kernel_
+            try:
+                return super().predict(X, return_std=return_std, return_cov=return_cov)
+            finally:
+                self.kernel = requested
+
+    class PLSDA(ClassifierMixin, BaseEstimator):
+        """PLS-DA (Partial Least Squares - Discriminant Analysis). O scikit-learn não tem esse
+        classificador pronto: ele é o PLSRegression ajustado à matriz de classes codificada em
+        indicadores (one-hot, uma coluna por classe) - cada classe recebe um escore previsto e a
+        classe prevista é a de maior escore. Funciona com 2 ou mais classes e com rótulos de qualquer
+        tipo (texto ou número).
+
+        predict_proba devolve os escores clipados em [0, 1] e normalizados para somar 1 - são
+        "probabilidades" aproximadas (o PLS-DA não é probabilístico), suficientes para ROC/PR; a
+        decisão por argmax de predict_proba é a mesma de predict. n_components acima do que os dados do
+        fit permitem é reduzido (n_components_used_), como em _FeasiblePLSRegression."""
+
+        def __init__(self, n_components=2, scale=True, max_iter=500, tol=1e-6):
+            self.n_components = n_components
+            self.scale = scale
+            self.max_iter = max_iter
+            self.tol = tol
+
+        def fit(self, X, y, **fit_params):
+            X_arr = np.asarray(X, dtype=float)
+            y_arr = np.asarray(y)
+            self.classes_, y_idx = np.unique(y_arr, return_inverse=True)
+            if len(self.classes_) < 2:
+                raise ValueError("PLSDA needs at least 2 classes in y.")
+            indicator = np.zeros((len(y_idx), len(self.classes_)), dtype=float)
+            indicator[np.arange(len(y_idx)), y_idx] = 1.0
+            self.n_components_used_ = _pls_components_limit(self.n_components, X_arr.shape[0], X_arr.shape[1])
+            self.pls_ = PLSRegression(
+                n_components=self.n_components_used_, scale=self.scale, max_iter=self.max_iter, tol=self.tol,
+            )
+            self.pls_.fit(X_arr, indicator)
+            self.n_features_in_ = X_arr.shape[1]
+            return self
+
+        def _scores(self, X):
+            return np.asarray(self.pls_.predict(np.asarray(X, dtype=float)), dtype=float).reshape(len(X), -1)
+
+        def decision_function(self, X):
+            scores = self._scores(X)
+            # binário: um único escore (classe positiva = classes_[1]), como os demais classificadores
+            return scores[:, 1] - scores[:, 0] if scores.shape[1] == 2 else scores
+
+        def predict(self, X):
+            return self.classes_[np.argmax(self._scores(X), axis=1)]
+
+        def predict_proba(self, X):
+            clipped = np.clip(self._scores(X), 0.0, 1.0)
+            total = clipped.sum(axis=1, keepdims=True)
+            uniform = np.full_like(clipped, 1.0 / clipped.shape[1])
+            return np.where(total > 0, clipped / np.where(total > 0, total, 1.0), uniform)
+
+        def score(self, X, y):
+            return float(accuracy_score(y, self.predict(X)))
+
+    from sklearn.base import RegressorMixin
+    from sklearn.utils.metaestimators import available_if
+    from sklearn.kernel_ridge import KernelRidge
+    from sklearn.dummy import DummyClassifier, DummyRegressor
+    from sklearn.naive_bayes import BernoulliNB
+    from sklearn.ensemble import VotingRegressor, VotingClassifier, StackingRegressor, StackingClassifier
+
+    # ----------------------------------------------------------------------------------------------
+    # Kernel de Tanimoto (SVM e Kernel Ridge): similaridade padrão de fingerprints moleculares
+    # ----------------------------------------------------------------------------------------------
+    def _tanimoto_kernel(A, B):
+        """Matriz de kernel de Tanimoto K[i, j] = a.b / (|a|^2 + |b|^2 - a.b) entre as linhas de A e as
+        de B. Com fingerprints binários é exatamente |a & b| / |a | b| (índice de Tanimoto/Jaccard); com
+        contagens (ECFP counts) é a generalização usual. Em [0, 1]; duas linhas todas nulas valem 1."""
+        A = np.asarray(A, dtype=float)
+        B = np.asarray(B, dtype=float)
+        dot = A @ B.T
+        den = (A * A).sum(axis=1)[:, None] + (B * B).sum(axis=1)[None, :] - dot
+        positive = den > 0
+        return np.where(positive, dot / np.where(positive, den, 1.0), 1.0)
+
+    class _TanimotoBase(BaseEstimator):
+        """Base dos modelos com kernel de Tanimoto: guarda o conjunto de treino e entrega ao modelo
+        do scikit-learn (kernel="precomputed") a matriz de Tanimoto entre as linhas de X e o treino.
+        O Tanimoto só é definido para descritores não negativos (fingerprints e contagens); dados com
+        valores negativos (ex.: descritores padronizados) param com uma mensagem clara."""
+
+        _needs_nonnegative_X = True
+
+        def _check_X(self, X):
+            arr = np.asarray(X, dtype=float)
+            if arr.size and np.nanmin(arr) < 0:
+                raise ValueError(
+                    f"{type(self).__name__}: the Tanimoto kernel needs non-negative descriptors "
+                    "(binary fingerprints or counts); the X matrix has negative values "
+                    "(e.g. standardized descriptors). Use a fingerprint dataframe."
+                )
+            return arr
+
+        def _gram_train(self, X):
+            self.X_train_ = self._check_X(X)
+            self.n_features_in_ = self.X_train_.shape[1]
+            return _tanimoto_kernel(self.X_train_, self.X_train_)
+
+        def _gram(self, X):
+            return _tanimoto_kernel(self._check_X(X), self.X_train_)
+
+    class _TanimotoSVC(ClassifierMixin, _TanimotoBase):
+        """SVM de classificação (SVC) com kernel de Tanimoto - ver _TanimotoBase. probability=True
+        habilita predict_proba (calibração de Platt do libsvm), como no SVC do registry."""
+
+        def __init__(self, C=1.0, class_weight=None, probability=True, random_state=None):
+            self.C = C
+            self.class_weight = class_weight
+            self.probability = probability
+            self.random_state = random_state
+
+        def fit(self, X, y):
+            self.svc_ = SVC(kernel="precomputed", C=self.C, class_weight=self.class_weight,
+                            probability=self.probability, random_state=self.random_state)
+            self.svc_.fit(self._gram_train(X), np.asarray(y))
+            self.classes_ = self.svc_.classes_
+            return self
+
+        def predict(self, X):
+            return self.svc_.predict(self._gram(X))
+
+        def decision_function(self, X):
+            return self.svc_.decision_function(self._gram(X))
+
+        @available_if(lambda self: bool(self.probability))
+        def predict_proba(self, X):
+            return self.svc_.predict_proba(self._gram(X))
+
+    class _TanimotoSVR(RegressorMixin, _TanimotoBase):
+        """SVM de regressão (SVR) com kernel de Tanimoto - ver _TanimotoBase."""
+
+        def __init__(self, C=1.0, epsilon=0.1):
+            self.C = C
+            self.epsilon = epsilon
+
+        def fit(self, X, y):
+            self.svr_ = SVR(kernel="precomputed", C=self.C, epsilon=self.epsilon)
+            self.svr_.fit(self._gram_train(X), np.asarray(y, dtype=float))
+            return self
+
+        def predict(self, X):
+            return np.asarray(self.svr_.predict(self._gram(X))).ravel()
+
+    class _TanimotoKernelRidge(RegressorMixin, _TanimotoBase):
+        """Kernel Ridge com kernel de Tanimoto - ver _TanimotoBase."""
+
+        def __init__(self, alpha=0.1):
+            self.alpha = alpha
+
+        def fit(self, X, y):
+            self.kr_ = KernelRidge(kernel="precomputed", alpha=self.alpha)
+            self.kr_.fit(self._gram_train(X), np.asarray(y, dtype=float))
+            return self
+
+        def predict(self, X):
+            return np.asarray(self.kr_.predict(self._gram(X))).ravel()
+
+    # ----------------------------------------------------------------------------------------------
+    # Comitês (Voting / Stacking) montados a partir de modelos do registry, indicados pelo nome
+    # ----------------------------------------------------------------------------------------------
+    class _NamedEnsemble(BaseEstimator):
+        """Base dos comitês Voting/Stacking do CODRUG. Os modelos-membro são indicados pelo NOME no
+        registry (members = "RandomForestRegressor,SVR,Ridge"), não por objetos: assim o comitê cabe na
+        tabela de hiperparâmetros em texto, passa por clone/Tuning/pickle e é remontado a cada fit com
+        os valores padrão de cada membro. No Run Screening, members vira a lista dos demais modelos
+        marcados (ver run_skl_screening). O comitê monta o VotingXxx/StackingXxx do scikit-learn em
+        model_ no fit e delega a ele a predição."""
+
+        _is_classifier = False
+
+        def _registry(self):
+            return SKL_CLASSIFIERS if self._is_classifier else SKL_REGRESSORS
+
+        def _make(self, name):
+            registry = self._registry()
+            if name not in registry or name in SKL_ENSEMBLE_NAMES:
+                raise ValueError(f"Unknown or invalid ensemble member '{name}'. "
+                                 f"Available: {', '.join(n for n in registry if n not in SKL_ENSEMBLE_NAMES)}.")
+            cls, kwargs = registry[name]
+            return _skl_instantiate(cls, kwargs, self.random_state)
+
+        def _member_list(self, X):
+            """Nomes dos membros, sem os que não aceitam este X (Tanimoto com valores negativos)."""
+            names = [n.strip() for n in str(self.members).replace(";", ",").split(",") if n.strip()]
+            registry = self._registry()
+            arr = np.asarray(X, dtype=float)
+            has_negative = bool(arr.size and np.nanmin(arr) < 0)
+            kept, dropped = [], []
+            for n in names:
+                needs_nonneg = n in registry and getattr(registry[n][0], "_needs_nonnegative_X", False)
+                (dropped if (needs_nonneg and has_negative) else kept).append(n)
+            self.dropped_members_ = dropped
+            if len(kept) < 2:
+                raise ValueError(f"{type(self).__name__} needs at least 2 usable members; got {kept or 'none'}"
+                                 + (f" (dropped for negative X values: {dropped})" if dropped else "") + ".")
+            self.members_used_ = kept
+            return [(f"m{i}_{n}", self._make(n)) for i, n in enumerate(kept)]
+
+        def _build(self, X):
+            raise NotImplementedError
+
+        def fit(self, X, y):
+            self.model_ = self._build(X)
+            self.model_.fit(X, y)
+            if self._is_classifier:
+                self.classes_ = self.model_.classes_
+            return self
+
+        def predict(self, X):
+            return self.model_.predict(X)
+
+    class _NamedClassifierEnsemble(ClassifierMixin, _NamedEnsemble):
+        _is_classifier = True
+
+        @available_if(lambda self: getattr(self, "model_", None) is None or hasattr(self.model_, "predict_proba"))
+        def predict_proba(self, X):
+            return self.model_.predict_proba(X)
+
+        @available_if(lambda self: getattr(self, "model_", None) is None or hasattr(self.model_, "decision_function"))
+        def decision_function(self, X):
+            return self.model_.decision_function(X)
+
+    class _NamedRegressorEnsemble(RegressorMixin, _NamedEnsemble):
+        _is_classifier = False
+
+    class _VotingRegressorByName(_NamedRegressorEnsemble):
+        """VotingRegressor: média das predições dos membros."""
+
+        def __init__(self, members="RandomForestRegressor,SVR,Ridge", random_state=None):
+            self.members = members
+            self.random_state = random_state
+
+        def _build(self, X):
+            return VotingRegressor(estimators=self._member_list(X))
+
+    class _StackingRegressorByName(_NamedRegressorEnsemble):
+        """StackingRegressor: um meta-modelo (final_estimator, nome do registry) aprende a combinar as
+        predições out-of-fold (cv) dos membros."""
+
+        def __init__(self, members="RandomForestRegressor,SVR,Ridge", final_estimator="Ridge", cv=5,
+                     random_state=None):
+            self.members = members
+            self.final_estimator = final_estimator
+            self.cv = cv
+            self.random_state = random_state
+
+        def _build(self, X):
+            return StackingRegressor(estimators=self._member_list(X),
+                                     final_estimator=self._make(self.final_estimator), cv=self.cv)
+
+    class _VotingClassifierByName(_NamedClassifierEnsemble):
+        """VotingClassifier: voto dos membros. voting="soft" (média das probabilidades) exige
+        predict_proba em todos os membros; se algum não tiver (RidgeClassifier, PassiveAggressive...),
+        o comitê usa "hard" (voto da maioria) - voting_used_ registra o que valeu e, nesse caso, não há
+        predict_proba."""
+
+        def __init__(self, members="RandomForestClassifier,SVC,LogisticRegression", voting="soft",
+                     random_state=None):
+            self.members = members
+            self.voting = voting
+            self.random_state = random_state
+
+        def _build(self, X):
+            estimators = self._member_list(X)
+            voting = self.voting
+            if voting == "soft" and not all(hasattr(est, "predict_proba") for _n, est in estimators):
+                voting = "hard"
+            self.voting_used_ = voting
+            return VotingClassifier(estimators=estimators, voting=voting)
+
+    class _StackingClassifierByName(_NamedClassifierEnsemble):
+        """StackingClassifier: um meta-modelo (final_estimator, nome do registry) aprende a combinar
+        as saídas out-of-fold (cv) dos membros."""
+
+        def __init__(self, members="RandomForestClassifier,SVC,LogisticRegression",
+                     final_estimator="LogisticRegression", cv=5, random_state=None):
+            self.members = members
+            self.final_estimator = final_estimator
+            self.cv = cv
+            self.random_state = random_state
+
+        def _build(self, X):
+            return StackingClassifier(estimators=self._member_list(X),
+                                      final_estimator=self._make(self.final_estimator), cv=self.cv)
+
+
     print("✅ Scikitlearn imported successfully.")
 except Exception as e:
     print("⚠️ Sklearn not available. Use 'Install requirements' at home menu.")
@@ -424,6 +793,7 @@ try:
         "SVR": (SVR, {"kernel": "rbf", "C": 0.5, "epsilon": 0.1, "gamma": "auto"}),
         "GradientBoostingRegressor": (GradientBoostingRegressor, {"n_estimators": 100, "learning_rate": 0.1, "max_depth": 3, "subsample": 1.0, "max_features": None}),
         "ExtraTreesRegressor": (ExtraTreesRegressor, {"n_estimators": 100, "max_depth": None, "min_samples_split": 2, "min_samples_leaf": 1, "max_features": None}),
+        "DecisionTreeRegressor": (DecisionTreeRegressor, {"max_depth": None, "min_samples_split": 2, "min_samples_leaf": 1, "criterion": "squared_error"}),
         "AdaBoostRegressor": (AdaBoostRegressor, {"n_estimators": 100, "learning_rate": 0.1, "loss": "linear"}),
         "KNeighborsRegressor": (KNeighborsRegressor, {"n_neighbors": 5, "weights": "uniform", "algorithm": "auto"}),
         "Ridge": (Ridge, {"alpha": 1.0, "solver": "auto"}),
@@ -434,6 +804,14 @@ try:
         "LinearRegression": (LinearRegression, {}),
         "HuberRegressor": (HuberRegressor, {"epsilon": 1.35, "alpha": 0.0001, "max_iter": 200}),
         "PassiveAggressiveRegressor": (PassiveAggressiveRegressor, {"C": 1.0, "epsilon": 0.1, "max_iter": 1000}),
+        "PLSRegression": (_FeasiblePLSRegression, {"n_components": 2, "scale": True, "max_iter": 500}),
+        "GaussianProcessRegressor": (_KernelGPR, {"kernel": "RBF", "alpha": 1e-10, "normalize_y": True, "n_restarts_optimizer": 0}),
+        "KernelRidge": (KernelRidge, {"alpha": 1.0, "kernel": "rbf", "gamma": None}),
+        "TanimotoSVR": (_TanimotoSVR, {"C": 1.0, "epsilon": 0.1}),
+        "TanimotoKernelRidge": (_TanimotoKernelRidge, {"alpha": 0.1}),
+        "VotingRegressor": (_VotingRegressorByName, {"members": "RandomForestRegressor,SVR,Ridge"}),
+        "StackingRegressor": (_StackingRegressorByName, {"members": "RandomForestRegressor,SVR,Ridge", "final_estimator": "Ridge", "cv": 5}),
+        "DummyRegressor": (DummyRegressor, {"strategy": "mean"}),
         "SGDRegressor": (SGDRegressor, {"loss": "squared_error", "penalty": "l2", "alpha": 0.0001, "max_iter": 1000}),
     }
     if _CATBOOST_AVAILABLE:
@@ -453,6 +831,7 @@ try:
         "SVC": (SVC, {"kernel": "rbf", "C": 1.0, "probability": True, "gamma": "scale"}),
         "GradientBoostingClassifier": (GradientBoostingClassifier, {"n_estimators": 100, "learning_rate": 0.1, "max_depth": 3, "subsample": 1.0, "max_features": None}),
         "ExtraTreesClassifier": (ExtraTreesClassifier, {"n_estimators": 100, "max_depth": None, "min_samples_split": 2, "min_samples_leaf": 1, "max_features": None}),
+        "DecisionTreeClassifier": (DecisionTreeClassifier, {"max_depth": None, "min_samples_split": 2, "min_samples_leaf": 1, "criterion": "gini"}),
         "AdaBoostClassifier": (AdaBoostClassifier, {"n_estimators": 100, "learning_rate": 0.1}),
         "KNeighborsClassifier": (KNeighborsClassifier, {"n_neighbors": 5, "weights": "uniform", "algorithm": "auto"}),
         "LogisticRegression": (LogisticRegression, {"C": 1.0, "solver": "lbfgs", "max_iter": 1000}),
@@ -462,6 +841,12 @@ try:
         "MLPClassifier": (MLPClassifier, {"hidden_layer_sizes": (100, 50), "max_iter": 500}),
         "PassiveAggressiveClassifier": (PassiveAggressiveClassifier, {"C": 1.0, "max_iter": 1000}),
         "LinearDiscriminantAnalysis": (LinearDiscriminantAnalysis, {"solver": "svd"}),
+        "PLSDA": (PLSDA, {"n_components": 2, "scale": True, "max_iter": 500}),
+        "BernoulliNB": (BernoulliNB, {"alpha": 1.0, "binarize": 0.0, "fit_prior": True}),
+        "TanimotoSVC": (_TanimotoSVC, {"C": 1.0, "probability": True}),
+        "VotingClassifier": (_VotingClassifierByName, {"members": "RandomForestClassifier,SVC,LogisticRegression", "voting": "soft"}),
+        "StackingClassifier": (_StackingClassifierByName, {"members": "RandomForestClassifier,SVC,LogisticRegression", "final_estimator": "LogisticRegression", "cv": 5}),
+        "DummyClassifier": (DummyClassifier, {"strategy": "prior"}),
     }
     if _CATBOOST_AVAILABLE:
         SKL_CLASSIFIERS["CatBoostClassifier"] = (
@@ -487,6 +872,13 @@ except NameError:
 # foi como rodaram.
 SKL_DEFAULT_CV_REPEATS = 5
 
+# Modelos que montam um comitê (Voting/Stacking) a partir de OUTROS modelos do registry, indicados pelo
+# nome em "members" (texto CSV). No Run Screening, os membros passam a ser os demais modelos marcados
+# na lista (ver run_skl_screening); sem 2 ou mais outros marcados, vale a lista padrão do registry.
+SKL_ENSEMBLE_NAMES = ("VotingRegressor", "StackingRegressor", "VotingClassifier", "StackingClassifier")
+# Modelos de referência (baseline): ficam no ranking, mas não entram como membro de comitê.
+SKL_BASELINE_NAMES = ("DummyRegressor", "DummyClassifier")
+
 # Grades de hiperparâmetros padrão (editáveis na UI) para o Tuning da STEP 6:
 # Cada valor é uma string CSV que o usuário pode editar diretamente na tabela de hiperparâmetros.
 SKL_PARAM_GRIDS = {
@@ -499,6 +891,7 @@ SKL_PARAM_GRIDS = {
     "SVR": [("C", "0.1,0.5,1.0,10.0"), ("epsilon", "0.01,0.1,0.5"), ("gamma", "scale,auto")],
     "GradientBoostingRegressor": [("n_estimators", "100,200,300"), ("learning_rate", "0.01,0.05,0.1"), ("max_depth", "3,5,7"), ("subsample", "0.8,1.0")],
     "ExtraTreesRegressor": [("n_estimators", "100,200,300"), ("max_depth", "None,10,20"), ("min_samples_split", "2,5,10"), ("min_samples_leaf", "1,2,4")],
+    "DecisionTreeRegressor": [("max_depth", "None,3,5,10,20"), ("min_samples_split", "2,5,10"), ("min_samples_leaf", "1,2,4"), ("criterion", "squared_error,friedman_mse")],
     "AdaBoostRegressor": [("n_estimators", "50,100,200"), ("learning_rate", "0.01,0.1,1.0"), ("loss", "linear,square,exponential")],
     "KNeighborsRegressor": [("n_neighbors", "3,5,7,10"), ("weights", "uniform,distance"), ("metric", "minkowski,jaccard"), ("algorithm", "auto,ball_tree,brute")],
     "Ridge": [("alpha", "0.1,1.0,10.0,100.0"), ("solver", "auto,svd,cholesky")],
@@ -510,6 +903,14 @@ SKL_PARAM_GRIDS = {
     "HuberRegressor": [("epsilon", "1.1,1.35,1.5,2.0"), ("alpha", "0.0001,0.001,0.01"), ("max_iter", "100,200,500")],
     "PassiveAggressiveRegressor": [("C", "0.1,1.0,10.0"), ("epsilon", "0.01,0.1,0.5"), ("max_iter", "1000,2000")],
     "SGDRegressor": [("alpha", "0.0001,0.001,0.01"), ("penalty", "l2,l1,elasticnet"), ("max_iter", "1000,2000")],
+    "PLSRegression": [("n_components", "1,2,3,4,5,6,8,10"), ("scale", "True,False")],
+    "GaussianProcessRegressor": [("kernel", "RBF,Matern32,Matern52,RationalQuadratic"), ("alpha", "1e-10,1e-6,1e-3"), ("normalize_y", "True,False")],
+    "KernelRidge": [("alpha", "0.01,0.1,1.0,10.0"), ("kernel", "rbf,laplacian,linear"), ("gamma", "None,0.001,0.01,0.1")],
+    "TanimotoSVR": [("C", "0.1,1.0,10.0,100.0"), ("epsilon", "0.01,0.1,0.5")],
+    "TanimotoKernelRidge": [("alpha", "0.01,0.1,1.0,10.0")],
+    "VotingRegressor": [],
+    "StackingRegressor": [("final_estimator", "Ridge,LinearRegression,RandomForestRegressor"), ("cv", "3,5")],
+    "DummyRegressor": [("strategy", "mean,median")],
     "CatBoostRegressor": [("iterations", "100,200,300"), ("learning_rate", "0.01,0.05,0.1"), ("depth", "4,6,8"), ("l2_leaf_reg", "1,3,5")],
 
     "RandomForestClassifier": [("n_estimators", "100,200,300"), ("max_depth", "None,10,20,30"), ("min_samples_split", "2,5,10"), ("min_samples_leaf", "1,2,4"), ("criterion", "gini,entropy"), ("class_weight", "None,balanced")],
@@ -522,6 +923,7 @@ SKL_PARAM_GRIDS = {
     "SVC": [("C", "0.1,1.0,10.0"), ("gamma", "scale,auto"), ("kernel", "rbf,linear,poly"), ("class_weight", "None,balanced")],
     "GradientBoostingClassifier": [("n_estimators", "100,200,300"), ("learning_rate", "0.01,0.05,0.1"), ("max_depth", "3,5,7"), ("subsample", "0.8,1.0")],
     "ExtraTreesClassifier": [("n_estimators", "100,200,300"), ("max_depth", "None,10,20"), ("min_samples_split", "2,5,10"), ("min_samples_leaf", "1,2,4"), ("class_weight", "None,balanced")],
+    "DecisionTreeClassifier": [("max_depth", "None,3,5,10,20"), ("min_samples_split", "2,5,10"), ("min_samples_leaf", "1,2,4"), ("criterion", "gini,entropy"), ("class_weight", "None,balanced")],
     "AdaBoostClassifier": [("n_estimators", "50,100,200"), ("learning_rate", "0.01,0.1,1.0")],
     "KNeighborsClassifier": [("n_neighbors", "3,5,7,10"), ("weights", "uniform,distance"), ("metric", "minkowski,jaccard"), ("algorithm", "auto,ball_tree,brute")],
     "LogisticRegression": [("C", "0.01,0.1,1.0,10.0"), ("solver", "lbfgs,liblinear"), ("class_weight", "None,balanced")],
@@ -531,6 +933,12 @@ SKL_PARAM_GRIDS = {
     "MLPClassifier": [("hidden_layer_sizes", "(50,),(100,),(100,50)"), ("alpha", "0.0001,0.001,0.01"), ("max_iter", "500,1000")],
     "PassiveAggressiveClassifier": [("C", "0.1,1.0,10.0"), ("max_iter", "1000,2000"), ("class_weight", "None,balanced")],
     "LinearDiscriminantAnalysis": [("solver", "svd,lsqr,eigen")],
+    "PLSDA": [("n_components", "1,2,3,4,5,6,8,10"), ("scale", "True,False")],
+    "BernoulliNB": [("alpha", "0.01,0.1,0.5,1.0"), ("binarize", "0.0,1.0"), ("fit_prior", "True,False")],
+    "TanimotoSVC": [("C", "0.1,1.0,10.0,100.0"), ("class_weight", "None,balanced")],
+    "VotingClassifier": [("voting", "soft,hard")],
+    "StackingClassifier": [("final_estimator", "LogisticRegression,RandomForestClassifier"), ("cv", "3,5")],
+    "DummyClassifier": [("strategy", "prior,most_frequent,stratified,uniform")],
     "CatBoostClassifier": [("iterations", "100,200,300"), ("learning_rate", "0.01,0.05,0.1"), ("depth", "4,6,8"), ("l2_leaf_reg", "1,3,5"), ("auto_class_weights", "None,Balanced")],
 
     "KMeans": [("n_clusters", "2,3,4,5,6"), ("init", "k-means++,random")],
@@ -4219,11 +4627,12 @@ class MainWindow(QMainWindow):
         self._tr("menu_code_and_tutorials", tutorial_action.setText)
         tutorial_action.triggered.connect(lambda: webbrowser.open("https://github.com/moimaian/CODRUG"))
         help_menu.addAction(tutorial_action)
-        help_menu.addSeparator()
+
+        # About: terceira opção da barra superior, ao lado de "Menu" e "Help" (clique abre a janela direto)
         about_action = QAction(self)
         self._tr("menu_about", about_action.setText)
         about_action.triggered.connect(self.show_about)
-        help_menu.addAction(about_action)
+        menu_bar.addAction(about_action)
 
         # Tabs
         self.tabs = QTabWidget()
@@ -5998,6 +6407,7 @@ class MainWindow(QMainWindow):
         ("show_legend", "chk_plot_legend"),
         ("legend_position", "cb_plot_legend_pos"),
         ("show_label_mark", "chk_plot_label"),
+        ("label_decimals", "sp_plot_label_decimals"),
         ("color_mode", "cb_plot_colors"),
         ("palette", "cb_plot_palette"),
         ("x_label", "le_plot_xlabel"),
@@ -10641,10 +11051,11 @@ class MainWindow(QMainWindow):
             single_color = "#1f77b4"
         # Opções específicas do tipo de gráfico (+ "samples": sorteia N linhas, nova amostra a cada gráfico)
         opts = self._plot_collect_options(plot_type)
-        opts["legend_loc"] = self.cb_plot_legend_pos.currentText()      # posição da legenda (se "Show legend")
+        opts["legend_loc"] = self.cb_plot_legend_pos.currentText()      # posição da legenda (se "Legend" estiver marcado)
         style = dict(
             dpi=dpi, trend_mode=trend_mode, show_legend=self.chk_plot_legend.isChecked(),
-            label_mark=self.chk_plot_label.isChecked(), title=(self.le_plot_title.text() or "").strip(),
+            label_mark=self.chk_plot_label.isChecked(), label_decimals=self.sp_plot_label_decimals.value(),
+            title=(self.le_plot_title.text() or "").strip(),
             xlabel=(self.le_plot_xlabel.text() or "").strip(), ylabel=(self.le_plot_ylabel.text() or "").strip(),
             zlabel=(self.le_plot_zlabel.text() or "").strip(), color_mode=color_mode,
             palette_name=self.cb_plot_palette.currentText(), single_color=single_color)
@@ -17698,6 +18109,10 @@ class MainWindow(QMainWindow):
                     std = eval_info.get("std", None)
                     if mean is not None and std is not None:
                         msg_eval = f"\n\nValidation on projected space (CV=5)\n- {metric}: {mean:.3f} ± {std:.3f}"
+                    n_clipped = eval_info.get("nmf_negative_values_clipped")
+                    if n_clipped:
+                        msg_eval += (f"\n\nNMF needs non-negative data: {n_clipped} negative value(s) "
+                                     "were set to 0.")
                     if eval_info.get("artifact_applied"):
                         msg_eval += (
                             f"\n\nProjection artifact applied to new data\n- Source: {eval_info.get('artifact_path', 'N/A')}"
@@ -20317,15 +20732,20 @@ class MainWindow(QMainWindow):
             pipe_grp = QGroupBox()
             self._tr("home_grp_pipeline", pipe_grp.setTitle)
             pipe_grid = QGridLayout(pipe_grp)
-            pipe_grid.setHorizontalSpacing(20)
+            pipe_grid.setHorizontalSpacing(24)
             pipe_grid.setVerticalSpacing(4)
+            pipe_grid.setColumnStretch(0, 0)      # nomes das etapas: só a largura do maior nome
+            pipe_grid.setColumnStretch(1, 1)      # descrições: todo o espaço restante (sem quebra de linha)
             for i in range(7):
                 name_lbl = QLabel()
                 name_lbl.setStyleSheet("color:#C9D1D9;font-size:9pt;")
                 self._tr(f"home_step{i}_name", lambda txt, w=name_lbl: w.setText(f"<b>{txt}</b>"))
                 desc_lbl = QLabel()
                 desc_lbl.setStyleSheet("color:#6E8CA8;font-size:9pt;")
-                desc_lbl.setWordWrap(True)
+                # Sem quebra de linha: a largura mínima é a do maior texto entre os idiomas, então a janela já abre larga
+                # o bastante e a descrição continua em uma linha ao trocar de idioma.
+                fm_desc = desc_lbl.fontMetrics()
+                desc_lbl.setMinimumWidth(max(fm_desc.horizontalAdvance(i18n.t(f"home_step{i}_desc", lg_)) for lg_ in ("pt", "en")) + 4)
                 self._tr(f"home_step{i}_desc", desc_lbl.setText)
                 pipe_grid.addWidget(name_lbl, i, 0)
                 pipe_grid.addWidget(desc_lbl, i, 1)
@@ -22308,7 +22728,7 @@ class MainWindow(QMainWindow):
                 ("top_k", True, "top_k (int or 'auto'): number of top features to keep. Used by SelectKBest, Mutual Information, RFE, SFS, Lasso/Ridge/Elastic Net, Tree-based/GB Importance.", "20"),
                 ("corr_threshold", True, "corr_threshold (float, 0-1): used by 'Correlation Threshold' - features correlated above this value are dropped.", "0.95"),
                 ("min_variance", True, "min_variance (float, >= 0): used by 'Variance Threshold' - features whose variance is not above this value are dropped. Absolute value in the data's own units (not a fraction): binary fingerprint bits have variance p(1-p) <= 0.25, so 0.01 drops bits present in fewer than ~1% (or more than ~99%) of the compounds; 0 drops only constant columns. Run it before Recommended Scaling - after standardization every feature has variance 1.", "0.01"),
-                ("alpha", True, "alpha (float): regularization strength. Used by Lasso (L1), Ridge (L2) and Elastic Net.", "1.0"),
+                ("alpha", True, "alpha (float): regularization strength. Used by Lasso (L1), Ridge (L2) and Elastic Net. In classification these methods use penalized logistic regression (L1, L2 or elastic net) with C = 1/alpha (standardized features); in regression, Lasso/Ridge/ElasticNet.", "1.0"),
             ]
             self.tbl_proj_params.setRowCount(len(proj_param_rows))
             for row, (row_label, ever_editable, tooltip, preset) in enumerate(proj_param_rows):
@@ -25334,23 +25754,23 @@ class MainWindow(QMainWindow):
             btn_layout11.addWidget(self.chk_plot_transpose)
             btn_layout11.addStretch()
 
-            # 2) Dimensões: só o 3D é uma escolha (adiciona o eixo Z); o resto vem dos papéis das colunas
-            self.ck_plot_3d = QCheckBox("3D")
-            pg.addWidget(_plot_lbl("plot_lbl_dimensions"), 0, 0, 1, 1)
-            pg.addWidget(self.ck_plot_3d, 0, 1, 1, 1)
+            # 2) Dimensão: só o 3D é uma escolha (adiciona o eixo Z); o resto vem dos papéis das colunas.
+            #    O checkbox é o próprio título da lista Z ("[ ] Z values"): marcado, o Z entra em uso.
+            self.ck_plot_3d = QCheckBox(); self._tr("plot_lbl_z", self.ck_plot_3d.setText)
+            self.ck_plot_3d.setStyleSheet("color: #C9D1D9; font-size: 10pt; font-weight: bold;")
 
             # 3) Column selectors
-            pg.addWidget(_plot_lbl("plot_lbl_select_columns"), 2, 0, 1, 1)
-            pg.addWidget(_plot_lbl("plot_lbl_x"), 1, 1, 1, 1, alignment=Qt.AlignLeft)
-            pg.addWidget(_plot_lbl("plot_lbl_y"), 1, 2, 1, 1, alignment=Qt.AlignLeft)
-            pg.addWidget(_plot_lbl("plot_lbl_z"), 1, 3, 1, 1, alignment=Qt.AlignLeft)
+            pg.addWidget(_plot_lbl("plot_lbl_select_columns"), 1, 0, 1, 1)
+            pg.addWidget(_plot_lbl("plot_lbl_x"), 0, 1, 1, 1, alignment=Qt.AlignLeft)
+            pg.addWidget(_plot_lbl("plot_lbl_y"), 0, 2, 1, 1, alignment=Qt.AlignLeft)
+            pg.addWidget(self.ck_plot_3d, 0, 3, 1, 1, alignment=Qt.AlignLeft)
             self.lw_plot_x = QListWidget(); self.lw_plot_x.setSelectionMode(QAbstractItemView.SingleSelection)
             self.lw_plot_y = QListWidget(); self.lw_plot_y.setSelectionMode(QAbstractItemView.ExtendedSelection)
             self.lw_plot_z = QListWidget(); self.lw_plot_z.setSelectionMode(QAbstractItemView.ExtendedSelection)
             for lw in (self.lw_plot_x, self.lw_plot_y, self.lw_plot_z):
                 lw.setMinimumHeight(160)
                 lw.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-            pg.addWidget(self.lw_plot_x, 2, 1, 1, 1); pg.addWidget(self.lw_plot_y, 2, 2, 1, 1); pg.addWidget(self.lw_plot_z, 2, 3, 1, 1)
+            pg.addWidget(self.lw_plot_x, 1, 1, 1, 1); pg.addWidget(self.lw_plot_y, 1, 2, 1, 1); pg.addWidget(self.lw_plot_z, 1, 3, 1, 1)
             pg.setColumnStretch(0, 1); pg.setColumnStretch(1, 2); pg.setColumnStretch(2, 2); pg.setColumnStretch(3, 2)
             self.lw_plot_z.setEnabled(False)  # Z só no 3D
             for lw in (self.lw_plot_x, self.lw_plot_y, self.lw_plot_z):
@@ -25362,22 +25782,30 @@ class MainWindow(QMainWindow):
 
             # 3b) "Interpretação": papel de cada coluna selecionada (ou o motivo de a seleção ser inválida), ao vivo
             self._lbl_plot_interp_title = _plot_lbl("rl_interp")
-            pg.addWidget(self._lbl_plot_interp_title, 3, 0, 1, 1, alignment=Qt.AlignLeft | Qt.AlignTop)
+            pg.addWidget(self._lbl_plot_interp_title, 2, 0, 1, 1, alignment=Qt.AlignLeft | Qt.AlignTop)
             self.lbl_plot_interp = QLabel()
             self.lbl_plot_interp.setWordWrap(True)
             self.lbl_plot_interp.setMinimumHeight(34)
-            pg.addWidget(self.lbl_plot_interp, 3, 1, 1, 3)
+            pg.addWidget(self.lbl_plot_interp, 2, 1, 1, 3)
             self._tr("rl_interp", lambda _t: self._plot_update_interpretation())   # refaz o texto ao trocar o idioma
 
-            # 4) Chart type + opções específicas do tipo (à direita) ; 5) resolução ; 6) tendência/legenda/rótulos
+            # 4) Chart type + resolução: uma linha própria, centralizada na janela, acima do grid das colunas (não
+            #    depende das larguras das colunas dele). As opções do tipo escolhido vêm numa linha do grid, abaixo.
             ggm_ = module_graph_generator
             self.cb_plot_type = QComboBox(); self.cb_plot_type.addItems(ggm_.CHART_TYPES_1D)
             self._tr("plot_tooltip_chart_type", self.cb_plot_type.setToolTip)
-            # Linha do tipo: rótulo "Chart type" alinhado à direita (encostado no combo), o combo e, à direita,
-            # "Resolution (dpi)" com a sua caixa. Só na linha seguinte vêm as opções do tipo escolhido (todas numa
-            # única linha, para a altura do grupo não variar com o tipo).
-            pg.addWidget(_plot_lbl("plot_lbl_chart_type"), 4, 0, 1, 1, alignment=Qt.AlignRight | Qt.AlignVCenter)
-            pg.addWidget(self.cb_plot_type, 4, 1, 1, 1)
+            self.ed_plot_dpi = QLineEdit("300"); self.ed_plot_dpi.setValidator(QIntValidator(50, 2400, self)); self.ed_plot_dpi.setMaximumWidth(120)
+            w_plot_top = QWidget()
+            row_plot_top = QHBoxLayout(w_plot_top)
+            row_plot_top.setContentsMargins(0, 0, 0, 0); row_plot_top.setSpacing(8)
+            row_plot_top.addStretch(1)
+            row_plot_top.addWidget(_plot_lbl("plot_lbl_chart_type"), alignment=Qt.AlignVCenter)
+            row_plot_top.addWidget(self.cb_plot_type, alignment=Qt.AlignVCenter)
+            row_plot_top.addSpacing(30)
+            row_plot_top.addWidget(_plot_lbl("plot_lbl_resolution"), alignment=Qt.AlignVCenter)
+            row_plot_top.addWidget(self.ed_plot_dpi, alignment=Qt.AlignVCenter)
+            row_plot_top.addStretch(1)
+            g_plot_main_layout.insertWidget(0, w_plot_top)        # acima do grid (Select columns)
 
             # Painel de opções do tipo de gráfico (linha única, centralizada, abaixo do "Chart type"). Os widgets de
             # todas as opções (catálogo ggm_.CHART_OPTIONS) são criados uma vez; _update_plot_option_panel
@@ -25420,40 +25848,36 @@ class MainWindow(QMainWindow):
             self.row_plot_options.setContentsMargins(0, 0, 0, 0)
             self.row_plot_options.setSpacing(8)
             self.w_plot_options.setMinimumHeight(34)             # altura fixa: não muda de um tipo para outro
-            pg.addWidget(self.w_plot_options, 5, 0, 1, 4)
-
-            # Resolução: na linha do tipo de gráfico, à direita do combo
-            self.ed_plot_dpi = QLineEdit("300"); self.ed_plot_dpi.setValidator(QIntValidator(50, 2400, self)); self.ed_plot_dpi.setMaximumWidth(120)
-            pg.addWidget(_plot_lbl("plot_lbl_resolution"), 4, 2, 1, 1, alignment=Qt.AlignRight | Qt.AlignVCenter)
-            pg.addWidget(self.ed_plot_dpi, 4, 3, 1, 1, alignment=Qt.AlignLeft)
+            pg.addWidget(self.w_plot_options, 3, 0, 1, 4)
             self.cb_plot_type.currentTextChanged.connect(self._update_plot_option_panel)
             self.cb_plot_type.currentTextChanged.connect(self._on_plot_type_changed)
             self._update_plot_option_panel()
 
-            # 5) Trendline, legend, label mark
+            # 5) Trend line, Legend, Label mark (coluna de checkboxes, cada um com a sua caixa à direita) e, ao lado,
+            #    as cores (Colors + combo, paleta, Pick color), empilhadas. É um bloco à parte do grid das colunas,
+            #    centralizado na janela.
             self.chk_plot_trend = QCheckBox(); self._tr("plot_chk_trend", self.chk_plot_trend.setText)
             self.cb_plot_trend = QComboBox()
             self.cb_plot_trend.addItems([m for m in module_graph_generator.TREND_MODES if m != "None"])
-            self.cb_plot_trend.setEnabled(False)                  # habilita ao marcar "Show Trend line"
+            self.cb_plot_trend.setEnabled(False)                  # habilita ao marcar "Trend line"
             self.chk_plot_trend.toggled.connect(self.cb_plot_trend.setEnabled)
             self.chk_plot_legend = QCheckBox(); self._tr("plot_chk_legend", self.chk_plot_legend.setText)
-            self.chk_plot_label = QCheckBox(); self._tr("plot_chk_label", self.chk_plot_label.setText)
-            # Posição da legenda: combo à direita dos dois checkboxes, habilitado por "Show legend".
+            # Posição da legenda: combo ao lado de "Legend", habilitado por ele.
             self.cb_plot_legend_pos = QComboBox()
             self.cb_plot_legend_pos.addItems(list(module_graph_generator.LEGEND_POSITIONS))
             self._tr("plot_tip_legend_pos", self.cb_plot_legend_pos.setToolTip)
             self.cb_plot_legend_pos.setEnabled(False)
             self.chk_plot_legend.toggled.connect(self.cb_plot_legend_pos.setEnabled)
-            w_plot_leg = QWidget()                       # "Show legend" e "Show label mark" juntos, na coluna central
-            l_plot_leg = QVBoxLayout(w_plot_leg)
-            l_plot_leg.setContentsMargins(0, 0, 0, 0); l_plot_leg.setSpacing(4)
-            l_plot_leg.addWidget(self.chk_plot_legend); l_plot_leg.addWidget(self.chk_plot_label)
-            pg.addWidget(self.chk_plot_trend, 6, 0, 1, 1)
-            pg.addWidget(self.cb_plot_trend, 6, 1, 1, 1)
-            pg.addWidget(w_plot_leg, 6, 2, 1, 1)
-            pg.addWidget(self.cb_plot_legend_pos, 6, 3, 1, 1)
+            self.chk_plot_label = QCheckBox(); self._tr("plot_chk_label", self.chk_plot_label.setText)
+            # Casas decimais dos valores escritos por "Label mark", habilitado por ele.
+            self.sp_plot_label_decimals = QSpinBox(); self.sp_plot_label_decimals.setRange(0, 10)
+            self.sp_plot_label_decimals.setValue(2); self.sp_plot_label_decimals.setFixedWidth(70)
+            self.sp_plot_label_decimals.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            self._tr("plot_tip_label_decimals", self.sp_plot_label_decimals.setToolTip)
+            self.sp_plot_label_decimals.setEnabled(False)
+            self.chk_plot_label.toggled.connect(self.sp_plot_label_decimals.setEnabled)
 
-            # 6) Colors
+            # Colors: combo de modo (Single color / Palette), combo de paletas e botão Pick color
             self.cb_plot_colors = QComboBox()
             self.cb_plot_colors.addItems([module_graph_generator.COLOR_MODE_SINGLE, module_graph_generator.COLOR_MODE_PALETTE])
             self.cb_plot_colors.setCurrentText(module_graph_generator.COLOR_MODE_PALETTE)
@@ -25461,8 +25885,31 @@ class MainWindow(QMainWindow):
             self._tr("plot_btn_pick_color", self._plot_set_color_button_text)
             self.btn_plot_color.clicked.connect(self.pick_plot_single_color)
             self.cb_plot_palette = QComboBox(); self.cb_plot_palette.addItems(module_graph_generator.PALETTES)
-            pg.addWidget(_plot_lbl("plot_lbl_colors"), 7, 0)
-            pg.addWidget(self.cb_plot_colors, 7, 1); pg.addWidget(self.btn_plot_color, 7, 2); pg.addWidget(self.cb_plot_palette, 7, 3)
+
+            w_plot_style = QWidget()
+            row_plot_style = QHBoxLayout(w_plot_style)
+            row_plot_style.setContentsMargins(0, 0, 0, 0)
+            sg = QGridLayout(); sg.setHorizontalSpacing(8); sg.setVerticalSpacing(6)
+            sg.addWidget(self.chk_plot_trend, 0, 0);  sg.addWidget(self.cb_plot_trend, 0, 1)
+            sg.addWidget(self.chk_plot_legend, 1, 0); sg.addWidget(self.cb_plot_legend_pos, 1, 1)
+            w_plot_dec = QWidget()                                 # spinbox + rótulo "Decimals" à direita dela
+            row_plot_dec = QHBoxLayout(w_plot_dec)
+            row_plot_dec.setContentsMargins(0, 0, 0, 0); row_plot_dec.setSpacing(8)
+            lbl_plot_dec = _plot_lbl("plot_lbl_decimals")
+            self._tr("plot_tip_label_decimals", lbl_plot_dec.setToolTip)
+            self.chk_plot_label.toggled.connect(lbl_plot_dec.setEnabled)
+            lbl_plot_dec.setEnabled(False)
+            row_plot_dec.addWidget(self.sp_plot_label_decimals); row_plot_dec.addWidget(lbl_plot_dec); row_plot_dec.addStretch(1)
+            sg.addWidget(self.chk_plot_label, 2, 0);  sg.addWidget(w_plot_dec, 2, 1)
+            sg.setColumnMinimumWidth(2, 36)                         # respiro entre as duas colunas
+            sg.addWidget(_plot_lbl("plot_lbl_colors"), 0, 3, alignment=Qt.AlignRight | Qt.AlignVCenter)
+            sg.addWidget(self.cb_plot_colors, 0, 4)
+            sg.addWidget(self.cb_plot_palette, 1, 4)
+            sg.addWidget(self.btn_plot_color, 2, 4)
+            row_plot_style.addStretch(1)
+            row_plot_style.addLayout(sg)
+            row_plot_style.addStretch(1)
+            g_plot_main_layout.addWidget(w_plot_style)              # abaixo do grid, centralizado
             self.cb_plot_colors.currentIndexChanged.connect(self._update_plot_color_mode_ui)
             self._update_plot_color_mode_ui()
 
@@ -25614,6 +26061,19 @@ class MainWindow(QMainWindow):
         if base in registry:
             return base
         return None
+
+    def _skl_registry_entry(self, model_name, base_name, registry):
+        """(classe, kwargs padrão) do registry para 'base_name'. Num comitê Voting/Stacking, os membros
+        escolhidos no Screening ficam no próprio modelo treinado (atributo members) e não no registry:
+        eles são levados para os kwargs, para que Tuning, Nested CV e a curva de parâmetro refaçam o
+        comitê com os mesmos membros."""
+        cls, kwargs = registry[base_name]
+        if base_name in SKL_ENSEMBLE_NAMES:
+            trained = (getattr(self, "skl_trained_models", None) or {}).get(model_name)
+            members = getattr(trained, "members", None)
+            if members:
+                kwargs = dict(kwargs, members=members)
+        return cls, kwargs
 
     def _add_skl_tuned_model_variant(self, base_name, model):
         """Registra uma nova versão otimizada de 'base_name' (ex.: 'RandomForestRegressor_1') em
@@ -26563,7 +27023,24 @@ class MainWindow(QMainWindow):
                 cls, kwargs = registry[name]
                 model_specs.append((name, cls, kwargs))
 
+            # Comitês (Voting/Stacking): os membros são os DEMAIS modelos marcados na lista (menos os
+            # modelos de referência Dummy e os outros comitês); com menos de 2 outros marcados, vale a
+            # lista padrão do registry.
+            ensemble_members = [n for n, _c, _k in model_specs
+                                if n not in SKL_ENSEMBLE_NAMES and n not in SKL_BASELINE_NAMES]
+            ensemble_notes = []
+            if len(ensemble_members) >= 2:
+                for i, (name, cls, kwargs) in enumerate(model_specs):
+                    if name in SKL_ENSEMBLE_NAMES:
+                        model_specs[i] = (name, cls, dict(kwargs, members=",".join(ensemble_members)))
+                        ensemble_notes.append(f"{name} members: {', '.join(ensemble_members)}")
+            elif any(n in SKL_ENSEMBLE_NAMES for n, _c, _k in model_specs):
+                ensemble_notes.append("Voting/Stacking use their default members "
+                                      "(select 2 or more other models to use them as members).")
+
             self.txt_skl_status.clear()
+            for note in ensemble_notes:
+                self.txt_skl_status.append(note)
             self.pb_skl_screening.setMaximum(len(model_specs))
             self.pb_skl_screening.setValue(0)
             self._skl_screening_done = 0
@@ -26732,7 +27209,7 @@ class MainWindow(QMainWindow):
                     QMessageBox.critical(self, i18n.t("msg_title_tuning_error", self._idioma), "Optuna is not installed. Install it with 'pip install optuna'.")
                     return
 
-            cls, base_kwargs = registry[base_name]
+            cls, base_kwargs = self._skl_registry_entry(model_name, base_name, registry)
             random_state = self._get_skl_random_state()
             folds = self.sp_skl_tune_folds.value()
             repeats = self.sp_skl_tune_repeats.value() if hasattr(self, "sp_skl_tune_repeats") else 1
@@ -26935,7 +27412,7 @@ class MainWindow(QMainWindow):
                     QMessageBox.warning(self, i18n.t("msg_title_plot", self._idioma), f"No values defined for '{parameter}' in the hyperparameter table.")
                     return
 
-            cls, base_kwargs = registry[base_name]
+            cls, base_kwargs = self._skl_registry_entry(model_name, base_name, registry)
             random_state = self._get_skl_random_state()
 
             self._skl_tune_plot_metric = metric
@@ -27082,7 +27559,7 @@ class MainWindow(QMainWindow):
                 if base_name is None:
                     QMessageBox.warning(self, i18n.t("msg_title_evaluate", self._idioma), "Nested CV requires a model that maps to a known registry class.")
                     return
-                cls, base_kwargs = registry[base_name]
+                cls, base_kwargs = self._skl_registry_entry(model_name, base_name, registry)
 
                 param_grid = {}
                 for row in range(self.tbl_skl_hyperparams.rowCount()):

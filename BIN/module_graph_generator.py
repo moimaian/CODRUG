@@ -182,7 +182,7 @@ def _label_category_artists(artists, categories):
 MAX_BARS = 120            # barras (categorias x séries) no Bar
 MAX_LINE_POINTS = 500     # pontos por série em Line e nas áreas
 MAX_HEATMAP_ROWS = 500    # linhas do Heatmap
-MAX_LABELS = 300          # valores escritos por "Show label mark"
+MAX_LABELS = 300          # valores escritos por "Label mark"
 MAX_BOXES = 60            # caixas/violinos (grupos x colunas Y) em Box Plot e Violin
 
 
@@ -670,7 +670,24 @@ def _get_series_colors(n, color_mode, palette_name, single_color):
     cmap = plt.get_cmap(palette_name)
     return [cmap(i / max(n - 1, 1)) for i in range(n)]
 
+_LABEL_DECIMALS = None      # casas decimais dos valores escritos pelo "label mark" (None = formatação automática)
+
+
 def _fmt_val(v):
+    """Texto de um valor escrito no gráfico (label mark). Com `style["label_decimals"]` (ver execute_plan) usa
+    esse número fixo de casas; sem ele, a formatação automática de _fmt_auto."""
+    d = _LABEL_DECIMALS
+    if d is not None:
+        try:
+            if v is None or (isinstance(v, float) and np.isnan(v)):
+                return ""
+            return f"{float(v):.{int(d)}f}"
+        except Exception:
+            return str(v)
+    return _fmt_auto(v)
+
+
+def _fmt_auto(v):
     try:
         if v is None or (isinstance(v, float) and np.isnan(v)):
             return ""
@@ -2060,7 +2077,7 @@ def plot_grouped_xy(chart: str, series, dpi: int = 300, trend_mode: str = "None"
                 _annotate_bars(ax, bars, lo=lo, hi=hi, kind="iqr" if stat == "median" else "sd")
             trend_xy.append((lab, c, np.array([pos[v] for v in center.index], dtype=float), center.to_numpy(dtype=float)))
         ax.set_xticks(np.arange(len(uniq)))
-        ax.set_xticklabels([_fmt_val(v) for v in uniq], rotation=0 if len(uniq) <= 12 else 90, ha="center")
+        ax.set_xticklabels([_fmt_auto(v) for v in uniq], rotation=0 if len(uniq) <= 12 else 90, ha="center")
 
     if x_labels is not None:                        # eixo X categórico: as posições 0..n-1 levam o nome da categoria
         ax.set_xticks(np.arange(len(x_labels)))
@@ -2945,8 +2962,20 @@ def suggest_bar_stat(plan, df: pd.DataFrame):
 def execute_plan(plan: RolePlan, df: pd.DataFrame, options: dict, style: dict, tr=None):
     """Monta os dados do `plan` a partir de `df` e devolve a Figure.
     `options`: valores das opções do tipo de gráfico (inclui "samples" e "legend_loc"). `style`: dpi, trend_mode (já
-    efetivo), show_legend, label_mark, title, xlabel, ylabel, zlabel, color_mode, palette_name, single_color.
+    efetivo), show_legend, label_mark, label_decimals (casas decimais dos valores do label mark; ausente = automático),
+    title, xlabel, ylabel, zlabel, color_mode, palette_name, single_color.
     `tr(chave, **kw)` traduz os rótulos padrão dos eixos (sem ela, devolve a própria chave). Levanta PlanError."""
+    global _LABEL_DECIMALS
+    dec = (style or {}).get("label_decimals")
+    previous = _LABEL_DECIMALS
+    _LABEL_DECIMALS = None if dec is None else max(0, int(dec))
+    try:
+        return _execute_plan(plan, df, options, style, tr)
+    finally:
+        _LABEL_DECIMALS = previous
+
+
+def _execute_plan(plan: RolePlan, df: pd.DataFrame, options: dict, style: dict, tr=None):
     tr = tr or (lambda key, **kw: key)
     opts = dict(options or {})
     df = sample_rows(df, opts.pop("samples", 0)).copy()

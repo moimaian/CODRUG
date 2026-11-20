@@ -27,8 +27,8 @@ from sklearn.feature_selection import (
     mutual_info_classif, mutual_info_regression, chi2, RFE,
     SequentialFeatureSelector
 )
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.linear_model import Lasso, ElasticNet, Ridge
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from sklearn.linear_model import Lasso, ElasticNet, Ridge, LogisticRegression
 from sklearn.ensemble import (
     RandomForestClassifier, RandomForestRegressor,
     GradientBoostingClassifier, GradientBoostingRegressor
@@ -138,6 +138,44 @@ def _resolve_k(top_k: Union[int, str], X_cols: List[str], scores_for_elbow: Opti
         return max(1, min(20, len(X_cols)))
 
 # ========================== FUNÇÃO PRINCIPAL ========================== #
+
+def _penalized_coef_scores(method_name: str, X: pd.DataFrame, y, task_type: str, alpha: float) -> np.ndarray:
+    """Importância de cada descritor (|coeficiente|) nos métodos embutidos Lasso (L1), Ridge (L2) e
+    Elastic Net.
+
+    Regressão: Lasso/Ridge/ElasticNet do scikit-learn com 'alpha'.
+    Classificação: regressão LOGÍSTICA com a mesma penalidade (L1, L2 ou elasticnet com l1_ratio = 0,5),
+    em vez de ajustar um regressor linear aos códigos inteiros das classes (0, 1, 2...), o que com 3 ou
+    mais classes dava peso à ordem arbitrária desses códigos. Na logística o 'alpha' vira C = 1/alpha
+    (C = 1 é o padrão do scikit-learn; alpha maior = regularização mais forte, como no Lasso). Como o
+    tamanho do coeficiente depende da escala do descritor, os descritores são padronizados antes do
+    ajuste (só dentro deste cálculo). Com 3 ou mais classes há um conjunto de coeficientes por classe
+    (multinomial); a importância é a soma de |coeficiente| entre as classes (a mesma norma-1 do
+    SelectFromModel), de modo que um descritor relevante para qualquer classe é mantido."""
+    if not task_type.startswith("class"):
+        if method_name == "Lasso (L1)":
+            model = Lasso(alpha=alpha, max_iter=10000, random_state=42)
+        elif method_name == "Ridge (L2)":
+            model = Ridge(alpha=alpha, random_state=42)
+        else:
+            model = ElasticNet(alpha=alpha, l1_ratio=0.5, random_state=42, max_iter=10000)
+        model.fit(X, y)
+        return np.abs(model.coef_)
+
+    if alpha <= 0:
+        raise ValueError("alpha must be greater than 0 (it sets the logistic penalty as C = 1/alpha).")
+    C = 1.0 / alpha
+    if method_name == "Lasso (L1)":
+        model = LogisticRegression(penalty="l1", solver="saga", C=C, max_iter=5000, random_state=42)
+    elif method_name == "Ridge (L2)":
+        model = LogisticRegression(penalty="l2", solver="lbfgs", C=C, max_iter=5000, random_state=42)
+    else:
+        model = LogisticRegression(penalty="elasticnet", solver="saga", C=C, l1_ratio=0.5,
+                                   max_iter=5000, random_state=42)
+    Xs = StandardScaler().fit_transform(np.asarray(X, dtype=float))
+    model.fit(Xs, y)
+    return np.abs(model.coef_).sum(axis=0)
+
 
 def apply_recommended_selection(
     df_in: pd.DataFrame,
@@ -268,26 +306,10 @@ def apply_recommended_selection(
 
     # ======================= MÉTODOS EMBUTIDOS ======================= #
 
-    elif method_name == "Lasso (L1)":
-        model = Lasso(alpha=alpha, max_iter=10000, random_state=42)
-        model.fit(X, y)
-        scores = np.abs(model.coef_)
-        k = _resolve_k(top_k, X_cols, scores_for_elbow=scores)
-        order = np.argsort(scores)[::-1][:k]
-        selected_cols = [X_cols[i] for i in order]
-
-    elif method_name == "Ridge (L2)":
-        model = Ridge(alpha=alpha, random_state=42)
-        model.fit(X, y)
-        scores = np.abs(model.coef_)
-        k = _resolve_k(top_k, X_cols, scores_for_elbow=scores)
-        order = np.argsort(scores)[::-1][:k]
-        selected_cols = [X_cols[i] for i in order]
-
-    elif method_name == "Elastic Net":
-        model = ElasticNet(alpha=alpha, l1_ratio=0.5, random_state=42, max_iter=10000)
-        model.fit(X, y)
-        scores = np.abs(model.coef_)
+    elif method_name in ["Lasso (L1)", "Ridge (L2)", "Elastic Net"]:
+        # Regressão: Lasso/Ridge/ElasticNet. Classificação: regressão logística com a mesma
+        # penalidade (ver _penalized_coef_scores).
+        scores = _penalized_coef_scores(method_name, X, y, task_type, alpha)
         k = _resolve_k(top_k, X_cols, scores_for_elbow=scores)
         order = np.argsort(scores)[::-1][:k]
         selected_cols = [X_cols[i] for i in order]

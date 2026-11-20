@@ -39,7 +39,7 @@ from sklearn.decomposition import PCA, KernelPCA, TruncatedSVD, NMF
 from sklearn.manifold import TSNE, Isomap, SpectralEmbedding
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, FunctionTransformer
 
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.svm import SVC, SVR
@@ -171,6 +171,13 @@ def apply_recommended_projection(
 
         X_saved = _ensure_numeric(df_in[saved_feature_cols])
         X_input = scaler.transform(X_saved.values) if scaler is not None else X_saved.values
+        n_negative = 0
+        if saved_method == "nmf":
+            # Artefatos de NMF gravados antes do corte de negativos ir para o artefato não têm scaler:
+            # o corte (negativos -> 0) é feito aqui, igual ao do ajuste.
+            n_negative = int((np.asarray(X_saved.values, dtype=float) < 0).sum())
+            if scaler is None:
+                X_input = np.clip(np.asarray(X_input, dtype=float), 0.0, None)
         Z = projector.transform(X_input)
 
         proj_cols = list(artifact.get("proj_cols") or [])
@@ -185,24 +192,43 @@ def apply_recommended_projection(
             "artifact_path": projection_artifact_path,
             "transform_feature_count": len(saved_feature_cols),
         }
+        if saved_method == "nmf":
+            eval_info["nmf_negative_values_clipped"] = n_negative
         return df_out, proj_cols, eval_info
 
     # ==== Trata y quando necessário ====
     y = None
+    y_valid = None          # máscara das linhas com y válido (métodos supervisionados)
     method_lower = (method_name or "").lower()
 
     needs_y_supervised = any(k in method_lower for k in ["lda", "pls", "plsr", "pls-da"])
     if needs_y_supervised:
         if y_series is None or y_series.dropna().empty:
             raise ValueError("O método selecionado requer coluna de rótulos/valores (y).")
+        ys = pd.Series(np.asarray(y_series))
+        if len(ys) != len(X):
+            raise ValueError("The label column (y) and the feature block have different numbers of rows.")
         if task_type.startswith("class"):
-            # Para LDA/PLS-DA usamos y categórico; tentar converter para códigos se não for numérico
-            if not pd.api.types.is_numeric_dtype(y_series):
-                y = pd.Categorical(y_series.astype(str)).codes
-            else:
-                y = y_series.astype(int).values
+            # Rótulos de classe (texto ou número) viram códigos inteiros 0..k-1. Linhas sem rótulo
+            # (NaN/vazio) NÃO viram uma classe "nan": ficam fora do ajuste e são projetadas depois,
+            # com o modelo já ajustado.
+            as_text = ys.astype(str).str.strip()
+            y_valid = (ys.notna() & (as_text != "")).to_numpy()
+            labels = ys[y_valid] if pd.api.types.is_numeric_dtype(ys) else as_text[y_valid]
+            y = np.asarray(pd.Categorical(labels).codes, dtype=int)
         else:
-            y = pd.to_numeric(y_series, errors="coerce").fillna(0.0).values
+            # Regressão: linhas sem valor de y (ou não numérico) ficam fora do ajuste do PLS. Antes elas
+            # viravam y = 0.0, um valor falso que puxava os componentes.
+            y_num = pd.to_numeric(ys, errors="coerce")
+            y_valid = y_num.notna().to_numpy()
+            y = y_num[y_valid].to_numpy(dtype=float)
+        n_fit = int(y_valid.sum())
+        if n_fit < 3:
+            raise ValueError(f"Only {n_fit} row(s) have a valid label/value (y); the supervised projection "
+                             "needs at least 3.")
+        if task_type.startswith("class") and len(np.unique(y)) < 2:
+            raise ValueError("The label column (y) has fewer than 2 classes - the supervised projection "
+                             "needs at least 2 classes.")
 
     # ==== Executa método ====
     proj, proj_cols = None, []
@@ -287,13 +313,18 @@ def apply_recommended_projection(
         eval_info["explained_variance_ratio"] = getattr(svd, "explained_variance_ratio_", np.array([])).tolist()
 
     elif method_lower == "nmf":
-        # exige não-negatividade
-        Xp = X.clip(lower=0)
+        # NMF exige dados não negativos: valores negativos são zerados. O mesmo corte vai para o artefato
+        # (artifact_scaler), para que a projeção de dados externos faça igual - sem ele o transform()
+        # do NMF dava erro com qualquer valor negativo no dataframe externo.
+        artifact_scaler = FunctionTransformer(np.clip, kw_args={"a_min": 0.0, "a_max": None})
+        n_negative = int((X.values < 0).sum())
+        Xp = artifact_scaler.transform(X.values)
         nmf = NMF(n_components=n_components, init="nndsvd", random_state=random_state, max_iter=500)
-        Z = nmf.fit_transform(Xp.values)
+        Z = nmf.fit_transform(Xp)
         artifact_projector = nmf
         proj_cols = [f"NMF{i+1}" for i in range(Z.shape[1])]
         proj = pd.DataFrame(Z, columns=proj_cols, index=df_in.index)
+        eval_info["nmf_negative_values_clipped"] = n_negative
 
     elif "isomap" in method_lower:
         # sklearn's Isomap has no "min_dist" parameter (that's a UMAP concept) - only
@@ -316,40 +347,48 @@ def apply_recommended_projection(
         # Somente classificação; n_components <= n_classes-1
         if not str(task_type).lower().startswith("class"):
             raise ValueError("LDA requer tarefa de classificação.")
-        y_arr = np.asarray(y, dtype=int)
-        classes = np.unique(y_arr)
+        classes = np.unique(y)
         max_comp = max(1, len(classes) - 1)
         n_comp_lda = min(n_components, max_comp)
         Xs = _standardize(X)
         lda = LDA(n_components=n_comp_lda)
-        Z = lda.fit_transform(Xs, y_arr)
+        lda.fit(Xs[y_valid], y)
+        Z = lda.transform(Xs)
         proj_cols = [f"LDA{i+1}" for i in range(Z.shape[1])]
         proj = pd.DataFrame(Z, columns=proj_cols, index=df_in.index)
-        # Avalia modelo default no espaço projetado
-        eval_info = _cv_score(Z, y_arr, "classification", model_type)
+        # Avalia modelo default no espaço projetado (só as linhas com rótulo)
+        eval_info = _cv_score(Z[y_valid], y, "classification", model_type)
 
     elif "pls-da" in method_lower or "pls da" in method_lower:
         if not str(task_type).lower().startswith("class"):
             raise ValueError("PLS-DA requer tarefa de classificação.")
-        # One-vs-rest codificação simples
-        y_codes = pd.Categorical(pd.Series(y)).codes
+        # PLS-DA = PLS ajustado a uma matriz de INDICADORES de classe (uma coluna 0/1 por classe), não
+        # aos códigos inteiros das classes: com 3 ou mais classes, os códigos (0, 1, 2...) imporiam uma
+        # ordem e distâncias que não existem entre as classes. Com 2 classes uma única coluna 0/1 já
+        # basta (a segunda seria o complemento exato da primeira).
+        n_classes = len(np.unique(y))
+        indicator = (y == np.unique(y)[1]).astype(float) if n_classes == 2 else (
+            (y[:, None] == np.unique(y)[None, :]).astype(float))
         Xs = _standardize(X)
-        pls = PLSRegression(n_components=n_components)
-        Z = pls.fit_transform(Xs, y_codes)[0]
+        n_comp_plsda = int(max(1, min(n_components, Xs.shape[1], int(y_valid.sum()) - 1)))
+        pls = PLSRegression(n_components=n_comp_plsda)
+        pls.fit(Xs[y_valid], indicator)
+        Z = pls.transform(Xs)
         proj_cols = [f"PLSDA{i+1}" for i in range(Z.shape[1])]
         proj = pd.DataFrame(Z, columns=proj_cols, index=df_in.index)
-        eval_info = _cv_score(Z, y_codes, "classification", model_type)
+        eval_info = _cv_score(Z[y_valid], y, "classification", model_type)
 
     elif "pls" in method_lower:  # PLS Regression
         if not str(task_type).lower().startswith("regress"):
             raise ValueError("PLS Regression requer tarefa de regressão.")
-        y_arr = np.asarray(y, dtype=float)
         Xs = _standardize(X)
-        pls = PLSRegression(n_components=n_components)
-        Z = pls.fit_transform(Xs, y_arr)[0]
+        n_comp_pls = int(max(1, min(n_components, Xs.shape[1], int(y_valid.sum()) - 1)))
+        pls = PLSRegression(n_components=n_comp_pls)
+        pls.fit(Xs[y_valid], y)
+        Z = pls.transform(Xs)
         proj_cols = [f"PLS{i+1}" for i in range(Z.shape[1])]
         proj = pd.DataFrame(Z, columns=proj_cols, index=df_in.index)
-        eval_info = _cv_score(Z, y_arr, "regression", model_type)
+        eval_info = _cv_score(Z[y_valid], y, "regression", model_type)
 
     else:
         raise ValueError(f"Método de projeção '{method_name}' não reconhecido.")

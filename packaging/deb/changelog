@@ -1,5 +1,65 @@
 codrug (1.2.0-1) unstable; urgency=low
 
+  * STEP 3, Recommended Projection (BIN/recommended_projection.py,
+    CODRUG.py): (1) PLS-DA é ajustado a indicadores de classe (uma coluna
+    por classe; 2 classes = 1 coluna), não aos códigos inteiros 0, 1, 2,
+    que com 3 ou mais classes impunham uma ordem inexistente (em teste com
+    3 classes sem ordem, F1 CV 0,58 -> 0,75; com 2 classes o resultado é
+    idêntico ao anterior). (2) PLS Regression, LDA e PLS-DA: linhas sem y
+    ficam fora do ajuste e são projetadas depois; antes o y ausente virava
+    0,0 no PLS e a classe "nan" no LDA/PLS-DA. (3) NMF: o corte dos valores
+    negativos (-> 0) agora também vai para o artefato, e a projeção do
+    DataFrame Externo não falha mais com valores negativos; a mensagem final
+    informa quantos valores foram zerados.
+  * STEP 3, Recommended Selection: em classificação, Lasso (L1), Ridge (L2)
+    e Elastic Net passam a usar regressão logística com a penalidade
+    correspondente (L1, L2, elastic net com l1_ratio 0,5), em vez de
+    regressores lineares ajustados aos códigos inteiros das classes, que
+    com 3 ou mais classes davam peso à ordem arbitrária dos códigos.
+    alpha vira C = 1/alpha, os descritores são padronizados dentro do
+    cálculo e, com várias classes, a importância é a soma de |coeficiente|
+    entre as classes. Regressão não muda (BIN/recommended_selection.py,
+    CODRUG.py).
+  * STEP 4: novos modelos (CODRUG.py). Regressão: KernelRidge, TanimotoSVR,
+    TanimotoKernelRidge, VotingRegressor, StackingRegressor e
+    DummyRegressor. Classificação: BernoulliNB (Naive Bayes de descritores
+    binários), TanimotoSVC, VotingClassifier, StackingClassifier e
+    DummyClassifier. Todos com grade de Tuning.
+  * Kernel de Tanimoto (SVM e Kernel Ridge): similaridade padrão de
+    fingerprints, K = a.b / (|a|^2 + |b|^2 - a.b) (= índice de Tanimoto em
+    binários, conferido contra o Jaccard do scipy), passada ao scikit-learn
+    como kernel pré-computado. Só aceita descritores não negativos
+    (fingerprints/contagens): com dados padronizados o modelo acusa erro
+    claro e, dentro de um comitê, é descartado.
+  * Comitês Voting/Stacking: os membros são indicados pelo nome do registry
+    (parâmetro members) e, no Run Screening, passam a ser os demais modelos
+    marcados na lista (menos Dummy e outros comitês); com menos de 2
+    marcados valem os membros padrão. O Tuning, o Nested CV e a curva de
+    parâmetro refazem o comitê com os mesmos membros. Voting "soft" cai para
+    "hard" se algum membro não tem predict_proba. DummyRegressor/Classifier
+    servem de referência (baseline) no ranking.
+  * STEP 4: a árvore de decisão passa a ser um modelo isolado, e não só o
+    estimador-base do Bagging: novos DecisionTreeRegressor (regressão) e
+    DecisionTreeClassifier (classificação) nas listas de modelos, com grade
+    de Tuning (max_depth, min_samples_split, min_samples_leaf, criterion e,
+    na classificação, class_weight). O gráfico "Decision Tree Diagram"
+    passa a desenhar a própria árvore (antes só a 1ª árvore de um conjunto)
+    e a importância/SHAP usam o explicador exato de árvores (CODRUG.py).
+  * STEP 4: novo modelo GaussianProcessRegressor (lista de regressão),
+    regressão por processo gaussiano que também dá a incerteza da predição
+    (predict com return_std=True). O núcleo é escolhido pelo nome - RBF,
+    Matern32, Matern52 ou RationalQuadratic, varridos no Tuning junto com
+    alpha e normalize_y - e vira ConstantKernel * núcleo + WhiteKernel, com
+    amplitude, escala e ruído otimizados pela verossimilhança marginal a
+    cada fit (CODRUG.py).
+  * STEP 4: novos modelos PLSRegression (lista de regressão) e PLSDA (lista
+    de classificação), ambos com n_components e scale na grade do Tuning.
+    PLSRegression é o PLS do scikit-learn; como o scikit-learn não tem
+    PLS-DA pronto, o PLSDA é um adaptador próprio (classes em indicadores
+    one-hot ajustadas por PLS, predição pelo maior escore, predict_proba
+    por escores normalizados; 2 ou mais classes). Um n_components acima do
+    que os dados do fit permitem (min(amostras-1, descritores)) é reduzido
+    a esse limite em vez de falhar na validação cruzada (CODRUG.py).
   * Nova divisão por Scaffold (Bemis & Murcko, versão "balanced") no
     "Split Method" da STEP 4 e no "Split External DataFrame" da STEP 3:
     agrupa os compostos pelo esqueleto de Bemis-Murcko do SMILES e reparte
@@ -638,8 +698,35 @@ codrug (1.2.0-1) unstable; urgency=low
     ocorre uma vez (Mean ± SD quando alguma se repete) ate o usuario
     escolher; o rotulo do eixo Y acompanha. O Line (X categorico) tambem
     desenha a barra de erro em cada ponto, na cor da serie, com o mesmo
-    texto no rotulo; a Area usa so o valor central. Projetos antigos (Mean, Median, Single value) abrem normalmente
+    texto no rotulo; a Area usa so o valor central. Projetos antigos
+    (Mean, Median, Single value) abrem normalmente
     (module_graph_generator.py, CODRUG.py, BIN/i18n.py). Manuais atualizados.
+  * PLOT: layout dos controles refeito. "Dimensions" some e o checkbox 3D
+    passa a ser o titulo da lista Z ("[ ] Z values"): marcado, habilita o
+    Z e deixa o "Chart type" so com Scatter. "Chart type" e "Resolution
+    (dpi)" ficam centralizados numa linha propria no alto do grupo, fora do
+    grid das colunas. Sem a palavra "Show", "Trend line", "Legend" e "Label
+    mark" formam uma coluna de checkboxes, cada um com a sua caixa a
+    direita (lista da tendencia, posicao da legenda e, no Label mark, uma
+    spinbox de 0 a 10, rotulada "Decimals" a sua direita, com as casas
+    decimais dos valores escritos no grafico, padrao 2). As cores (modo,
+    paleta e "Pick color") ficam empilhadas a direita dessa coluna, e as
+    duas colunas ficam centralizadas na janela, independentes do grid de
+    "Select columns". O nucleo ganhou
+    style["label_decimals"]; o numero de casas e salvo com o projeto
+    (module_graph_generator.py, CODRUG.py, BIN/i18n.py). Manuais atualizados.
+  * HOME, "Pipeline - Steps": a coluna dos nomes das etapas ocupa so a
+    largura do maior nome e as descricoes ganham o resto da linha, sem
+    quebra de linha em PT e EN (a largura minima de cada descricao e a do
+    maior texto entre os idiomas) e o espaco entre as colunas sobe de 20 para
+    24 px. A descricao da Etapa 3 passa a ser "Geracao de descritores
+    moleculares e de drogabilidade, escalonamento de variaveis e reducao de
+    dimensionalidade" (CODRUG.py, BIN/i18n.py). Figura 2 dos manuais
+    atualizada.
+  * Barra superior: "About" sai do menu "Help" e vira a terceira opcao da
+    barra, ao lado de "Menu" e "Help" (um clique abre a janela). O "Help"
+    fica com Install Requirements, Terminal e Code and Tutorials
+    (CODRUG.py). Manuais atualizados.
 
  -- Moisés Maia Neto <moimaian@gmail.com>  Tue, 13 Oct 2026 03:18:10 -0300
 
