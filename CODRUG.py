@@ -44,6 +44,53 @@ CODRUG_TERMINAL_LOG_DIR = os.path.join(os.path.expanduser("~"), ".cache", "codru
 CODRUG_TERMINAL_LOG = os.path.join(CODRUG_TERMINAL_LOG_DIR, f"terminal_{os.getpid()}.log")
 _codrug_tee_proc = None
 
+_IS_WINDOWS = sys.platform.startswith("win")
+
+def _pid_alive_windows(pid):
+    """Windows: True se o processo 'pid' ainda existe. NÃO usar os.kill(pid, 0) no Windows: lá
+    qualquer sinal diferente de CTRL_C/CTRL_BREAK encerra o processo (TerminateProcess)."""
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(0x1000, False, int(pid))  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            return bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == 259  # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+    except Exception:
+        return True
+
+class _TeeStream:
+    """Windows (sem o comando 'tee'): copia o que o CODRUG imprime para o console E para o log da sessão."""
+    def __init__(self, console, log_file):
+        self._console, self._log = console, log_file
+    def write(self, text):
+        try:
+            self._console.write(text)
+        except Exception:  # console com codificação limitada (ex.: cp1252) e emoji no texto
+            try:
+                self._console.write(text.encode("ascii", "replace").decode("ascii"))
+            except Exception:
+                pass
+        try:
+            self._log.write(text)
+        except Exception:
+            pass
+        return len(text)
+    def flush(self):
+        for stream in (self._console, self._log):
+            try:
+                stream.flush()
+            except Exception:
+                pass
+    def isatty(self):
+        return True
+    def __getattr__(self, name):
+        return getattr(self._console, name)
+
 def _setup_terminal_log():
     global _codrug_tee_proc
     import glob as _glob
@@ -55,13 +102,28 @@ def _setup_terminal_log():
             try:
                 old_pid = int(os.path.basename(old)[len("terminal_"):-len(".log")])
                 if old_pid != os.getpid():
-                    os.kill(old_pid, 0)
+                    if _IS_WINDOWS:
+                        if not _pid_alive_windows(old_pid):
+                            os.remove(old)
+                    else:
+                        os.kill(old_pid, 0)
             except (ValueError, ProcessLookupError):
                 os.remove(old)
             except Exception:
                 pass
         log_fd = os.open(CODRUG_TERMINAL_LOG, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
     except OSError:
+        return
+    if _IS_WINDOWS:
+        # Sem fork/tee/dup2 de console: troca sys.stdout/sys.stderr. Aberto pelo atalho
+        # (pythonw.exe) não há console (sys.stdout é None) e tudo vai só para o log; rodando num
+        # terminal, a saída continua nele e é copiada para o log (Help > Terminal).
+        try:
+            log_file = os.fdopen(log_fd, "w", encoding="utf-8", errors="replace", buffering=1)
+            console = sys.stdout if (sys.stdout is not None and sys.stdout.isatty()) else None
+            sys.stdout = sys.stderr = _TeeStream(console, log_file) if console is not None else log_file
+        except Exception:
+            pass
         return
     try:
         sys.stdout.flush(); sys.stderr.flush()
@@ -4882,8 +4944,25 @@ class MainWindow(QMainWindow):
         (tail -F) o log desta sessão (CODRUG_TERMINAL_LOG), já que o CODRUG não abre mais com um
         terminal ao lado. Fechar essa janela (ou Ctrl+C nela) não afeta o CODRUG."""
         import shlex
-        tail = ["tail", "-n", "+1", "-F", CODRUG_TERMINAL_LOG]
         title = "CODRUG - Terminal"
+        if _IS_WINDOWS:
+            # Windows: PowerShell numa janela de console própria acompanhando o log ao vivo
+            # (equivalente do 'tail -F'). Fechar a janela não afeta o CODRUG.
+            log_ps = CODRUG_TERMINAL_LOG.replace("'", "''")
+            command = (f"$Host.UI.RawUI.WindowTitle = '{title}'; "
+                       f"Get-Content -LiteralPath '{log_ps}' -Wait -Encoding UTF8")
+            try:
+                subprocess.Popen(["powershell", "-NoLogo", "-NoProfile", "-NoExit", "-Command", command],
+                                 stdin=subprocess.DEVNULL, creationflags=subprocess.CREATE_NEW_CONSOLE)
+                return
+            except Exception:
+                QMessageBox.warning(
+                    self,
+                    i18n.t("msg_title_terminal", self._idioma),
+                    i18n.t("msg_terminal_not_found", self._idioma, path=CODRUG_TERMINAL_LOG),
+                )
+                return
+        tail = ["tail", "-n", "+1", "-F", CODRUG_TERMINAL_LOG]
         candidates = [
             ("gnome-terminal", [f"--title={title}", "--"] + tail),
             ("x-terminal-emulator", ["-e", shlex.join(tail)]),

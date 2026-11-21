@@ -30,10 +30,23 @@ In this first run, the Python virtual environment will be created in $HOME/.venv
 For installations via the terminal, this environment can be activated with the command:
 source $HOME/.venv/CODRUG/bin/activate
 
+# **WINDOWS 10/11:**
+Install Git or download the repository as a zip, extract it (e.g. to `%USERPROFILE%\CODRUG`) and run, in a terminal (PowerShell or cmd):
+python CODRUG.py
+
+On the first run the bootstrap detects Windows and:
+- creates the virtual environment in `%USERPROFILE%\.venv\CODRUG` with **Python 3.10.11** (the last 3.10 release with an official Windows installer; on Linux it is 3.10.12). If it is missing, it is installed with `winget install --id Python.Python.3.10 --version 3.10.11 -e` or, without winget, with the installer from python.org;
+- uses `%USERPROFILE%\.venv\CODRUG\Scripts\python.exe` for every installation command (`python -m pip install ...`);
+- installs the Visual C++ runtime required by the Qt5 DLLs: `winget install --id Microsoft.VCRedist.2015+.x64 -e` (Windows asks for confirmation);
+- installs the Java runtime needed by PaDEL-Descriptor with winget (`Microsoft.OpenJDK.17` by default) when "Java" is selected in the requirements window;
+- creates the `CODRUG.lnk` shortcut on the Desktop and in the Start Menu (it starts CODRUG with `Scripts\pythonw.exe`, without a console window; the program output is shown in Help > Terminal).
+
+cuML (RAPIDS) is Linux-only and is skipped on Windows.
+
 # **PREREQUISITES:**
 All prerequisites must be installed by clicking the "Installation Requirements" button in the HOME tab. However, if it is necessary to reinstall one or more, these can be selected in the checklist.
 The prerequisites are:
-- Python version: 3.10.12
+- Python version: 3.10.12 (Linux) / 3.10.11 (Windows)
 - matplotlib: 3.10.5
 - Numpy: 1.26.4
 - Pandas: 2.1.4

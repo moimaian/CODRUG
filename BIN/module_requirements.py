@@ -37,7 +37,24 @@ except ImportError:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     import BIN.i18n as i18n
 
-TARGET_VENV_PYTHON = "3.10.12"
+IS_WINDOWS = sys.platform.startswith("win")
+# Python exato do venv: no Linux é compilado via pyenv (3.10.12); no Windows vem do instalador
+# oficial, e 3.10.11 é a última 3.10 que o python.org distribui com instalador binário (da 3.10.12
+# em diante só há código-fonte).
+TARGET_VENV_PYTHON_LINUX = "3.10.12"
+TARGET_VENV_PYTHON_WINDOWS = "3.10.11"
+TARGET_VENV_PYTHON = TARGET_VENV_PYTHON_WINDOWS if IS_WINDOWS else TARGET_VENV_PYTHON_LINUX
+# Windows: runtime Visual C++ que as DLLs do Qt5 (PyQt5) e do NumPy/RDKit exigem.
+VCREDIST_WINGET_ID = "Microsoft.VCRedist.2015+.x64"
+VCREDIST_DOWNLOAD_URL = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+PYTHON_WINGET_ID = "Python.Python.3.10"
+PYTHON_WINDOWS_INSTALLER_URL = (
+    f"https://www.python.org/ftp/python/{TARGET_VENV_PYTHON_WINDOWS}/"
+    f"python-{TARGET_VENV_PYTHON_WINDOWS}-amd64.exe"
+)
+# Códigos de saída do winget que também significam "já está instalado" (PACKAGE_ALREADY_INSTALLED e
+# UPDATE_NOT_APPLICABLE). Quem chama ainda confere o resultado (registro/versão) depois.
+_WINGET_ALREADY_OK = {0, 0x8A150061 - (1 << 32), 0x8A15010D - (1 << 32)}
 PYENV_APT_BUILD_DEPS = [
     "build-essential",
     "libssl-dev",
@@ -152,7 +169,14 @@ _SS_BTN_PRIMARY_NARROW = _SS_BTN_PRIMARY.replace("padding: 6px 16px;", "padding:
 # --------------------------- helpers ---------------------------
 
 def _run(cmd: list, check=False, env=None) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=check, env=env)
+    kwargs: dict = {}
+    if IS_WINDOWS:
+        # Aberto pelo atalho (pythonw.exe) não há stdin/console: sem isso o subprocess falha com
+        # "handle inválido" e cada pip abriria uma janela de console.
+        kwargs["stdin"] = subprocess.DEVNULL
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=check, env=env,
+                          **kwargs)
 
 def _run_interactive(cmd: list[str]) -> int:
     # Aberto pelo menu (sem terminal), o sudo não tem onde pedir a senha: usa o pkexec, que
@@ -188,9 +212,18 @@ def venv_paths(env_name="CODRUG"):
     home = str(Path.home())
     app_dir = os.path.join(home, "CODRUG")
     venv_dir = os.path.join(home, ".venv", "CODRUG")
-    py = os.path.join(venv_dir, "bin", "python")
-    pip = os.path.join(venv_dir, "bin", "pip")
-    return {"app_dir": app_dir, "venv_dir": venv_dir, "python": py, "pip": pip}
+    if IS_WINDOWS:
+        # Windows: o venv guarda os executáveis em Scripts\ (python.exe, pythonw.exe, pip.exe).
+        # TODOS os comandos de instalação (pip, PyQt5, RDKit, PyTorch...) usam este python.exe.
+        scripts = os.path.join(venv_dir, "Scripts")
+        py = os.path.join(scripts, "python.exe")
+        pip = os.path.join(scripts, "pip.exe")
+        pyw = os.path.join(scripts, "pythonw.exe")
+    else:
+        py = os.path.join(venv_dir, "bin", "python")
+        pip = os.path.join(venv_dir, "bin", "pip")
+        pyw = py
+    return {"app_dir": app_dir, "venv_dir": venv_dir, "python": py, "pip": pip, "pythonw": pyw}
 
 def _ensure_pyenv_linux(home: str) -> str:
     """
@@ -277,6 +310,224 @@ def ensure_python310_with_pyenv(version: str = TARGET_VENV_PYTHON) -> str:
     # usa o binário recem-instalado
     return target_py if os.path.isfile(target_py) else _pyenv_python_bin(version)
 
+# --------------------------- Windows ---------------------------
+
+def _winget_available() -> bool:
+    return IS_WINDOWS and _which("winget") is not None
+
+def _winget_install(pkg_id: str, extra: Optional[list] = None) -> bool:
+    """winget install -e --id <pkg_id> ...; True se instalou ou se já estava instalado."""
+    cmd = ["winget", "install", "--id", pkg_id, "-e", "--silent",
+           "--accept-package-agreements", "--accept-source-agreements"] + list(extra or [])
+    print("[CODRUG] " + " ".join(cmd))
+    rc = _run_interactive(cmd)
+    if rc > 0x7FFFFFFF:
+        rc -= 1 << 32
+    return rc in _WINGET_ALREADY_OK
+
+def _download_file(url: str, dest: str) -> bool:
+    try:
+        print(f"[CODRUG] Baixando {url}")
+        urllib.request.urlretrieve(url, dest)
+        return os.path.isfile(dest) and os.path.getsize(dest) > 0
+    except Exception as exc:
+        print(f"[CODRUG] Falha no download de {url}: {exc}")
+        return False
+
+def _vcredist_installed() -> bool:
+    """True se o runtime Visual C++ 2015-2022 (x64) está instalado (chave de registro do instalador)."""
+    if not IS_WINDOWS:
+        return True
+    try:
+        import winreg
+    except ImportError:
+        return True
+    for key in (r"SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64",
+                r"SOFTWARE\WOW6432Node\Microsoft\VisualStudio\14.0\VC\Runtimes\x64"):
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key) as handle:
+                if int(winreg.QueryValueEx(handle, "Installed")[0]) == 1:
+                    return True
+        except OSError:
+            continue
+    return False
+
+def ensure_vcredist_windows() -> bool:
+    """Garante o runtime Visual C++ (x64) que as DLLs do Qt5 (PyQt5) exigem: sem ele o import do
+    PyQt5 falha com "DLL load failed". Usa 'winget install --id Microsoft.VCRedist.2015+.x64 -e' e,
+    sem winget, o instalador oficial da Microsoft. A instalação pede confirmação do Windows (UAC)."""
+    if not IS_WINDOWS or _vcredist_installed():
+        return True
+    print("[CODRUG] Runtime Visual C++ (x64) não encontrado - necessário para o Qt5. Instalando...")
+    ok = False
+    if _winget_available():
+        ok = _winget_install(VCREDIST_WINGET_ID)
+    if not ok and not _vcredist_installed():
+        import tempfile
+        installer = os.path.join(tempfile.gettempdir(), "codrug_vc_redist.x64.exe")
+        if _download_file(VCREDIST_DOWNLOAD_URL, installer):
+            rc = _run_interactive([installer, "/install", "/quiet", "/norestart"])
+            ok = rc in (0, 1638, 3010)  # 1638: versão mais nova já instalada; 3010: precisa reiniciar
+    if _vcredist_installed():
+        print("[CODRUG] ✅ Runtime Visual C++ disponível.")
+        return True
+    if ok:
+        print("[CODRUG] ⚠️ Runtime Visual C++ instalado, mas o Windows pode exigir reinício.")
+        return True
+    print("[CODRUG] ❌ Não foi possível instalar o runtime Visual C++. Instale manualmente:\n"
+          f"         winget install --id {VCREDIST_WINGET_ID} -e\n"
+          f"         ou {VCREDIST_DOWNLOAD_URL}")
+    return False
+
+def _windows_python_candidates() -> List[str]:
+    """Pythons 3.10 prováveis no Windows (py launcher, pastas padrão dos instaladores, PATH)."""
+    found: List[str] = []
+    if _which("py"):
+        res = _run(["py", "-3.10", "-c", "import sys; print(sys.executable)"])
+        if res.returncode == 0 and res.stdout.strip():
+            found.append(res.stdout.strip().splitlines()[-1])
+    local = os.environ.get("LOCALAPPDATA", "")
+    if local:
+        found.append(os.path.join(local, "Programs", "Python", "Python310", "python.exe"))
+    for var in ("ProgramFiles", "ProgramFiles(x86)"):
+        base = os.environ.get(var, "")
+        if base:
+            found.append(os.path.join(base, "Python310", "python.exe"))
+    for name in ("python", "python3"):
+        path = _which(name)
+        if path:
+            found.append(path)
+    found.append(sys.executable)
+    seen, unique = set(), []
+    for path in found:
+        key = os.path.normcase(os.path.abspath(path))
+        if key not in seen and os.path.isfile(path):
+            seen.add(key)
+            unique.append(path)
+    return unique
+
+def _find_windows_python(version: str) -> Optional[str]:
+    for path in _windows_python_candidates():
+        if _python_version_string(path) == version:
+            return path
+    return None
+
+def ensure_python310_windows(version: str = TARGET_VENV_PYTHON_WINDOWS) -> str:
+    """Windows: devolve o python.exe da versão exata (3.10.11). Se não existir, instala pelo winget
+    (Python.Python.3.10 --version 3.10.11) ou, sem winget, pelo instalador oficial do python.org
+    (instalação por usuário, sem alterar o PATH)."""
+    found = _find_windows_python(version)
+    if found:
+        return found
+    print(f"[CODRUG] Python {version} não encontrado neste Windows.")
+    if not _prompt_yes_no(f"[CODRUG] Deseja instalar o Python {version} agora?", default_yes=True):
+        raise RuntimeError(f"Python {version} é necessário para criar o ambiente do CODRUG.")
+    if _winget_available():
+        _winget_install(PYTHON_WINGET_ID, ["--version", version, "--scope", "user"])
+        found = _find_windows_python(version)
+        if found:
+            return found
+    import tempfile
+    installer = os.path.join(tempfile.gettempdir(), f"python-{version}-amd64.exe")
+    if _download_file(PYTHON_WINDOWS_INSTALLER_URL, installer):
+        _run_interactive([installer, "/quiet", "InstallAllUsers=0", "PrependPath=0",
+                          "Include_launcher=0", "Include_test=0", "Include_pip=1"])
+        found = _find_windows_python(version)
+        if found:
+            return found
+    raise RuntimeError(
+        f"Falha ao instalar o Python {version}. Instale manualmente e execute o CODRUG de novo:\n"
+        f"  winget install --id {PYTHON_WINGET_ID} -e --version {version}\n"
+        f"  ou {PYTHON_WINDOWS_INSTALLER_URL}"
+    )
+
+def _windows_known_folder(csidl: int) -> str:
+    """Pasta especial do Windows (Desktop, Menu Iniciar > Programas), mesmo redirecionada pelo OneDrive."""
+    try:
+        import ctypes
+        buf = ctypes.create_unicode_buffer(260)
+        if ctypes.windll.shell32.SHGetFolderPathW(None, csidl, None, 0, buf) == 0 and buf.value:  # type: ignore[attr-defined]
+            return buf.value
+    except Exception:
+        pass
+    return ""
+
+_LNK_POWERSHELL = r"""
+$ErrorActionPreference = 'Stop'
+$ws = New-Object -ComObject WScript.Shell
+foreach ($lnk in ($env:CODRUG_LNK_PATHS -split '\|')) {
+  if (-not $lnk) { continue }
+  $s = $ws.CreateShortcut($lnk)
+  $s.TargetPath = $env:CODRUG_LNK_TARGET
+  $q = [char]34
+  $s.Arguments = $q + $env:CODRUG_LNK_SCRIPT + $q
+  $s.WorkingDirectory = $env:CODRUG_LNK_WORKDIR
+  $s.Description = 'CODRUG - QSAR analysis and machine learning tool'
+  if ($env:CODRUG_LNK_ICON -and (Test-Path $env:CODRUG_LNK_ICON)) { $s.IconLocation = $env:CODRUG_LNK_ICON }
+  $s.Save()
+}
+"""
+
+def windows_shortcut_paths() -> List[str]:
+    """Onde ficam os atalhos CODRUG.lnk: Área de Trabalho e Menu Iniciar."""
+    paths = []
+    for csidl in (0x10, 0x02):  # CSIDL_DESKTOPDIRECTORY, CSIDL_PROGRAMS (Menu Iniciar > Programas)
+        folder = _windows_known_folder(csidl)
+        if folder:
+            paths.append(os.path.join(folder, "CODRUG.lnk"))
+    return paths
+
+def ensure_windows_shortcuts(script_path: str, env_name: str = "CODRUG", force: bool = False) -> bool:
+    """Cria/atualiza CODRUG.lnk na Área de Trabalho e no Menu Iniciar. O atalho abre o CODRUG.py com o
+    pythonw.exe do venv (Scripts\\pythonw.exe: sem janela de console; a saída vai para Help > Terminal).
+    Só recria quando falta um atalho ou o destino mudou. Retorna True se os atalhos existem."""
+    if not IS_WINDOWS:
+        return False
+    p = venv_paths(env_name)
+    target = p["pythonw"] if os.path.isfile(p["pythonw"]) else p["python"]
+    if not os.path.isfile(target):
+        return False
+    script = os.path.abspath(script_path)
+    app_dir = os.path.dirname(script)
+    icon = os.path.join(app_dir, "MIDIA", "CODRUG.ico")
+    lnk_paths = windows_shortcut_paths()
+    if not lnk_paths:
+        return False
+
+    signature = "\n".join([target, script, icon if os.path.isfile(icon) else ""] + lnk_paths)
+    marker = os.path.join(p["venv_dir"], ".codrug_shortcuts")
+    try:
+        current = Path(marker).read_text(encoding="utf-8")
+    except Exception:
+        current = ""
+    if not force and current == signature and all(os.path.isfile(x) for x in lnk_paths):
+        return True
+
+    env = os.environ.copy()
+    env.update({
+        "CODRUG_LNK_PATHS": "|".join(lnk_paths),
+        "CODRUG_LNK_TARGET": target,
+        "CODRUG_LNK_SCRIPT": script,
+        "CODRUG_LNK_WORKDIR": app_dir,
+        "CODRUG_LNK_ICON": icon if os.path.isfile(icon) else "",
+    })
+    try:
+        res = _run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                    "-Command", _LNK_POWERSHELL], env=env)
+    except Exception as exc:
+        print(f"[CODRUG] Não foi possível criar os atalhos: {exc}")
+        return False
+    if res.returncode != 0:
+        print(f"[CODRUG] Falha ao criar os atalhos CODRUG.lnk:\n{res.stdout}")
+        return False
+    try:
+        Path(marker).write_text(signature, encoding="utf-8")
+    except Exception:
+        pass
+    print("[CODRUG] ✅ Atalhos CODRUG.lnk criados na Área de Trabalho e no Menu Iniciar.")
+    return all(os.path.isfile(x) for x in lnk_paths)
+
+
 def _python_version_string(pybin: str) -> Optional[str]:
     res = _run([pybin, "-c", "import sys; print(f'{sys.version_info[0]}.{sys.version_info[1]}.{sys.version_info[2]}')"])
     if res.returncode != 0:
@@ -288,13 +539,15 @@ def _is_target_python(pybin: str, version: str = TARGET_VENV_PYTHON) -> bool:
 
 def _pick_python_for_venv() -> str:
     """
-    Retorna um binário de Python 3.10.12 para criar o venv do CODRUG.
-    - Se o Python atual for exatamente 3.10.12, usa-o.
-    - Se houver um python3.10 exatamente 3.10.12 no PATH, usa-o.
-    - Caso contrário, garante via pyenv (3.10.12) e usa esse.
+    Retorna um binário de Python exato (TARGET_VENV_PYTHON) para criar o venv do CODRUG.
+    - Se o Python atual for exatamente a versão-alvo, usa-o.
+    - Linux: 3.10.12; se houver um python3.10 exato no PATH usa-o, senão garante via pyenv.
+    - Windows: 3.10.11; procura o py launcher/pastas padrão e, se faltar, instala (winget/python.org).
     """
     if _is_target_python(sys.executable):
         return sys.executable
+    if IS_WINDOWS:
+        return ensure_python310_windows(TARGET_VENV_PYTHON)
     cand = _which("python3.10")
     if cand and _is_target_python(cand):
         return cand
@@ -303,6 +556,8 @@ def _pick_python_for_venv() -> str:
 def ensure_venv(env_name="CODRUG") -> dict:
     p = venv_paths(env_name)
     os.makedirs(p["app_dir"], exist_ok=True)
+    if IS_WINDOWS:
+        ensure_vcredist_windows()  # as DLLs do Qt5 precisam do runtime Visual C++
 
     recreate_venv = False
     if os.path.isdir(p["venv_dir"]) and os.path.isfile(p["python"]):
@@ -334,7 +589,13 @@ def _has_module(pybin: str, module_name: str) -> bool:
 
 def _running_in_target_venv(env_name: str = "CODRUG") -> bool:
     try:
-        return Path(sys.executable).resolve() == Path(venv_paths(env_name)["python"]).resolve()
+        paths = venv_paths(env_name)
+        if IS_WINDOWS:
+            # O atalho abre o CODRUG com pythonw.exe (sem console) - mesmo venv que python.exe.
+            allowed = {os.path.normcase(os.path.abspath(paths["python"])),
+                       os.path.normcase(os.path.abspath(paths["pythonw"]))}
+            return os.path.normcase(os.path.abspath(sys.executable)) in allowed
+        return Path(sys.executable).resolve() == Path(paths["python"]).resolve()
     except Exception:
         return False
 
@@ -362,6 +623,11 @@ def bootstrap_pyqt5(interactive: bool = True, reexec: bool = False, env_name: st
     """
     if os.environ.get("CODRUG_VENV_ACTIVE") == "1" and _running_in_target_venv(env_name):
         return True
+    if IS_WINDOWS and _running_in_target_venv(env_name) and _pkg_installed("PyQt5"):
+        # Windows: já dentro do venv (atalho/pythonw). Marca o ambiente para que processos filhos
+        # (multiprocessing "spawn" reimporta o CODRUG.py) não repitam o bootstrap.
+        os.environ["CODRUG_VENV_ACTIVE"] = "1"
+        return True
 
     target_paths = venv_paths(env_name)
     target_python = target_paths["python"]
@@ -373,7 +639,8 @@ def bootstrap_pyqt5(interactive: bool = True, reexec: bool = False, env_name: st
         # (o launcher /usr/bin/codrug do .deb já abre um sozinho nesse caso).
         if not venv_ready:
             print("[CODRUG] A primeira execução precisa de um terminal para configurar o ambiente "
-                  f"({target_paths['venv_dir']}). Rode 'codrug' ou 'python3 CODRUG.py' num terminal.")
+                  f"({target_paths['venv_dir']}). Rode 'codrug' ou "
+                  f"'{'python' if IS_WINDOWS else 'python3'} CODRUG.py' num terminal.")
             return False
         interactive = False
 
@@ -390,8 +657,8 @@ def bootstrap_pyqt5(interactive: bool = True, reexec: bool = False, env_name: st
         else:
             print("  Status         : ○ venv será criado agora")
         print()
-        print("  O CODRUG utiliza um ambiente virtual isolado (~/.venv/CODRUG)")
-        print("  com Python 3.10.12 para manter compatibilidade com RDKit e outras dependências.")
+        print(f"  O CODRUG utiliza um ambiente virtual isolado ({target_paths['venv_dir']})")
+        print(f"  com Python {TARGET_VENV_PYTHON} para manter compatibilidade com RDKit e outras dependências.")
         print()
         try:
             resp = input("  Deseja continuar? [S/n]: ").strip().lower()
@@ -409,7 +676,7 @@ def bootstrap_pyqt5(interactive: bool = True, reexec: bool = False, env_name: st
             f"[CODRUG] ❌ O ambiente virtual não está usando Python {TARGET_VENV_PYTHON}. "
             f"Versão detectada: {venv_version or 'desconhecida'}."
         )
-        print("[CODRUG] Instale o Python 3.10.12 e recrie ~/.venv/CODRUG antes de continuar.")
+        print(f"[CODRUG] Instale o Python {TARGET_VENV_PYTHON} e recrie {p['venv_dir']} antes de continuar.")
         return False
 
     print(f"[CODRUG] ✅ Venv em {p['venv_dir']} usando Python {venv_version}.")
@@ -429,13 +696,18 @@ def bootstrap_pyqt5(interactive: bool = True, reexec: bool = False, env_name: st
         print("[CODRUG] ✅ PyQt5 já disponível no venv.")
 
     if reexec:
-        current_py = os.path.realpath(sys.executable)
-        target_py = os.path.realpath(p["python"])
+        current_py = os.path.normcase(os.path.realpath(sys.executable))
+        target_py = os.path.normcase(os.path.realpath(p["python"]))
         if installed_pyqt or current_py != target_py:
             env = os.environ.copy()
             env["CODRUG_VENV_ACTIVE"] = "1"
             print(f"\n[CODRUG] Reiniciando com o Python do venv...")
             print(f"         {p['python']}\n")
+            if IS_WINDOWS:
+                # O Windows não tem exec(): os.execve criaria um processo novo e encerraria este
+                # logo em seguida, soltando o terminal. Executa o filho e espera o resultado.
+                exe = p["python"] if _stdin_is_tty() or not os.path.isfile(p["pythonw"]) else p["pythonw"]
+                sys.exit(subprocess.call([exe] + sys.argv, env=env))
             os.execve(p["python"], [p["python"]] + sys.argv, env)
 
     return True
@@ -537,6 +809,24 @@ def detect_ram() -> dict:
             return {"total_gb": total_gb, "free_gb": free_gb, "ok": total_gb >= 8}
     except Exception:
         pass
+    if IS_WINDOWS:
+        try:
+            import ctypes
+
+            class _MemStatus(ctypes.Structure):
+                _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                            ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                            ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                            ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                            ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+            status = _MemStatus()
+            status.dwLength = ctypes.sizeof(_MemStatus)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):  # type: ignore[attr-defined]
+                total_gb = round(status.ullTotalPhys / 1e9, 1)
+                free_gb = round(status.ullAvailPhys / 1e9, 1)
+                return {"total_gb": total_gb, "free_gb": free_gb, "ok": total_gb >= 8}
+        except Exception:
+            pass
     return {"total_gb": 0, "free_gb": 0, "ok": True}
 
 def detect_disk(path: Optional[str] = None) -> dict:
@@ -590,7 +880,7 @@ def recommend_installer_defaults(hw: Optional[dict] = None) -> dict:
     torch_info = select_torch_variant(hw["gpu"])
     cuml_info = select_cuml_variant(hw["gpu"])
     return {
-        "python_version": "3.10.12",
+        "python_version": TARGET_VENV_PYTHON,
         "java_version": "11",
         "scikitlearn_version": "1.4.2",
         "chembl_version": "0.10.9",
@@ -1082,9 +1372,22 @@ class RequirementsInstaller(cast(Any, QWidget)):
 
     def install_java(self, version: str, use_default: bool) -> bool:
         """
-        Instala o JRE via apt (pacote de sistema, não pip). 'use_default' instala
-        'default-jre'; caso contrário instala 'openjdk-<version>-jre'.
+        Instala o JRE como pacote de sistema (não pip): Linux via apt ('use_default' instala
+        'default-jre'; caso contrário 'openjdk-<version>-jre'); Windows via winget
+        (Microsoft.OpenJDK.<versão>).
         """
+        if IS_WINDOWS:
+            # Windows: JRE via winget (Microsoft Build of OpenJDK); "default" = LTS 17.
+            major = "17" if use_default else (re.match(r"\d+", str(version).strip() or "") or [None])[0] or "17"
+            pkg = f"Microsoft.OpenJDK.{major}"
+            if not _winget_available():
+                self.log_signal.emit(i18n.t("req_log_java_winget_unavailable", self._idioma, pkg=pkg))
+                return True
+            if not _winget_install(pkg):
+                self.log_signal.emit(i18n.t("req_log_java_winget_failed", self._idioma, pkg=pkg))
+                return False
+            self.log_signal.emit(i18n.t("req_log_pkg_installed", self._idioma, spec=pkg))
+            return True
         if not _supports_apt_bootstrap():
             self.log_signal.emit(i18n.t("req_log_java_skip", self._idioma))
             return True

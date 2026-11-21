@@ -1934,6 +1934,13 @@ _TEXTOS = {
     },
     "req_log_java_apt_update_failed": {"en": "Failed to run 'sudo apt update'.\n", "pt": "Falha ao executar 'sudo apt update'.\n"},
     "req_log_java_apt_install_failed": {"en": "Failed to install {pkg} via apt.\n", "pt": "Falha ao instalar {pkg} via apt.\n"},
+    "req_log_java_winget_unavailable": {
+        "en": "[WARN] Skipping Java: winget was not found. Install manually, e.g. "
+              "'winget install --id {pkg} -e'.\n",
+        "pt": "[AVISO] Pulando Java: o winget não foi encontrado. Instale manualmente, ex.: "
+              "'winget install --id {pkg} -e'.\n",
+    },
+    "req_log_java_winget_failed": {"en": "Failed to install {pkg} via winget.\n", "pt": "Falha ao instalar {pkg} via winget.\n"},
 
     # ---------------------------------------------------------------- PLOT tab (Gerador de Gráficos)
     "tab_plot": {"en": "PLOT", "pt": "PLOT"},

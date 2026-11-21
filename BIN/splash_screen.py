@@ -30,7 +30,9 @@ from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QProgressBar
 HOME = str(Path.home())
 APP_DIR = os.path.join(HOME, "CODRUG")
 VENV_DIR = os.path.join(HOME, ".venv", "CODRUG")
-VENV_PY  = os.path.join(VENV_DIR, "bin", "python")
+# Windows: o venv guarda o python em Scripts\python.exe (Linux: bin/python).
+VENV_PY  = (os.path.join(VENV_DIR, "Scripts", "python.exe") if sys.platform.startswith("win")
+            else os.path.join(VENV_DIR, "bin", "python"))
 DESKTOP_DIR  = os.path.join(HOME, ".local", "share", "applications")
 DESKTOP_FILE = os.path.join(DESKTOP_DIR, "CODRUG.desktop")
 MIN_MARKER   = os.path.join(VENV_DIR, ".codrug_minimal_done")
@@ -48,7 +50,12 @@ ESSENTIALS = [
 
 # -------- Helpers --------
 def _run(cmd):
-    return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    kwargs = {}
+    if sys.platform.startswith("win"):
+        # Sem console (pythonw.exe) não há stdin: evita "handle inválido" e janelas de console do pip.
+        kwargs["stdin"] = subprocess.DEVNULL
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, **kwargs)
 
 def _write_desktop():
     os.makedirs(DESKTOP_DIR, exist_ok=True)
@@ -68,7 +75,16 @@ StartupNotify=false
         f.write(content)
     os.chmod(DESKTOP_FILE, 0o755)
 
-def ensure_desktop():
+def ensure_desktop(app_dir=None):
+    """Linux: atalho .desktop no menu. Windows: CODRUG.lnk na Área de Trabalho e no Menu Iniciar
+    (apontando para o pythonw.exe do venv e para o CODRUG.py em 'app_dir')."""
+    if sys.platform.startswith("win"):
+        try:
+            from BIN.module_requirements import ensure_windows_shortcuts
+            ensure_windows_shortcuts(os.path.join(app_dir or APP_DIR, "CODRUG.py"))
+        except Exception:
+            pass
+        return
     try:
         if not os.path.isfile(DESKTOP_FILE):
             _write_desktop()
@@ -359,7 +375,7 @@ class SplashScreen(QWidget):
         self._timer.start()
 
         # 1) .desktop
-        ensure_desktop()
+        ensure_desktop(self.dp_dir)
         self.status["desktop_ok"] = True
         self._set_target(25)
 

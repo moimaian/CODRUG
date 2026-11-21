@@ -1,5 +1,14 @@
 codrug (1.2.0-1) unstable; urgency=low
 
+  * Compatibilidade com Windows (BIN/module_requirements.py,
+    BIN/splash_screen.py, CODRUG.py, MIDIA/CODRUG.ico): o bootstrap
+    detecta o sistema; no Windows o venv usa o Python 3.10.11 (instalado
+    por winget ou pelo instalador do python.org se faltar) em
+    .venv\CODRUG\Scripts\python.exe, que passa a ser o python de todos os
+    comandos de instalação. Instala o runtime Visual C++ do Qt5 (winget
+    Microsoft.VCRedist.2015+.x64), o Java por winget e cria os atalhos
+    CODRUG.lnk na Área de Trabalho e no Menu Iniciar. Log de sessão e
+    Help > Terminal sem tee/tail/os.execve/os.kill. Linux inalterado.
   * STEP 3, Recommended Projection (BIN/recommended_projection.py,
     CODRUG.py): (1) PLS-DA é ajustado a indicadores de classe (uma coluna
     por classe; 2 classes = 1 coluna), não aos códigos inteiros 0, 1, 2,
