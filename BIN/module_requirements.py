@@ -252,7 +252,15 @@ def _supports_apt_bootstrap() -> bool:
     os_release = _os_release_text()
     return any(token in os_release for token in ("ubuntu", "debian", "mint", "pop", "zorin"))
 
+def _assume_yes() -> bool:
+    """CODRUG_ASSUME_YES=1 (definida pelo CODRUG_Windows.bat): responde "S" sozinho às confirmações do
+    bootstrap, para o usuário do Windows não precisar digitar nada no terminal."""
+    return os.environ.get("CODRUG_ASSUME_YES") == "1"
+
 def _prompt_yes_no(message: str, default_yes: bool = True) -> bool:
+    if _assume_yes():
+        print(f"{message} -> S")
+        return True
     suffix = "[S/n]" if default_yes else "[s/N]"
     try:
         resp = input(f"{message} {suffix}: ").strip().lower()
@@ -548,7 +556,15 @@ def restart_codrug() -> bool:
     print("[CODRUG] Reiniciando para carregar as bibliotecas instaladas...")
     try:
         if IS_WINDOWS:
-            subprocess.Popen(args, env=env, cwd=os.path.dirname(script))
+            # pythonw.exe + processo destacado: o CODRUG novo não fica preso à janela de console da
+            # instalação (que fecha ao terminar); a saída dele vai para Help > Terminal.
+            exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+            pythonw = os.path.join(exe_dir, "pythonw.exe")
+            if os.path.isfile(pythonw):
+                args[0] = pythonw
+            flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            subprocess.Popen(args, env=env, cwd=os.path.dirname(script), stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags)
             return True
         os.execve(sys.executable, args, env)
     except Exception as exc:
@@ -660,7 +676,7 @@ def bootstrap_pyqt5(interactive: bool = True, reexec: bool = False, env_name: st
     target_python = target_paths["python"]
 
     venv_ready = os.path.isdir(target_paths["venv_dir"]) and os.path.isfile(target_python)
-    if interactive and not _running_in_target_venv(env_name) and not _stdin_is_tty():
+    if interactive and not _running_in_target_venv(env_name) and not _stdin_is_tty() and not _assume_yes():
         # Aberto pelo menu, sem terminal para responder à pergunta abaixo: com o venv já criado
         # basta reiniciar dentro dele; sem venv, a configuração inicial precisa de um terminal
         # (o launcher /usr/bin/codrug do .deb já abre um sozinho nesse caso).
@@ -687,14 +703,17 @@ def bootstrap_pyqt5(interactive: bool = True, reexec: bool = False, env_name: st
         print(f"  O CODRUG utiliza um ambiente virtual isolado ({target_paths['venv_dir']})")
         print(f"  com Python {TARGET_VENV_PYTHON} para manter compatibilidade com RDKit e outras dependências.")
         print()
-        try:
-            resp = input("  Deseja continuar? [S/n]: ").strip().lower()
-            if resp in ("n", "nao", "não", "no"):
-                print("\n[CODRUG] Cancelado pelo usuário.")
+        if _assume_yes():
+            print("  Deseja continuar? [S/n]: S")
+        else:
+            try:
+                resp = input("  Deseja continuar? [S/n]: ").strip().lower()
+                if resp in ("n", "nao", "não", "no"):
+                    print("\n[CODRUG] Cancelado pelo usuário.")
+                    return False
+            except (EOFError, KeyboardInterrupt):
+                print("\n[CODRUG] Cancelado.")
                 return False
-        except (EOFError, KeyboardInterrupt):
-            print("\n[CODRUG] Cancelado.")
-            return False
 
     p = ensure_venv(env_name)
     venv_version = _python_version_string(p["python"])

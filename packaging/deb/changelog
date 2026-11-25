@@ -1,5 +1,11 @@
 codrug (1.2.0-1) unstable; urgency=low
 
+  * CODRUG_Windows.bat: instalação sem terminal no Windows (duplo clique).
+    Acha o Python 3.10+ ou baixa o 3.10.11 do python.org (confere a
+    assinatura digital, instala só para o usuário) e roda CODRUG.py com
+    CODRUG_ASSUME_YES=1, que responde "S" às confirmações do bootstrap
+    (BIN/module_requirements.py). No Windows o reinício após a instalação
+    usa pythonw.exe destacado, sem prender a janela de instalação.
   * Primeira execução sem erro (CODRUG.py, BIN/module_requirements.py,
     BIN/splash_screen.py): o import falhava com NameError em
     BaseEstimator/ClassifierMixin quando o scikit-learn não estava

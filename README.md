@@ -31,17 +31,17 @@ For installations via the terminal, this environment can be activated with the c
 source $HOME/.venv/CODRUG/bin/activate
 
 # **WINDOWS 10/11:**
-Install Git or download the repository as a zip, extract it (e.g. to `%USERPROFILE%\CODRUG`) and run, in a terminal (PowerShell or cmd):
-python CODRUG.py
+Download the repository as a zip and extract it to any folder (e.g. `C:\Users\<you>\CODRUG`). Then **double-click `CODRUG_Windows.bat`** - there is no need to open PowerShell or type commands. (If Windows shows "Windows protected your PC", click "More info" > "Run anyway".)
 
-On the first run the bootstrap detects Windows and:
-- creates the virtual environment in `%USERPROFILE%\.venv\CODRUG` with **Python 3.10.11** (the last 3.10 release with an official Windows installer; on Linux it is 3.10.12). If it is missing, it is installed with `winget install --id Python.Python.3.10 --version 3.10.11 -e` or, without winget, with the installer from python.org;
-- uses `%USERPROFILE%\.venv\CODRUG\Scripts\python.exe` for every installation command (`python -m pip install ...`);
+The script, on the first run only:
+- looks for Python 3.10 or newer; if none is found, it downloads the official **Python 3.10.11** installer from python.org, checks its digital signature and installs it for the current user (no administrator rights needed);
+- runs `python CODRUG.py` already answering "S" to the setup questions (`CODRUG_ASSUME_YES=1`);
+- the bootstrap then creates the virtual environment in `%USERPROFILE%\.venv\CODRUG` with Python 3.10.11 (the last 3.10 release with an official Windows installer; on Linux it is 3.10.12) and uses `%USERPROFILE%\.venv\CODRUG\Scripts\python.exe` for every installation command (`python -m pip install ...`);
 - installs the Visual C++ runtime required by the Qt5 DLLs: `winget install --id Microsoft.VCRedist.2015+.x64 -e` (Windows asks for confirmation);
-- installs the Java runtime needed by PaDEL-Descriptor with winget (`Microsoft.OpenJDK.17` by default) when "Java" is selected in the requirements window;
-- creates the `CODRUG.lnk` shortcut on the Desktop and in the Start Menu (it starts CODRUG with `Scripts\pythonw.exe`, without a console window; the program output is shown in Help > Terminal).
+- installs the essential packages, restarts CODRUG once and creates the `CODRUG.lnk` shortcut on the Desktop and in the Start Menu (it starts CODRUG with `Scripts\pythonw.exe`, without a console window; the program output is shown in Help > Terminal);
+- the remaining packages (RDKit, scikit-learn, PyTorch...) are installed from the "Install requirements" window, which offers to restart CODRUG at the end. When "Java" is selected there, it is installed with winget (`Microsoft.OpenJDK.17` by default).
 
-cuML (RAPIDS) is Linux-only and is skipped on Windows.
+From then on, open CODRUG with the Desktop or Start Menu shortcut. cuML (RAPIDS) is Linux-only and is skipped on Windows.
 
 # **PREREQUISITES:**
 All prerequisites must be installed by clicking the "Installation Requirements" button in the HOME tab. However, if it is necessary to reinstall one or more, these can be selected in the checklist.
