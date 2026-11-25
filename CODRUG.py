@@ -37,6 +37,36 @@ def _bootstrap_codrug_venv():
 
 _bootstrap_codrug_venv()
 
+def _hide_subprocess_console_windows():
+    """Windows: aberto pelo atalho (pythonw.exe) o CODRUG não tem console, e todo programa de console que
+    ele executa (nvidia-smi, java -version, wmic do joblib...) abriria e fecharia uma janela preta
+    - na inicialização, a montagem da aba HOME faz várias dessas chamadas. Acrescenta CREATE_NO_WINDOW a
+    todo subprocess.Popen (inclusive de bibliotecas de terceiros), exceto quando quem chama já define
+    outra janela (CREATE_NEW_CONSOLE / DETACHED_PROCESS, ex.: Help > Terminal). Rodando num terminal os
+    filhos herdam o console existente (não abrem janela e a saída aparece nele): nada muda nesse caso."""
+    if not sys.platform.startswith("win"):
+        return
+    try:
+        import ctypes
+        if ctypes.windll.kernel32.GetConsoleWindow():  # há console: nada a esconder
+            return
+        import subprocess as _sp
+        no_window = getattr(_sp, "CREATE_NO_WINDOW", 0x08000000)
+        own_window = getattr(_sp, "CREATE_NEW_CONSOLE", 0x10) | getattr(_sp, "DETACHED_PROCESS", 0x8)
+        _original_init = _sp.Popen.__init__
+
+        def _popen_init(self, *args, **kwargs):
+            flags = kwargs.get("creationflags", 0) or 0
+            if not flags & own_window:
+                kwargs["creationflags"] = flags | no_window
+            _original_init(self, *args, **kwargs)
+
+        _sp.Popen.__init__ = _popen_init
+    except Exception:
+        pass
+
+_hide_subprocess_console_windows()
+
 # Saída do programa (print/erros, inclusive de subprocessos) gravada num log por sessão, exibido
 # ao vivo por Help > Terminal. Aberto pelo menu (sem terminal), stdout/stderr vão só para o log;
 # rodando num terminal, um "tee" mantém a saída no terminal e também copia para o log.

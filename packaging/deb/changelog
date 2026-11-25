@@ -1,5 +1,11 @@
 codrug (1.2.0-1) unstable; urgency=low
 
+  * Windows: sem janelas de console piscando na inicialização (CODRUG.py).
+    Aberto pelo atalho (pythonw.exe, sem console), cada nvidia-smi, java
+    -version etc. da aba HOME abria e fechava uma janela; agora todo
+    subprocess.Popen recebe CREATE_NO_WINDOW (exceto os que definem a
+    própria janela, como Help > Terminal). Rodando num terminal, e no
+    Linux, nada muda.
   * CODRUG_Windows.bat: instalação sem terminal no Windows (duplo clique).
     Acha o Python 3.10+ ou baixa o 3.10.11 do python.org (confere a
     assinatura digital, instala só para o usuário) e roda CODRUG.py com
