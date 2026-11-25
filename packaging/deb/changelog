@@ -1,5 +1,14 @@
 codrug (1.2.0-1) unstable; urgency=low
 
+  * Primeira execução sem erro (CODRUG.py, BIN/module_requirements.py,
+    BIN/splash_screen.py): o import falhava com NameError em
+    BaseEstimator/ClassifierMixin quando o scikit-learn não estava
+    instalado (e, sem lightgbm ou xgboost, todo o bloco do scikit-learn
+    era abandonado). LightGBM/XGBoost viraram opcionais e isolados (o
+    modelo some da lista se faltar), e há classes-base de reserva. A aba
+    PLOT mostra um aviso, não um diálogo de erro. Depois que a splash
+    instala os pacotes essenciais, o CODRUG reinicia uma vez sozinho; ao
+    fim de "Instalar Dependências" a janela oferece reiniciar.
   * Compatibilidade com Windows (BIN/module_requirements.py,
     BIN/splash_screen.py, CODRUG.py, MIDIA/CODRUG.ico): o bootstrap
     detecta o sistema; no Windows o venv usa o Python 3.10.11 (instalado

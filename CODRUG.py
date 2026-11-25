@@ -362,6 +362,8 @@ except Exception:
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 
 # sklearn:
+lgb = xgb = cb = None
+_CATBOOST_AVAILABLE = False
 try:
     import sklearn
     print("✅ Scikitlearn imported successfully.")
@@ -374,8 +376,22 @@ try:
     from sklearn.tree import DecisionTreeRegressor
     # from sklearn.experimental import enable_hist_gradient_boosting
     from sklearn.ensemble import HistGradientBoostingRegressor
-    import lightgbm as lgb
-    import xgboost as xgb
+    # LightGBM e XGBoost são pacotes à parte (instalados pelo 'Instalar Dependências'): importados
+    # cada um no seu try/except, para que a ausência de um deles NÃO derrube o import do restante do
+    # scikit-learn (antes, sem o lightgbm o bloco inteiro abortava aqui e BaseEstimator, clone etc.
+    # nunca eram importados). Sem o pacote, o modelo correspondente some das listas do Screening.
+    try:
+        import lightgbm as lgb
+        print("✅ LightGBM imported successfully.")
+    except Exception:
+        lgb = None
+        print("⚠️ LightGBM not available. Use 'Install requirements' at home menu.")
+    try:
+        import xgboost as xgb
+        print("✅ XGBoost imported successfully.")
+    except Exception:
+        xgb = None
+        print("⚠️ XGBoost not available. Use 'Install requirements' at home menu.")
     print("✅ Regressor Models imported successfully.")
 
     # CatBoost é opcional (não faz parte do conjunto padrão de dependências instalado pelo
@@ -839,17 +855,29 @@ try:
 except Exception as e:
     print("⚠️ Sklearn not available. Use 'Install requirements' at home menu.")
     print(f"Details: {e}")
+    # Classes-base de reserva: definições de classe no nível do módulo (ex.:
+    # _LabelEncodingClassifierWrapper) herdam delas, e sem o scikit-learn (1ª execução, antes de
+    # instalar as dependências pela interface) o import do CODRUG.py falhava com NameError. Os
+    # recursos de ML continuam indisponíveis até a instalação; só a janela precisa abrir.
+    for _base_name in ("BaseEstimator", "ClassifierMixin", "RegressorMixin"):
+        if _base_name not in globals():
+            globals()[_base_name] = type(_base_name, (), {})
 
 # ==========================================================================================================================================
 # ============================== STEP 5 (SCIKIT-LEARN SCREENING): MODEL REGISTRIES AND DEFAULT HYPERPARAMETER GRIDS =======================
 # ==========================================================================================================================================
 # Modelos de regressão disponíveis para o screening (nome de exibição -> (classe, kwargs padrão, sem random_state)):
+# Classes do XGBoost/LightGBM (None se o pacote não está instalado: o modelo sai dos registries abaixo).
+_XGB_REGRESSOR = getattr(xgb, "XGBRegressor", None)
+_XGB_CLASSIFIER = getattr(xgb, "XGBClassifier", None)
+_LGBM_REGRESSOR = getattr(lgb, "LGBMRegressor", None)
+_LGBM_CLASSIFIER = getattr(lgb, "LGBMClassifier", None)
 try:
     SKL_REGRESSORS = {
         "RandomForestRegressor": (RandomForestRegressor, {"n_estimators": 100, "max_depth": None, "min_samples_split": 2, "min_samples_leaf": 1, "max_features": None}),
-        "XGBRegressor": (xgb.XGBRegressor, {"n_estimators": 100, "learning_rate": 0.1, "max_depth": None, "tree_method": "hist", "subsample": 1.0, "colsample_bytree": 1.0, "gamma": 0}),
+        "XGBRegressor": (_XGB_REGRESSOR, {"n_estimators": 100, "learning_rate": 0.1, "max_depth": None, "tree_method": "hist", "subsample": 1.0, "colsample_bytree": 1.0, "gamma": 0}),
         "HistGradientBoostingRegressor": (HistGradientBoostingRegressor, {"max_iter": 100, "learning_rate": 0.1, "max_depth": None}),
-        "LGBMRegressor": (lgb.LGBMRegressor, {"force_col_wise": True, "num_leaves": 31, "learning_rate": 0.1, "n_estimators": 100, "max_depth": -1, "feature_fraction": 1}),
+        "LGBMRegressor": (_LGBM_REGRESSOR, {"force_col_wise": True, "num_leaves": 31, "learning_rate": 0.1, "n_estimators": 100, "max_depth": -1, "feature_fraction": 1}),
         "BaggingRegressor": (BaggingRegressor, {"estimator": DecisionTreeRegressor(max_depth=None, min_samples_split=2, min_samples_leaf=1), "n_estimators": 100, "n_jobs": -1}),
         "NuSVR": (NuSVR, {"kernel": "rbf", "nu": 0.5, "C": 1.0, "gamma": "auto"}),
         "SVR": (SVR, {"kernel": "rbf", "C": 0.5, "epsilon": 0.1, "gamma": "auto"}),
@@ -876,6 +904,9 @@ try:
         "DummyRegressor": (DummyRegressor, {"strategy": "mean"}),
         "SGDRegressor": (SGDRegressor, {"loss": "squared_error", "penalty": "l2", "alpha": 0.0001, "max_iter": 1000}),
     }
+    for _name, _cls in (("XGBRegressor", _XGB_REGRESSOR), ("LGBMRegressor", _LGBM_REGRESSOR)):
+        if _cls is None:
+            SKL_REGRESSORS.pop(_name, None)
     if _CATBOOST_AVAILABLE:
         SKL_REGRESSORS["CatBoostRegressor"] = (
             cb.CatBoostRegressor,
@@ -885,9 +916,9 @@ try:
     # Modelos de classificação disponíveis para o screening:
     SKL_CLASSIFIERS = {
         "RandomForestClassifier": (RandomForestClassifier, {"n_estimators": 100, "max_depth": None, "min_samples_split": 2, "min_samples_leaf": 1, "max_features": None}),
-        "XGBClassifier": (xgb.XGBClassifier, {"n_estimators": 100, "learning_rate": 0.1, "max_depth": None, "tree_method": "hist", "subsample": 1.0, "colsample_bytree": 1.0, "gamma": 0}),
+        "XGBClassifier": (_XGB_CLASSIFIER, {"n_estimators": 100, "learning_rate": 0.1, "max_depth": None, "tree_method": "hist", "subsample": 1.0, "colsample_bytree": 1.0, "gamma": 0}),
         "HistGradientBoostingClassifier": (HistGradientBoostingClassifier, {"max_iter": 100, "learning_rate": 0.1, "max_depth": None}),
-        "LGBMClassifier": (lgb.LGBMClassifier, {"force_col_wise": True, "num_leaves": 31, "learning_rate": 0.1, "n_estimators": 100, "max_depth": -1, "feature_fraction": 1.0}),
+        "LGBMClassifier": (_LGBM_CLASSIFIER, {"force_col_wise": True, "num_leaves": 31, "learning_rate": 0.1, "n_estimators": 100, "max_depth": -1, "feature_fraction": 1.0}),
         "BaggingClassifier": (BaggingClassifier, {"estimator": DecisionTreeClassifier(max_depth=None, min_samples_split=2, min_samples_leaf=1), "n_estimators": 100, "n_jobs": -1}),
         "NuSVC": (_FeasibleNuSVC, {"kernel": "rbf", "nu": 0.5, "gamma": "scale"}),
         "SVC": (SVC, {"kernel": "rbf", "C": 1.0, "probability": True, "gamma": "scale"}),
@@ -910,6 +941,9 @@ try:
         "StackingClassifier": (_StackingClassifierByName, {"members": "RandomForestClassifier,SVC,LogisticRegression", "final_estimator": "LogisticRegression", "cv": 5}),
         "DummyClassifier": (DummyClassifier, {"strategy": "prior"}),
     }
+    for _name, _cls in (("XGBClassifier", _XGB_CLASSIFIER), ("LGBMClassifier", _LGBM_CLASSIFIER)):
+        if _cls is None:
+            SKL_CLASSIFIERS.pop(_name, None)
     if _CATBOOST_AVAILABLE:
         SKL_CLASSIFIERS["CatBoostClassifier"] = (
             cb.CatBoostClassifier,
@@ -1010,6 +1044,11 @@ SKL_PARAM_GRIDS = {
     "GaussianMixture": [("n_components", "2,3,4,5,6"), ("covariance_type", "full,tied,diag,spherical")],
     "Birch": [("n_clusters", "2,3,4,5,6"), ("threshold", "0.3,0.5,0.7")],
 }
+
+
+class _TabUnavailable(Exception):
+    """Aba que não pode ser montada porque falta uma biblioteca ainda não instalada (a própria aba já
+    mostra o aviso): interrompe a montagem sem exibir o diálogo de erro."""
 
 
 class _LabelEncodingClassifierWrapper(BaseEstimator, ClassifierMixin):
@@ -25752,6 +25791,15 @@ class MainWindow(QMainWindow):
             self._tr("tab_plot", lambda txt: self.tabs.setTabText(10, txt))
             l11.addWidget(self._mk_title("title_plot"))
             l11.addSpacing(10)
+            if module_graph_generator is None:
+                # Sem as bibliotecas científicas (antes de instalar os requisitos): aviso na própria aba,
+                # em vez do diálogo "erro ao construir a aba PLOT".
+                lbl_plot_unavailable = QLabel(i18n.t("plot_unavailable", self._idioma))
+                lbl_plot_unavailable.setWordWrap(True)
+                lbl_plot_unavailable.setAlignment(Qt.AlignCenter)
+                l11.addWidget(lbl_plot_unavailable)
+                l11.addStretch()
+                raise _TabUnavailable()
 
             # Botão Select DataFrame + caixa com o nome do arquivo: acima do grupo, fora do contorno
             # (mesmo posicionamento da aba STATS). Os widgets são criados mais abaixo.
@@ -26053,6 +26101,8 @@ class MainWindow(QMainWindow):
             layout_btn_back_next11.addSpacing(200)
             l11.addStretch()
             l11.addLayout(layout_btn_back_next11)
+        except _TabUnavailable:
+            pass
         except Exception as e:
             import traceback; traceback.print_exc()
             QMessageBox.warning(
@@ -29668,6 +29718,14 @@ if __name__ == "__main__":
 
     def start_mainwindow(status):
         splash.close()
+        # 1ª execução: o import das bibliotecas aconteceu ANTES de a splash instalar as essenciais, então
+        # esta janela nasceria sem elas (abas desativadas, erros). Reinicia o processo uma vez para
+        # abrir já com tudo carregado (CODRUG_RESTARTED evita repetir se algo falhar).
+        if status.get("essentials_installed_now") and not os.environ.get("CODRUG_RESTARTED"):
+            from BIN.module_requirements import restart_codrug
+            if restart_codrug():
+                app.quit()
+                return
         # Mensagem para download de pastas faltantes
         if not status['folders_ok']:
             missing = ', '.join(status['missing_folders'])

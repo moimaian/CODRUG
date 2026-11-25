@@ -1940,6 +1940,17 @@ _TEXTOS = {
         "pt": "[AVISO] Pulando Java: o winget não foi encontrado. Instale manualmente, ex.: "
               "'winget install --id {pkg} -e'.\n",
     },
+    "req_restart_title": {"en": "Restart CODRUG", "pt": "Reiniciar o CODRUG"},
+    "req_restart_body": {
+        "en": "The packages were installed. CODRUG must be restarted to load them.\n\nRestart now?",
+        "pt": "Os pacotes foram instalados. O CODRUG precisa ser reiniciado para carregá-los.\n\nReiniciar agora?",
+    },
+    "plot_unavailable": {
+        "en": "The PLOT tab needs the scientific libraries (numpy, pandas, matplotlib...), which are not "
+              "installed yet.\nUse \"Install requirements\" in the HOME tab and restart CODRUG.",
+        "pt": "A aba PLOT precisa das bibliotecas científicas (numpy, pandas, matplotlib...), que ainda não "
+              "estão instaladas.\nUse \"Instalar Dependências\" na aba INÍCIO e reinicie o CODRUG.",
+    },
     "req_log_java_winget_failed": {"en": "Failed to install {pkg} via winget.\n", "pt": "Falha ao instalar {pkg} via winget.\n"},
 
     # ---------------------------------------------------------------- PLOT tab (Gerador de Gráficos)

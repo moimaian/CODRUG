@@ -528,6 +528,33 @@ def ensure_windows_shortcuts(script_path: str, env_name: str = "CODRUG", force: 
     return all(os.path.isfile(x) for x in lnk_paths)
 
 
+def codrug_script_path() -> str:
+    """CODRUG.py (pai da pasta BIN/ deste módulo)."""
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "CODRUG.py")
+
+def restart_codrug() -> bool:
+    """Reinicia o CODRUG num processo novo, para importar as bibliotecas recém-instaladas (o import
+    delas acontece uma única vez, na inicialização). Funciona também quando chamada do
+    BIN/module_requirements.py executado sozinho: sempre abre o CODRUG.py.
+    Linux: substitui o processo (execve) e não retorna. Windows: inicia o novo processo e retorna True -
+    quem chamou deve encerrar o atual. CODRUG_RESTARTED=1 impede um laço de reinícios."""
+    script = codrug_script_path()
+    if not os.path.isfile(script):
+        return False
+    env = os.environ.copy()
+    env["CODRUG_RESTARTED"] = "1"
+    env["CODRUG_VENV_ACTIVE"] = "1"
+    args = [sys.executable, script] + sys.argv[1:]
+    print("[CODRUG] Reiniciando para carregar as bibliotecas instaladas...")
+    try:
+        if IS_WINDOWS:
+            subprocess.Popen(args, env=env, cwd=os.path.dirname(script))
+            return True
+        os.execve(sys.executable, args, env)
+    except Exception as exc:
+        print(f"[CODRUG] Não foi possível reiniciar: {exc}")
+    return False
+
 def _python_version_string(pybin: str) -> Optional[str]:
     res = _run([pybin, "-c", "import sys; print(f'{sys.version_info[0]}.{sys.version_info[1]}.{sys.version_info[2]}')"])
     if res.returncode != 0:
@@ -925,6 +952,7 @@ class RequirementsInstaller(cast(Any, QWidget)):
     log_signal = pyqtSignal(str)
     progress_signal = pyqtSignal(int)
     enable_install_signal = pyqtSignal(bool)
+    install_finished_signal = pyqtSignal()   # todas as instalações marcadas terminaram sem erro
 
     def __init__(self, parent=None, idioma="en"):
         if not _PYQT_AVAILABLE:
@@ -1112,6 +1140,7 @@ class RequirementsInstaller(cast(Any, QWidget)):
         self.log_signal.connect(self._log)
         self.progress_signal.connect(self._set_progress)
         self.enable_install_signal.connect(self._set_install_enabled)
+        self.install_finished_signal.connect(self._on_install_finished)
 
     # --------------------------- widget helpers ---------------------------
 
@@ -1229,6 +1258,7 @@ class RequirementsInstaller(cast(Any, QWidget)):
 
     def _install_selected(self):
         step = 0
+        completed = False
         try:
             # 1) venv
             if self.check_venv.isChecked():
@@ -1350,8 +1380,23 @@ class RequirementsInstaller(cast(Any, QWidget)):
                 if not ok: return self._abort("default libraries")
 
             self.log_signal.emit(i18n.t("req_log_all_installed", self._idioma))
+            completed = True
         finally:
             self.enable_install_signal.emit(True)
+            if completed:
+                self.install_finished_signal.emit()
+
+    def _on_install_finished(self):
+        """Os pacotes recém-instalados só entram num processo novo (o CODRUG já tentou importá-los ao
+        iniciar): oferece reiniciar o CODRUG agora."""
+        box = QMessageBox.question(
+            self, i18n.t("req_restart_title", self._idioma), i18n.t("req_restart_body", self._idioma),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes,
+        )
+        if box == QMessageBox.Yes and restart_codrug():
+            app = QApplication.instance()
+            if app is not None:
+                app.quit()
 
     def _abort(self, name: str):
         self.log_signal.emit(i18n.t("req_log_aborted", self._idioma, name=name))

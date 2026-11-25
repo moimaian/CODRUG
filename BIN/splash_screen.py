@@ -113,6 +113,10 @@ def need_install_essentials():
             missing.append(spec)
     return missing
 
+# True se ESTA execução instalou pacotes essenciais (o CODRUG.py já tentou importá-los antes da
+# instalação, então precisa reiniciar para usá-los).
+ESSENTIALS_INSTALLED_NOW = False
+
 def install_minimal_essentials(callback=None):
     """
     Instala o mínimo essencial APÓS a splash abrir, só na 1ª vez.
@@ -130,6 +134,8 @@ def install_minimal_essentials(callback=None):
         r = _run([VENV_PY, "-m", "pip", "install", "--no-cache-dir"] + pkgs)
         ok = (r.returncode == 0)
         if ok:
+            global ESSENTIALS_INSTALLED_NOW
+            ESSENTIALS_INSTALLED_NOW = True
             Path(MIN_MARKER).write_text("ok")
         if callback: callback(ok, r.stdout if r.stdout else "done")
     except Exception as e:
@@ -420,6 +426,7 @@ class SplashScreen(QWidget):
     def _on_essentials_done(self, ok: bool, _log_text: str):
         # Concluiu: leve até 100 e finalize
         self.status["essentials_installed"] = bool(ok)
+        self.status["essentials_installed_now"] = bool(ESSENTIALS_INSTALLED_NOW)
         self._set_target(100)
         # Quando a barra chegar a 100, _advance_progress chamará _finish
 
