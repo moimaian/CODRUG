@@ -6,8 +6,7 @@ This is a tool applied to QSAR analysis using machine learning (ML) models. Its 
 #                                        **INSTALLATION INSTRUCTIONS**:                                     #
 
 
-**Download the compressed file from the link:**
-https://github.com/moimaian/CODRUG/archive/refs/heads/main.zip
+
 
 ** Extract the file to a working folder, for example, "$HOME/CODRUG":**
 This can be done graphically in a file manager such as Nemo
